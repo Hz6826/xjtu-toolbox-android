@@ -58,10 +58,23 @@ class XjtuApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 把进程级 Context 交给 :core 的平台层。所有需要平台句柄的家族（键值/偏好、
+        // 后台任务、分享……）都通过这一个入口拿句柄 —— :core 的 commonMain 不认识 Context。
+        // 放在 onCreate 最前面：任何用到 :core 平台能力的代码都晚于它。
+        com.xjtu.toolbox.platform.initAndroidPlatform(this)
+        // 同一件事的 :data 版：会话内核要的密文存储（cookie / 站点快照）按名字从
+        // `:data` 的平台缝取，Android 那份 actual 同样需要进程级 Context。
+        com.xjtu.toolbox.platform.initDataPlatform(this)
         CrashReporter.install(this)
-        com.xjtu.toolbox.schedule.CourseColors.init(this)
-        com.xjtu.toolbox.game.GameSound.init(this)
-        com.xjtu.toolbox.inbox.InboxStore.init(this)
+        // CourseColors 不再需要 init：它已搬进 :core 的 commonMain，存储走 keyValueStore
+        // （Android actual 仍是同一份 SharedPreferences 文件）。
+        // InboxStore 也不再需要 init：它已搬进 :core 的 commonMain，存储走 keyValueStore
+        // （Android actual 仍是同一份 SharedPreferences 文件、同一个 "data" 键）。
+        // 桌面小组件那条缝：InboxStore 在 :core，写一次收纳就该重画一次小组件，
+        // 而重画要 Context 与 AppWidgetManager（都在 :app）⇒ 用回调挂上去（见 InboxWidgetHook）。
+        com.xjtu.toolbox.inbox.InboxWidgetHook.onTodosChanged = {
+            runCatching { com.xjtu.toolbox.widget.TodoWidgetUpdater.requestUpdate(this) }
+        }
         com.xjtu.toolbox.auth.CampusProbe.init(this)
         applicationScope.launch { CrashReporter.uploadPending(this@XjtuApp) }
         applicationScope.launch { removeRetiredFeatureData() }

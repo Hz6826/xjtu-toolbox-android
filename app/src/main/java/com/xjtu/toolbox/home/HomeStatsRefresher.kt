@@ -133,13 +133,13 @@ object HomeStatsRefresher {
             site ?: return@Source null
             withContext(Dispatchers.IO) {
                 val api = com.xjtu.toolbox.fitness.FitnessApi(site)
-                val years = runCatching { api.getYears() }.getOrNull().orEmpty()
+                val years = runCatching { api.years() }.getOrNull().orEmpty()
                 val ordered = com.xjtu.toolbox.fitness.orderedFitnessYears(years)
 
                 var picked: Pair<String, com.xjtu.toolbox.fitness.FitnessScore>? = null
                 for ((i, y) in ordered.take(3).withIndex()) {
                     if (i > 0) delay(GAP_MS)
-                    val s = runCatching { api.getScore(y.yearNum) }.getOrNull() ?: continue
+                    val s = runCatching { api.score(y.yearNum) }.getOrNull() ?: continue
                     if (s.hasUsableTotal()) { picked = y.name to s; break }
                 }
                 picked?.let { (name, s) ->
@@ -273,7 +273,7 @@ object HomeStatsRefresher {
             site ?: return@Source null
             withContext(Dispatchers.IO) {
                 // 查失败算这个源失败，不能当成「没有预约」把待办和提醒清掉
-                val b = com.xjtu.toolbox.library.LibraryApi(site).fetchMyBooking().getOrThrow()
+                val b = com.xjtu.toolbox.library.LibraryApi(com.xjtu.toolbox.library.AppLibrarySession(site)).fetchMyBooking().getOrThrow()
                 // 在图书馆自助机上约的座位不会经过本 App 的图书馆页，首页这一轮是唯一能发现它的地方。
                 com.xjtu.toolbox.library.LibraryStatus.publish(ctx, b, roundAccount)
                 if (b == null) return@withContext null

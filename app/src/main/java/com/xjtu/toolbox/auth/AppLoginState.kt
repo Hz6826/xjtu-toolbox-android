@@ -203,6 +203,8 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         savedPassword = account.password
         activeUsername = account.accountId
         accountType = account.accountType
+        // 路由表（:core 的 nav/AppRoute）也读它：研究生评教由页面自己登录
+        com.xjtu.toolbox.account.AccountContext.activeAccountType = account.accountType
         cachedNickname = account.nickname
         sessionManager?.let {
             it.setCredentials(account.accountId, account.password)
@@ -363,7 +365,16 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
     val accountStore = com.xjtu.toolbox.account.AccountStore(application)
 
     /** 新会话架构入口：双 backend、SiteSession 注册中心、MFA 状态机宿主。 */
-    val sessionManager = com.xjtu.toolbox.auth.SessionManager(application)
+    val sessionManager = com.xjtu.toolbox.auth.SessionManager()
+
+    init {
+        // 切账号时顺手丢掉一网通办令牌。搬迁前这一句写在 SessionManager.reconfigureForAccount 里，
+        // 而 CampusProbe 要 ConnectivityManager（宿主能力，没跟着会话内核搬进 :data）⇒ 改成宿主注入。
+        sessionManager.onAccountSwitched = { CampusProbe.ywtbToken = null }
+        // 反方向的那一枪：一网通办登上了就把新令牌交回来（`YwtbSession` 已搬进 :data，它不再认识
+        // CampusProbe，所以这一句也变成了宿主注入 —— 与上一句同一条缝）。
+        sessionManager.onYwtbToken = { CampusProbe.ywtbToken = it }
+    }
 
     /** 多账号编排器。 */
     val accountManager = com.xjtu.toolbox.account.AccountManager(application, accountStore)
