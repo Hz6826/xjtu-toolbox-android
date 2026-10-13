@@ -15,6 +15,11 @@ plugins {
     // 解析用 `:core` 的 `AppJson`（kotlinx.serialization）—— 不用 Android 平台那份 `org.json`：
     // 它在 JVM 单测里是 android.jar 的桩，一调就抛（`LibraryPages.parseSeatLayout` 早就踩过）。
     alias(libs.plugins.kotlin.serialization)
+    // 场馆滑块验证码（`SliderCaptchaView`）从 `:app` 搬进这里（Stage B：滑块共享化）：
+    // 那份是 @Composable，所以数据层第一次需要 Compose 编译器与 UI 依赖。
+    // ⚠️ `:data` 只有 jvm+android 两个目标（加 wasm/ios 会全线崩），这与 Compose 不冲突。
+    alias(libs.plugins.compose.multiplatform)
+    alias(libs.plugins.kotlin.compose)
 }
 
 kotlin {
@@ -54,11 +59,34 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.ktor.client.content.negotiation)
             implementation(libs.ktor.serialization.kotlinx.json)
+            // ── 场馆滑块验证码（Stage B）：`SliderCaptchaView` 是 @Composable，且用 miuix
+            //    的 Text/主题 —— 与 `:core` 同一套坐标（CMP 的 android 变体转发到
+            //    androidx.compose，与 :app 不重复类）。公开签名只涉及 :core 的模型，
+            //    所以这里 implementation 就够（消费方经由 api(project(":core")) 已经有 compose）。
+            implementation(compose.runtime)
+            implementation(compose.foundation)
+            implementation(compose.ui)
+            implementation(libs.miuix.ui.kmp)
+            // 识别器与滑块视图都要解 base64 → 原始像素/可绘制位图：两条缝在 :core
+            // 的 `platform/ImageDecode.kt`（JVM 用 ImageIO、Android 用 BitmapFactory）。
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)
         }
+        jvmMain.dependencies {
+            // **Windows 上的凭据保护**（DPAPI · CryptProtectData/CryptUnprotectData）靠 JNA 调
+            // Crypt32：`com.sun.jna.platform.win32.Crypt32Util` 是那两个调用的直接封装。
+            // 只给 jvmMain：Android 那份凭据存储是 `EncryptedSharedPreferences`（见下面 androidMain），
+            // 两端各用各的系统原生能力，互不影响。
+            //
+            // 为什么不是别的：JDK 里没有 DPAPI 的绑定（`SunMSCAPI` 是 CryptoAPI 的密钥库/签名，
+            // 不含 DPAPI），而 FFM API 在 JDK 21 还是 preview（本工程的工具链就是 21）。
+            // Linux 上这份依赖只是躺在类路径上：`secretProtectorForPlatform` 在非 Windows 上
+            // 返回 null（不加密，见 `SecretProtector` 的 KDoc），永远不会走到 Crypt32。
+            implementation(libs.jna.platform)
+        }
+
         jvmTest.dependencies {
             // 假上游（图书馆座位系统 + 可选的统一认证）从这里**搬走了**：它现在是 `:testkit`
             // 这个独立模块——因为桌面端的离屏渲染证据也要看同一批页面原文，而跨模块共享不了

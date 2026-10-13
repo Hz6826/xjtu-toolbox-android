@@ -25,3 +25,25 @@ actual fun decodeImageSize(bytes: ByteArray): IntSize? = runCatching {
 actual fun decodeImage(bytes: ByteArray, size: IntSize, maxDim: Int): ImageBitmap? = runCatching {
     Image.makeFromEncoded(bytes).toComposeImageBitmap()
 }.getOrNull()
+
+/**
+ * Web 没有滑块识别路径（场馆写操作在只读端进不去）⇒ 恒 null，不假装会解。
+ * 这条缝在这里只为让 commonMain 的识别器能编到 wasm 门禁上。
+ */
+actual fun decodeImagePixels(bytes: ByteArray): ImagePixels? = null
+
+/** Web 侧：skiko 全尺寸解码（与 [decodeImage] 同一解码器）。 */
+actual fun decodeImageFull(bytes: ByteArray): ImageBitmap? = runCatching {
+    Image.makeFromEncoded(bytes).toComposeImageBitmap()
+}.getOrNull()
+
+/** Web 侧：skiko 没有 `inSampleSize` ⇒ 全尺寸解码（见 expect）。 */
+actual fun decodeImageDownToWidth(
+    bytes: ByteArray,
+    size: IntSize,
+    wantWidthPx: Int,
+    halveSample: Boolean,
+): ImageBitmap? = decodeImageFull(bytes)
+
+/** Web 侧：浏览器不给「可用内存」这一档 ⇒ 固定 32MB（与桌面同一条如实口径）。 */
+actual fun imageMemoryCacheBudgetBytes(): Int = 32 * 1024 * 1024

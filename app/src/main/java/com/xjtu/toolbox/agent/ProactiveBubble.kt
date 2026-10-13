@@ -255,7 +255,7 @@ object ProactiveRules {
         val alert = pickAlert(
             ctx, now, balance, nextCourseName, minutesToClass, newGradeCount, latestNotice,
             libraryPendingAction, examCountdown,
-            com.xjtu.toolbox.schedule.ScheduleDiff.pending(ctx),
+            com.xjtu.toolbox.schedule.ScheduleDiff.pending(com.xjtu.toolbox.schedule.scheduleDiffStore()),
             com.xjtu.toolbox.home.HomeSignals.attendanceAlert,
             com.xjtu.toolbox.home.HomeSignals.couponAlert,
             com.xjtu.toolbox.home.HomeSignals.dormPowerAlert,
@@ -754,27 +754,3 @@ object ProactiveBubbleHost {
     }
 }
 
-object AgentPendingPrompt {
-    data class Pending(
-        val text: String,
-        /** 不进聊天气泡，只进发给模型的 user 消息。 */
-        val snapshot: String? = null,
-    )
-
-    @Volatile
-    private var pending: Pending? = null
-
-    var generation by mutableIntStateOf(0)
-        private set
-
-    fun set(text: String, snapshot: String? = null) {
-        pending = Pending(text, snapshot)
-        generation++
-    }
-
-    fun consume(): Pending? {
-        val v = pending
-        pending = null
-        return v
-    }
-}

@@ -3,6 +3,7 @@ package com.xjtu.toolbox.venue
 import com.sun.net.httpserver.HttpExchange
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.math.abs
 
 /**
  * 假的「体育场馆预订系统」上游 —— 扮演这条路由的**两个域名**（第 11 条真数据路由）。
@@ -45,12 +46,22 @@ import java.util.concurrent.atomic.AtomicInteger
  *（[PAY_ORIGIN]）—— 分派只看 host，所以两个端口都落进本夹具；支付页是浏览器那边的事，
  * 这里**没有** `/pay/…` 的路由，真被打到就是 404。
  *
- * ## 写路径刻意没有夹具
+ * ## 写路径：默认没有夹具，要剧本才打开
  *
- * `POST /web/order/tobook.html`（下单）与 `POST /web/order/delorder.html`（取消）**不实现**：
- * 下单要先解滑块（`:app` 那份长在 `Bitmap`/`Base64` 上的控件），而本轮的验收只看读那半
- *（看的是：场馆列表 / 可约时段 / 订单）—— 任何一次误提交都会以 404 响亮地失败，而不是被一个假的
- * 成功页糊过去 —— 与 `JwxtFakeUpstream` 留空评教提交端点同一条口径。
+ * `POST /web/order/tobook.html`（下单）与 `POST /web/order/delorder.html`（取消）默认**不实现**：
+ * 任何一次误提交都会以 404 响亮地失败，而不是被一个假的成功页糊过去 —— 与
+ * `JwxtFakeUpstream` 留空评教提交端点同一条口径。
+ *
+ * 两个开关各自管一条（都**默认关**，现有一切断言与「写路径 404」的钉住都不受影响）：
+ *
+ * - [captchaScript]：Stage B（滑块共享化）给 `tobook` 加的剧本 —— 打开后 `/gen` 发
+ *   [VenueCaptchaFixture] 的**程序生成**真图（背景带缺口、滑块带透明 alpha，不是任何真人截图），
+ *   `tobook` 校验轨迹里的最终 x 是否落在缺口（±[VenueCaptchaFixture.BOOKING_X_TOLERANCE]）——
+ *   对不上就回真站点那句「验证码有误」（识别器／手拖动对了才会下单成功）。
+ * - [cancelScript]：serve 写路径（契约 §5.3.2 的 `POST /api/venue/cancel`）要的那一条 —— 取消不需要
+ *   滑块，所以它单独一个开关；打开后 `delorder` 校验表单里有订单号，再回真站点那个成功信封
+ *   （`{"result":"1","message":"取消成功"}`，`:data` 的 `success` 判据就认 `result == "1"`）。
+ *   开关关着时它仍是 404（也就是「上游说不行」那一档：`:data` 把它读成 `success=false`）。
  *
  * ## 数据端点不验会话 cookie
  *
@@ -185,6 +196,14 @@ class VenueFakeUpstream {
         const val CAPTCHA_BG_HEIGHT = 160
         const val CAPTCHA_SLIDER_WIDTH = 50
         const val CAPTCHA_SLIDER_HEIGHT = 50
+
+        /** 下单剧本（[captchaScript] = true）里 `tobook` 回的成功订单号。 */
+        const val BOOKED_ORDER_ID = "VT20261013001"
+        const val BOOKED_ORDER_PRICE = "20"
+
+        /** 取消剧本（[cancelScript] = true）里 `delorder` 回的那两句（真站点的形状：`result == "1"` 就是成功）。 */
+        const val CANCEL_OK_RESULT = "1"
+        const val CANCEL_OK_MESSAGE = "取消成功"
     }
 
     // ── 打进来的请求（断言用）──────────────────────────────────────
@@ -234,6 +253,43 @@ class VenueFakeUpstream {
     /** 置真之后 `findLockArea` 回 500 —— 钉住「已占用那一路挂了，可订那一半照样给出来」。 */
     @Volatile
     var lockFails: Boolean = false
+
+    /**
+     * **默认关**的下单剧本开关（见类 KDoc 的「写路径」一节）：打开后 `/gen` 发
+     * [VenueCaptchaFixture] 的真图、`tobook` 校验轨迹并把关（拖对了才成功）。
+     * 默认关 ⇒ 现有一切读路径断言与「写路径 404」的钉住都不受影响。
+     */
+    @Volatile
+    var captchaScript: Boolean = false
+
+    /**
+     * **默认关**的取消剧本开关（见类 KDoc 的「写路径」一节）：打开后 `delorder` 校验表单里的 `orderid`
+     * 再回 [CANCEL_OK_RESULT] / [CANCEL_OK_MESSAGE]（一次普通 POST，不需要滑块 ⇒ 与 [captchaScript] 分开）。
+     * 默认关 ⇒ 取消仍是 404（`:data` 读成 `success=false`，也就是「上游说不行」那一档）。
+     */
+    @Volatile
+    var cancelScript: Boolean = false
+
+    /** 取消剧本里 `delorder` 被打了几次。 */
+    val delorderCalls = AtomicInteger(0)
+
+    /** 最近一次 `delorder` 收到的表单原文（`orderid=…&json=true`）。 */
+    @Volatile
+    var lastCancelForm: String? = null
+        private set
+
+    /** 下单剧本里 `tobook` 被打了几次。 */
+    val tobookCalls = AtomicInteger(0)
+
+    /** 最近一次 `tobook` 收到的 `yzm` 原文（轨迹 + 验证码 id + 固定尾巴）。 */
+    @Volatile
+    var lastYzm: String? = null
+        private set
+
+    /** 最近一次 `tobook` 收到的 `param` 原文（服务端参数信封）。 */
+    @Volatile
+    var lastBookingParam: String? = null
+        private set
 
     // ── ① 开放平台 ────────────────────────────────────────────────
 
@@ -311,7 +367,8 @@ class VenueFakeUpstream {
             path == CAPTCHA_PATH && exchange.requestMethod == "GET" -> {
                 requireAjax(exchange, query) ?: return
                 captchaCalls.incrementAndGet()
-                respondJson(exchange, captchaJson)
+                // 剧本打开时发**真图**（程序生成），否则发原来的占位 base64 —— 现有关断不受影响
+                respondJson(exchange, if (captchaScript) realCaptchaJson else captchaJson)
             }
 
             path == "/web/yyuser/searchorder.html" && exchange.requestMethod == "GET" -> {
@@ -325,10 +382,13 @@ class VenueFakeUpstream {
                 orderCalls.incrementAndGet()
                 respondJson(exchange, if (page == 1) ordersJson else "[]")
             }
-
-            // 写路径刻意没有夹具（见类 KDoc）：认得出的路径也要响亮地失败，别给一个假的成功页。
+            // 写路径：两个剧本各自一个开关（见类 KDoc），没打开就照旧 404 响亮失败。
+            path == "/web/order/tobook.html" && exchange.requestMethod == "POST" && captchaScript ->
+                handleTobook(exchange)
+            path == "/web/order/delorder.html" && exchange.requestMethod == "POST" && cancelScript ->
+                handleDelorder(exchange)
             path == "/web/order/tobook.html" || path == "/web/order/delorder.html" ->
-                notFound(exchange, "写路径没有夹具（这一轮的验收只看读那半）")
+                notFound(exchange, "写路径没有夹具（captchaScript/cancelScript=false，见类 KDoc）")
 
             else -> notFound(exchange, ORIGIN)
         }
@@ -360,6 +420,82 @@ class VenueFakeUpstream {
             else -> badRequest(exchange, "夹具只扮演 serviceid=$SERVICE_ID / $EMPTY_SERVICE_ID，收到：$path?$query")
         }
     }
+
+    /**
+     * 下单剧本（[captchaScript] = true 才走到）：校验 `param`/`yzm` 的形状，再按轨迹的**最终 x**
+     * 把关 —— 落在缺口（±[VenueCaptchaFixture.BOOKING_X_TOLERANCE]）→ 成功订单，否则回真站点那句
+     * 「验证码有误」（身份与真站点的拒绝对齐：拖不对就是 100）。识别器/手拖动对的 x 来自
+     * [VenueCaptchaFixture.EXPECTED_SOLVE_TARGET_X]。
+     */
+    private fun handleTobook(exchange: HttpExchange) {
+        tobookCalls.incrementAndGet()
+        val body = runCatching { exchange.requestBody.readBytes().decodeToString() }.getOrDefault("")
+        val params = body.split('&').mapNotNull { segment ->
+            val kv = segment.split('=', limit = 2)
+            if (kv.size == 2) kv[0] to java.net.URLDecoder.decode(kv[1], "UTF-8") else null
+        }.toMap()
+        val param = params["param"] ?: ""
+        val yzm = params["yzm"] ?: ""
+        if (params["json"] != "true" || param.isBlank() || yzm.isBlank()) {
+            respondJson(exchange, """{"result":"500","message":"缺 param/yzm/json"}""")
+            return
+        }
+        if ("\"stockdetail\"" !in param || "\"address\"" !in param) {
+            respondJson(exchange, """{"result":"500","message":"param 形状不对"}""")
+            return
+        }
+        // yzm = {轨迹JSON}synjones{验证码ID}synjoneshttp://202.117.17.144:8071（固定拼接格式）
+        val segments = yzm.split("synjones")
+        if (segments.size != 3 || segments[1] != CAPTCHA_ID || segments[2] != "http://202.117.17.144:8071") {
+            respondJson(exchange, """{"result":"500","message":"yzm 形状不对"}""")
+            return
+        }
+        val trackJson = segments[0]
+        lastYzm = yzm
+        lastBookingParam = param
+        if ("\"bgImageWidth\":260" !in trackJson || extractFinalX(trackJson) == null) {
+            respondJson(exchange, """{"result":"100","message":"验证码轨迹有误，请重试"}""")
+            return
+        }
+        val target = VenueCaptchaFixture.EXPECTED_SOLVE_TARGET_X
+        val finalX = extractFinalX(trackJson)!!
+        if (abs(finalX - target) <= VenueCaptchaFixture.BOOKING_X_TOLERANCE) {
+            respondJson(
+                exchange,
+                """{"result":"2","message":"预订成功","object":{"orderid":"$BOOKED_ORDER_ID","price":"$BOOKED_ORDER_PRICE"}}""",
+            )
+        } else {
+            respondJson(exchange, """{"result":"100","message":"验证码有误，请重试"}""")
+        }
+    }
+
+    /**
+     * 取消剧本（[cancelScript] = true 才走到）：`delorder` 的表单里必须有 `orderid`（`:data` 的
+     * `VenueApi.cancelOrder` 拼的就是 `orderid` + `json=true`），然后回真站点那个信封 ——
+     * 因为它把 `result` 读成字符串（见那方法的 KDoc：「服务端成功码通常是 1」）。
+     *
+     * 表单形状不对时回 400（不编一个假的成功），与其余端点同一条口径。
+     */
+    private fun handleDelorder(exchange: HttpExchange) {
+        val form = runCatching { exchange.requestBody.readBytes().decodeToString() }.getOrDefault("")
+        lastCancelForm = form
+        val orderId = form.split('&')
+            .firstOrNull { it.substringBefore('=') == "orderid" }
+            ?.substringAfter('=', "")
+            ?.let { java.net.URLDecoder.decode(it, "UTF-8") }
+            .orEmpty()
+        if (orderId.isBlank()) {
+            badRequest(exchange, "delorder 没带 orderid，收到：$form")
+            return
+        }
+        delorderCalls.incrementAndGet()
+        respondJson(exchange, """{"result":"$CANCEL_OK_RESULT","message":"$CANCEL_OK_MESSAGE"}""")
+    }
+
+    /** 从轨迹 JSON 里取**最后**一个 `"x":N` —— 服务端协议里最后一个点就是 up 点的最终位置。 */
+    private fun extractFinalX(trackJson: String): Int? =
+        Regex("\"x\":(-?\\d+)").findAll(trackJson).lastOrNull()
+            ?.groupValues?.get(1)?.toIntOrNull()
 
     // ── 页面与数据样本 ────────────────────────────────────────────
 
@@ -406,6 +542,17 @@ class VenueFakeUpstream {
           "sliderImageWidth":"$CAPTCHA_SLIDER_WIDTH","sliderImageHeight":$CAPTCHA_SLIDER_HEIGHT}}
     """.trimIndent()
 
+    /**
+     * 剧本（[captchaScript] = true）里的验证码：id 不变、六个数不变，图片换成
+     * [VenueCaptchaFixture] 的**程序生成真图**（背景带缺口、滑块带透明 alpha）。
+     */
+    val realCaptchaJson = """
+        {"id":"$CAPTCHA_ID","captcha":{
+          "backgroundImage":"${VenueCaptchaFixture.backgroundDataUri()}",
+          "sliderImage":"${VenueCaptchaFixture.sliderDataUri()}",
+          "backgroundImageWidth":"$CAPTCHA_BG_WIDTH","backgroundImageHeight":$CAPTCHA_BG_HEIGHT,
+          "sliderImageWidth":"$CAPTCHA_SLIDER_WIDTH","sliderImageHeight":$CAPTCHA_SLIDER_HEIGHT}}
+    """.trimIndent()
     /**
      * 我的订单：一页两条（一条已预订成功、一条预订中，明细逐条对着 `OrderDetail` 的字段摆），
      * 另外两个坑：数组里夹了一个**不是对象**的元素（`mapNotNull` 该丢掉）、一条 `orderid` 为空的行
