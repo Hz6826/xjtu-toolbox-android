@@ -658,7 +658,9 @@ private fun DesktopPage(
                 onBack = back,
                 onNavigate = { r ->
                     when (r) {
-                        is AppRoute.Browser -> if (r.url.isNotBlank()) openInBrowser(r.url)
+                        // 与下面 `InboxScreen` / `NotificationScreen` 那两处同一条口径：外链交给系统浏览器，
+                        // 带 `then` 时交的是第二跳（判据在 `DesktopBrowser.kt` 的 `desktopBrowserTarget`）。
+                        is AppRoute.Browser -> desktopBrowserTarget(r.url, r.then)?.let { openInBrowser(it) }
                         else -> onNavigate(DesktopTarget.App(r))
                     }
                 },
@@ -793,14 +795,20 @@ private fun DesktopPage(
         // 由它填上 ⇒ 「确认预订」→ 验证码弹窗 → 拖动 → 提交这条写路径在桌面走通。
         // 自动识别（`solveCaptcha`）由桌面宿主提供，但桌面没有「自动识别验证码」设置项 ⇒
         // `autoSolveCaptcha` 用默认 false，停在手动拖动那一档（与功能说明文案一致）。
-        // 支付那一跳与 `:app` 同一条口径：内置浏览器/系统浏览器先过登录页再落支付页。
+        // 支付那一跳：`:app` 是内置浏览器串两跳（先 OAuth 入口，`isAuthHop` 判完再 `loadUrl(支付页)`）；
+        // 桌面端没有可观察的页面 ⇒ `openInBrowser` 一次只交一个地址，按 `desktopBrowserTarget` 的
+        // 判据把**第二跳那个支付页**交出去（跳过去之后站点自己会先要一次登录）。
         // 「功能说明弹过了没」与 `:app` 同一个 pref 文件、同一个键（`feature_hints` / `venue_hint_shown`）。
         AppRoute.Venue -> DesktopSiteGate(auth, DesktopAuth.VENUE_SITE_KEY, "体育场馆") { site ->
             val hintPrefs = remember { keyValueStore("feature_hints") }
             VenueScreen(
                 source = remember(site) { AppVenueSource(site, canBook = true) },
                 onBack = back,
-                onOpenBrowser = { url, _ -> if (url.isNotBlank()) openInBrowser(url) },
+                onOpenBrowser = { url, then ->
+                    // 见 `DesktopBrowser.kt` 的 `desktopBrowserTarget`：桌面收不到回调 ⇒ 只挑一个地址
+                    //（优先第二跳那个支付页）；两个都空时不替它编一个地址。
+                    desktopBrowserTarget(url, then)?.let { openInBrowser(it) }
+                },
                 captchaHost = remember { DesktopSlideCaptchaHost },
                 showFirstUseHint = !hintPrefs.getBoolean("venue_hint_shown", false),
                 onFirstUseHintRead = { hintPrefs.putBoolean("venue_hint_shown", true) },
@@ -841,9 +849,10 @@ private fun DesktopPage(
                         onBack = back,
                         // 与 `:app` / Web 同一条口径：外链交给系统浏览器（桌面没有内置浏览器），
                         // 其余按路由 id 走站内导航（认不出的直接忽略 —— 可能是旧版本存下的）。
+                        // 带 `then` 时交的是第二跳，见 `DesktopBrowser.kt` 的 `desktopBrowserTarget`。
                         onOpen = { id ->
                             when (val r = appRouteOf(id)) {
-                                is AppRoute.Browser -> if (r.url.isNotBlank()) openInBrowser(r.url)
+                                is AppRoute.Browser -> desktopBrowserTarget(r.url, r.then)?.let { openInBrowser(it) }
                                 null -> Unit
                                 else -> onNavigate(DesktopTarget.App(r))
                             }
@@ -857,13 +866,14 @@ private fun DesktopPage(
         // `NotificationApi` —— okhttp + jsoup 爬 29 个公开的公告页，含那条纯 HTTP 就能解开的动态挑战）。
         // 29 个源**一个都不用登录**，不靠任何站点会话 ⇒ 不套 `DesktopSiteGate`
         // （`AppRoute.Notification.loginType` 就是 null）；这个源连 `SessionManager` 都不收。
-        // 点开一条通知就是 `AppRoute.Browser(link)` ⇒ 外链交给系统浏览器（与消息收纳同一口径）。
+        // 点开一条通知就是 `AppRoute.Browser(link)` ⇒ 外链交给系统浏览器（与消息收纳同一口径；
+        // 带 `then` 时交第二跳，见 `DesktopBrowser.kt` 的 `desktopBrowserTarget`）。
         AppRoute.Notification -> NotificationScreen(
             source = remember { AppNoticeSource() },
             onBack = back,
             onNavigate = { r ->
                 when (r) {
-                    is AppRoute.Browser -> if (r.url.isNotBlank()) openInBrowser(r.url)
+                    is AppRoute.Browser -> desktopBrowserTarget(r.url, r.then)?.let { openInBrowser(it) }
                     else -> onNavigate(DesktopTarget.App(r))
                 }
             },
@@ -1200,8 +1210,9 @@ private fun DesktopPage(
         // 它一条请求都不发（KDoc：「全程离线……算契合度这一步在本机完成」）：把自己的档案压成一段码、
         // 把对方的码解回来，交集全从**本机已有的缓存**里算。本轮它按五步法搬进了共享层：
         // 算法与模型（`MatchProfile` / `MatchData` / `DiningHabit`）与屏都进了 `:core`，
-        // deflate/inflate 与 URL-safe Base64 切成了 `:core` 的平台缝（Android/jvm 是原来那两份实现，
-        // wasmJs 如实没有），扫码与相册那两条长在平台类型上的路收成了 `MatchScanner`。
+        // deflate/inflate 与 URL-safe Base64 切成了 `:core` 的平台缝（Android/jvm 是原来那两份实现；
+        // wasmJs 的 D12 ② 之后是 commonMain 里那两份纯 Kotlin 实现），扫码与相册那两条长在平台类型上的路
+        // 收成了 `MatchScanner`。
         //
         // 这一端真交出来的是 [DesktopMatchHost]（课表族缓存 = 与「我的课表」「首页」同一份 0600 键值文件）
         // ⇒ **离线算交集这一件事在这一端是真算的**：自己的课表/考试从本端缓存来，对方的码用

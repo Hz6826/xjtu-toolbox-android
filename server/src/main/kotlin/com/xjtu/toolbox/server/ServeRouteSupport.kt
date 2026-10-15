@@ -6,9 +6,12 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import kotlinx.coroutines.CancellationException
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /**
- * 四个 `*Routes`（jwxt / library / card / venue）共用的三件小事。
+ * 这几个 `*Routes`（jwxt / library / card / venue / lms / jiaocai / jwapp / iclassface）共用的小工具。
  *
  * ## 读路径的失败都走 502
  *
@@ -51,6 +54,38 @@ internal suspend fun ApplicationCall.respondActionRejected(message: String) =
     respond(HttpStatusCode.Conflict, ApiEnvelope<Unit>(ApiErrors.ACTION_REJECTED, message = message))
 
 /**
+ * 收一个**整数**查询参数 [name]（缺 / 空白 / 不是整数 / 小于 [min] ⇒ 400 + 中文短句，返回 null）。
+ *
+ * [what] 是给用户看的那半句说明（「取自哪里」），拼出来的文案形如
+ * `courseId 需要是正整数（课程 id（取自 /api/lms/courses 的 id））` —— 一律**说清怎么办**。
+ *
+ * 为什么收在这里：`/api/lms/{activities,activity}`、`/api/jiaocai/ssno` 这几条端点的参数
+ * 都只是「一个/几个 id」，各自写一遍「空 / 非数字」的判据必然漂开（`/api/attendance/records`
+ * 的 `?term=` 与 `/api/coupon` 的 `?page=` 就是各写一遍的先例）。[min] 默认 `1`（id 都从 1 起，
+ * 上游没有 0 号课），`/api/jiaocai/ssno` 的 `appId` / `engineInstanceId` 传 `0`
+ * （它们可以是 0，那是 `:data` 里 `JiaocaiBook` 的默认值）。
+ */
+internal suspend fun ApplicationCall.requireIntParam(name: String, what: String, min: Int = 1): Int? {
+    val raw = request.queryParameters[name]?.trim().orEmpty()
+    if (raw.isEmpty()) {
+        respondBadRequestMessage("$name 必填（$what）")
+        return null
+    }
+    val value = raw.toIntOrNull()
+    if (value == null || value < min) {
+        respondBadRequestMessage(
+            when {
+                min >= 1 -> "$name 需要是正整数（$what）"
+                min == 0 -> "$name 需要是非负整数（$what）"
+                else -> "$name 需要是不小于 $min 的整数（$what）"
+            },
+        )
+        return null
+    }
+    return value
+}
+
+/**
  * 收一个 JSON 请求体；形状不对（缺字段 / JSON 坏 / content-type 不是 JSON）给 null，
  * 由调用方回 400 + 中文短句。
  *
@@ -68,3 +103,30 @@ internal suspend inline fun <reified T : Any> ApplicationCall.receiveOrNull(): T
 } catch (_: Exception) {
     null
 }
+
+/**
+ * epoch 毫秒 → ISO-8601 带时区字符串（契约 §4）；`<= 0`（没读过 / 没过期 / 本端不知道）→ null。
+ *
+ * 原先它是 `ServeEndpointRoutes.kt` 里的一个 private 函数（`/api/inbox` 那几处时间字段在用）。
+ * `/api/accounts` 也要端时间（账号表的 `lastUsedAt`）⇒ 按 [receiveOrNull] 同一条做法搬到这里 ——
+ * 时间的口径只有这一份（手写 `SimpleDateFormat`、各文件各写一遍都是第二个口径）。
+ */
+internal fun isoTime(epochMs: Long): String? {
+    if (epochMs <= 0L) return null
+    return Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()).format(ISO_FORMATTER)
+}
+
+/**
+ * `?page=&size=` 那一类的**正整数读法**：没给 ⇒ [default]；给了但不是正整数 ⇒ null
+ *（由调用方回 `400`）。
+ *
+ * 原先它是 [CouponRoutes] 里的一个 private 函数；`/api/attendance/leave/records` 也要这两个参数
+ * ⇒ 按 [receiveOrNull] / [isoTime] 同一条做法搬到这里 —— 分页参数的判据只有这一份
+ *（各写一遍必然漂开，而「`page=0` 到底算第几页」这种问题不该有两个答案）。
+ */
+internal fun io.ktor.http.Parameters.positiveInt(name: String, default: Int): Int? {
+    val raw = get(name)?.trim() ?: return default
+    return raw.toIntOrNull()?.takeIf { it > 0 }
+}
+
+private val ISO_FORMATTER: DateTimeFormatter = DateTimeFormatter.ISO_OFFSET_DATE_TIME

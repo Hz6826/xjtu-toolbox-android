@@ -51,9 +51,6 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.route
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 /**
  * **P0 取数端点组一（免登录 / 轻登录六域）** —— `docs/api-contract.md` §5 那批 P0 端点的实现。
@@ -69,7 +66,7 @@ import java.time.format.DateTimeFormatter
  * | `GET /api/fitness/years` `/api/fitness/score` | [FitnessApi]（轻登录：要有体测站点会话） |
  * | `GET /api/notification/sources` `/api/notification/list` | [AppNoticeSource]（免登录） |
  * | `GET /api/inbox` | [AppInboxSource]（轻登录：要有统一认证会话） |
- * | `GET /api/emptyroom/cdn` `/api/emptyroom/rooms` | [AppEmptyRoomSource]（CDN 免登录；直查/实时轻登录） |
+ * | `GET /api/emptyroom/cdn` `/api/emptyroom/rooms` `/api/emptyroom/seat-count` | [AppEmptyRoomSource]（CDN 免登录；直查/实时轻登录 —— 座位数那一格也读 CDN） |
  *
  * ## 三个共同口径（与 [SessionRoutes] 同一套）
  *
@@ -652,7 +649,7 @@ private fun InboxData.toDto() = InboxPayload(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * 空闲教室（CDN 免登录；直查/实时轻登录）。
+ * 空闲教室（CDN 免登录；直查/实时轻登录）。第三条 `/seat-count` 也读免登录那一档的 CDN。
  *
  * 两个端点都带 **能力开关**（契约 §5「要改」）：`availableSources` 如实报**这一发请求时**
  * serve 能真取数的那几档 —— 会话没登录过只有 `[{key:cdn}]`；登录过就是 `[live, cdn, direct]`
@@ -681,6 +678,30 @@ internal fun Route.emptyRoomRoutes(session: ServeSession) {
             ?: source.availableDates().first()
         val force = call.request.queryParameters["force"] == "1"
         call.respondRoomRows(source, session, campus, buildings, date, direct = false, force)
+    }
+
+    /**
+     * 座位数（`:core` 的 `EmptyRoomSource.seatCount`）：**按教室名**取一个数字 —— 课表详情里
+     * 「XX座」那一格（`ScheduleScreen` 的 `SEAT_COUNT`）只要这一个数，不必把整校区的教室表拉回来。
+     *
+     * - **不套会话判据**：它与 `/cdn` 同一档取数（`EmptyRoomApi.getRoomSeatCount` 读的就是当天那份
+     *   CDN 课表，免登录）⇒ 没登录也答；
+     * - `room` **必填**（教室名，形如 `主楼A-101`）：缺 / 空白 ⇒ 400；
+     * - **拿不到就是 `null`**，不是 0、也不是错误：`:data` 那边「名字对不上 / 当天 CDN 拉不到 /
+     *   那间房没有座位数」三种情况都回 null（`EmptyRoomSource.seatCount` 的 KDoc 把这条写死了 ——
+     *   调用点按 null 处理，屏本来就不画那一块）。§4：`null` = 上游明确说没有。
+     */
+    get(EMPTY_ROOM_SEAT_COUNT_SEGMENT) {
+        val room = call.request.queryParameters["room"]?.trim().orEmpty()
+        if (room.isEmpty()) return@get call.respondBadRequest("参数 room 必填：教室名，如 主楼A-101")
+        val seats = try {
+            sourceOf(session).seatCount(room)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return@get call.respondFetchError(e, "查询教室座位数")
+        }
+        call.respond(ApiEnvelope.ok(SeatCountPayload(room = room, seats = seats)))
     }
 
     /**
@@ -828,6 +849,15 @@ internal data class RoomRowDto(
     val status: List<Int>,
 )
 
+/**
+ * `GET /api/emptyroom/seat-count` 的 `data`。
+ *
+ * `seats` 可空：`null` = 这间房查不到座位数（§4：null = 上游明确说没有，**不是** 0）——
+ * `room` 原样回（消费方靠它把结果对回某一间教室）。
+ */
+@Serializable
+internal data class SeatCountPayload(val room: String, val seats: Int?)
+
 /** `GET /api/emptyroom/rooms?source=live` 的 `data`。 */
 @Serializable
 internal data class LiveRoomsPayload(
@@ -910,14 +940,6 @@ private suspend fun ApplicationCall.respondFetchError(e: Throwable, action: Stri
 private suspend fun ApplicationCall.respondBadRequest(message: String) =
     respond(HttpStatusCode.BadRequest, ApiErrors.badRequest(message))
 
-/** epoch 毫秒 → ISO-8601 带时区字符串（契约 §4）；`<= 0`（没读过 / 没过期）→ null。 */
-private fun isoTime(epochMs: Long): String? {
-    if (epochMs <= 0L) return null
-    return Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()).format(ISO_FORMATTER)
-}
-
-private val ISO_FORMATTER: DateTimeFormatter = DateTimeFormatter.ISO_OFFSET_DATE_TIME
-
 // ── 路径段（相对 route("/api")；对外路径 = API_PREFIX + "/" + 段）────────────────
 
 internal const val CALENDAR_SCHOOL_SEGMENT = "calendar/school"
@@ -932,6 +954,7 @@ internal const val NOTIFICATION_LIST_SEGMENT = "list"
 internal const val INBOX_SEGMENT = "inbox"
 internal const val EMPTY_ROOM_CDN_SEGMENT = "emptyroom/cdn"
 internal const val EMPTY_ROOM_ROOMS_SEGMENT = "emptyroom/rooms"
+internal const val EMPTY_ROOM_SEAT_COUNT_SEGMENT = "emptyroom/seat-count"
 
 /** 通知列表 `sources` 缺省时的默认源（与屏的默认来源一致，见 `NotificationViewModel`）。 */
 internal const val DEFAULT_NOTIFICATION_SOURCE = "JWC"

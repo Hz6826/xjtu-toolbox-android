@@ -35,12 +35,20 @@ import com.xjtu.toolbox.nav.AppRoute
  *
  * ## 什么不在清单里（如实，不是漏）
  *
- * - `AppRoute.Agent`（屁岱）：它在 `AppPage` 里是一条**降级页**（`AgentHost` 三份落盘 + 流式 +
- *   工具层，本端一件都没有 ⇒ 不是"能打开的一屏"）；
  * - `is AppRoute.Browser`：它有分支，但它**不是一屏** —— 它把 URL 交给浏览器本身
  *   （`navigateSameTab`）。清单的口径是"点了会落在本端的一张真屏上"，所以它不在这里；
- * - 其余 `:core` 路由（`Lms` / `Attendance` / `Jiaocai` / `PaymentCode` / `DormPower` …）：
- *   本端没有它们的屏，`AppPage` 落 `NotPortedScreen`。
+ * - 其余 `:core` 路由（`DownloadManager` / `Jiaocai1` / `Jiaocai1Reader` …）：
+ *   本端没有它们的屏，`AppPage` 落 `NotPortedScreen`。（两条从这一档搬走了：`GameMerge` 2026-10-15（D12 ⑤）
+ *   搬走是因为浏览器本身就是那个 JS 引擎 ⇒ 本端把游戏资源挂进产物、用一个 `<iframe>` 跑起来，屏在
+ *   `WebGameMerge.kt`；`Agent`（屁岱）2026-10-15（D10 的 S-d）搬走是因为循环、工具层与三份落盘全在 serve
+ *   ⇒ 本端只做「事件 → 状态」那一段，屏是 `:core` 的 `AgentScreen` 本身，见 `WebAgentScreen.kt`。）
+ *
+ * ⚠️ 清单里**不等于** "那一屏在本端真能用"：`AppRoute.Accounts` 就在清单里，而它在浏览器里是**只读**的
+ * （切换 / 新增 / 删除 / 改密要在 App 或桌面端做）；`AppRoute.Agent` 也属这一档（campus-api 形态下这一族
+ * 连端点都没有 ⇒ 那一格画的是 `WebServeOnlyScreen`）；`AppRoute.Match` 曾经也属这一档（wasm 上没有
+ * deflate / Base64 ⇒ 分享码生成与解析都不可用，落 `WebMatchGapScreen`），2026-10-15（D12 ②）
+ * 两条缝补进 `:core` 的 commonMain 之后它**真能用**了，那张说明页随之删掉。
+ * 清单管的是"点了会有个说法"，那一屏到底真能用还是如实说明，由 `AppPage` 那条分支自己说。
  *
  * ## 与目录的另一半：还没有屏的那些
  *
@@ -75,6 +83,38 @@ internal object WebSupport {
         AppRoute.Library,
         AppRoute.Community,
         AppRoute.Settings,
+        // 只读四域（2026-10-13 接线）：成绩单 / 考勤 / 加餐券 / 宿舍电费。它们的取数只在 serve
+        // 形态下存在（契约 §5.5）—— campus-api 形态下这几条分支画的是「这一屏要 serve 模式」那张
+        // 如实页（`WebServeOnlyScreen`）。门照旧列在这里：**「本端有没有这一屏」与「此刻后端是哪一
+        // 形态」是两件事**（深链与首页入口不该随探测结果变来变去）。
+        AppRoute.Transcript,
+        AppRoute.Attendance,
+        AppRoute.Coupon,
+        AppRoute.DormPower,
+        // 第二批只读域（2026-10-14 接线，契约 §5.6）：思源学堂 / 教材查询 / 成绩 / 快速考勤流水。
+        // 与上面那四条同一条规矩：**「本端有没有这一屏」与「此刻后端是哪一形态」是两件事** ——
+        // 取数只在 serve 形态下存在（campus-api 里没有这四族的端点），但那四屏就在 `:core`，
+        // 所以门照旧列在这里，campus-api 形态下 `AppPage` 画的是「这一屏要 serve 模式」那张如实页。
+        //
+        // ⚠️ `AppRoute.Lms` 是带参数的 data class（`courseId`）：这里要的是**没有课程号那一条**
+        // （`AppRoute.Lms()` ⇒ id = `lms`），带 courseId 的形态是深链（`?route=lms?courseId=…`）
+        // 与日程页下钻用的，不进宫格的清单。
+        AppRoute.Lms(),
+        AppRoute.Jiaocai,
+        AppRoute.JwappScore,
+        AppRoute.Iclassface,
+        // 第三批（2026-10-14 接线，契约 §5.7）：付款码 / 反馈与建议 / 匹配交友 / WebVPN 转换器。
+        // 四条里三种落法，但门都列在这里（「本端有没有这一屏」与「此刻后端是哪一形态」是两件事）：
+        //  - 付款码 / 反馈 / WebVPN：屏在 `:core`，取数只认 serve 契约 ⇒ campus-api 形态下画
+        //    `WebServeOnlyScreen`（说清「切到 serve 模式就能用」，不是「还没搬到 Web」）；
+        //  - 匹配交友：两种形态下都是**真屏**（`:core` 的 `MatchScreen` + 本端 `WebMatchHost`）。
+        //    这一屏一条请求都不发（只读本机缓存），所以与后端是哪一形态无关；2026-10-14 那一轮它只在
+        //    wasm 上缺 deflate / Base64（分享码用不了）⇒ 落的是如实说明页，2026-10-15（D12 ②）之后
+        //    两条缝补进 `:core` 的 commonMain ⇒ 那一页删掉、门照旧列在这里。
+        AppRoute.PaymentCode,
+        AppRoute.Feedback,
+        AppRoute.Match,
+        AppRoute.WebVpnConverter,
         // 游戏：合集 + 合集里那六屏（它们在目录里只有「小游戏」一条，子路由由合集屏自己往下走）
         AppRoute.Games,
         AppRoute.Game2048,
@@ -83,6 +123,22 @@ internal object WebSupport {
         AppRoute.GameGomoku,
         AppRoute.GameGo,
         AppRoute.GameXiangqi,
+        // 合成西交大（2026-10-15，D12 ⑤）：屏是 `:web` 自己的 `WebGameMergeScreen` —— Android 用
+        // WebView 装 `assets/games/merge/`，浏览器这一端把**同一份字节**（构建期拷进产物，见
+        // `web/build.gradle.kts` 的 `mergeGameResources`）交给一个 `<iframe>`。别的端传不了候选：
+        // 桌面仍卡载体（没有浏览器内核、也没有 JVM 上的 JS 引擎）⇒ 那一端仍落 `HostUnavailableScreen`。
+        AppRoute.GameMerge,
+        // 账号管理（D9 / 工单 S7a）：**屏就是 `:core` 那份 `AccountManagerScreen`**（三端同一套层级），
+        // 取数是 serve 的 `GET /api/accounts`（契约 §5.10）。这一端**只读** —— 切换 / 新增 / 删除 / 改密
+        // 要在 App 或桌面端做（serve 只端了读那一半），页顶那一行与动作失败的 toast 说的都是这件事
+        // （见 `WebAccountsScreen` / `WebGapNote`）。与 `AppRoute.Match` 同理：门照旧开着，
+        // 「点了会有个说法」——而且这一条能看见的是**真数据**（账号表与当前账号）。
+        AppRoute.Accounts,
+        // 屁岱（2026-10-15，D10 的 S-d）：屏是 `:core` 那份 `AgentScreen`（三端同一屏），驱动换成本端的
+        // `WebAgentSession`（循环、工具层、会话与记忆落盘、API Key 全在 serve —— 契约 §5.11）。它进清单的
+        // 理由是「点了会落在本端的一张真屏上」；campus-api 形态下这一族没有端点，那一格自己会说
+        // `WebServeOnlyScreen`（「切到 serve 模式就能用」），那与 `Accounts` 同一档（见文件头末段）。
+        AppRoute.Agent,
     ).mapTo(mutableSetOf()) { it.id }
 
     /** 这一端真能打开 [route] 吗（见文件头：清单与 `AppPage` 的分支必须同时改）。 */

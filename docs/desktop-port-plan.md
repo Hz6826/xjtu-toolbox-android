@@ -3,6 +3,9 @@
 > 状态：**设计已完毕**（2026-10-09，用户逐条确认）。基线 HEAD = `4a73495`。
 > 本文只写"目标 + 决策 + 分阶段 + 验收判据"。每一步的动机若写进 commit message，本文不再复述。
 
+>
+> **2026-10-14 追加**：三端「完全一致」的会议决策（口径 = **丙**、写操作全等含真支付、统一存档层、三端多账号、
+> serve 持 key + 转发 SSE、serve 内置 HTTPS + 鉴权）见 **§16**。下一批施工顺序也记在那里（§16.3）。
 ---
 
 ## 1. 目标与硬约束
@@ -582,7 +585,7 @@ Windows 的 `.msi`/DPAPI 真行为与 Linux 的真桌面启动都只有本机能
 |---|---|---|---|
 | 1 | **浏览器里的端到端**（真登录 + 真站点 + 真下单）没有可核记录 | 仓库里没有任何一条这样的记录；`:web` **没有测试源集**（`find web/src -name '*Test*.kt'` 为空），它的门禁只有编译（`core-gate.yml` 第 46 行 `:core:compileKotlinWasmJs :web:compileKotlinWasmJs`） | 人工跑一次 serve 模式（真浏览器 + 真账号），把结论记进契约或本文档 |
 | 2 | 契约里仍标 TODO 的端点：`/api/coupon/…` 与 `/api/payment-code`（P2，`:server` 里**没有**这两个端点）、`/api/v1/personal/me/user`（P2，来源待确认）、`card` 挂失（P1 写）、`evaluations` 提交/撤销（P1）、`library/seats?time`（上游无时间维）、`emptyroom/rooms` 的 `from/to`、`faculty` 的 `?filters=1`、`fitness/score` 的 `?year=all` | 拍板过但未做 | 各自那一轮（`docs/api-contract.md` §5.2 / §5.3 的 TODO 行） |
-| 3 | venue「去支付」那一跳在浏览器里不可达（支付页在 80 端口那台站点上，浏览器里没有场馆站的会话；`CampusVenueApi.paymentUrl` 如实返回空串） | 见契约 §5.3.2 末尾 | 契约给出支付入口（或让 `/api/venue/status` 的 `browserLoginUrl` 能被缓存）之后接上 |
+| 3 | venue「去支付」那一跳**已经接上**（2026-10-15，批③-a / D11b：`GET /api/venue/pay` 302 → 80 端口那台的 `pay/show.html?id=…`，`CampusVenueApi.paymentUrl` 不再空）⇒ 剩下的是**落点没在线验证过**：那一页要的是浏览器这一侧的场馆站会话，而 serve 的会话带不过去 ⇒ 落成能付款的一页**不担保** | 见契约 §5.3.2 第 6 条（302 一定被跟随；三条依据；并且**不许**写成「已支持真支付」） | 用户在真浏览器里点一次「去支付」，把落点记下来（`docs/serve-visual-checklist.md` ⑨ 那一行；不许替用户打支付站） |
 | 4 | 消费方 `school-courses` 的两档筛选不画（服务端报 `supportsDepartmentFilter` / `supportsElectiveFilter` 是 `true`，但没有返回那两张 id 表的端点 ⇒ 消费方报 `false`） | 见契约 §5.4 | 端点落地后把 `Campus*Api` 的 TODO 翻成 true（契约 §7：三处同改） |
 | 5 | 契约 §3 的默认安全口径（只听回环 / 令牌换 cookie / `--host 0.0.0.0` 的暴露形态）只做了静态核对 | `:server` 的测试起的是端口 `0` 的临时服务，验的是**形状**不是**部署形态**；本轮没起过真服务进程 | 起一次 `:server`，按契约 §3 逐条走一遍 |
 
@@ -988,3 +991,383 @@ campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端
    在那之前页顶那一行说明必须留着。
 5. **`SEAT_COUNT`**：本端已有 `CampusEmptyRoomApi`，补一个「按教室名取座位数」就能点亮详情里那一格。
 6. **`DYNAMIC_COLOR`**：先验证 Monet 在 wasm 上真能跑，再把这一项列进 `honoredRows` 并让 `Main.kt` 读它。
+
+---
+
+## 16. 三端完全一致的决策记录（2026-10-14 会议，用户逐条拍板）
+
+> 这一节是**用户视角的诉求**（「web 端要和 Android 完全对齐 —— 显示内容、界面层级、所有持久化与非持久化行为」）
+> 被逼成可执行决策之后的记录。§15 是「怎么把 web 换成共享壳」的实做记录，本节是**下一批的判据真源**。
+> 本节只记决策与判据；每条决策的实做过程写进 commit message 与对应的新节，不在本节复述。
+
+### 16.0 会议定下的四条总口径
+
+| # | 议题 | 决策 |
+|---|---|---|
+| **D7-口径** | 「完全一致」的验收口径 | **丙（逐像素 / 逐状态全等）** —— 显示内容、界面层级、持久化与非持久化行为（键名、落盘形状、迁移、TTL、错误文案、加载态、空态、排序）全部逐条对齐。**基准是 Android 现有行为**（与 C1「Android 行为完全不变」合并读：是 web/桌面对齐到 Android，不是反过来） |
+| **D8-口径** | 浏览器能力边界（付款码矩阵 / 分享码 / 相机·剪贴板·WebCrypto / PWA / GameMerge） | **能补就补**；补不了的、或补得不漂亮的，**在大实现结束后给用户一张清单**（过程中不逐条请示）。逐条处置见 §16.1 D12 |
+| **D9-口径** | 真站点验收 | **实现方列逐屏点位清单（URL + 点哪里 + 期望），用户照单点**；点不通的由用户回报现象、实现方查 |
+| **D10-口径** | Windows CI 与施工顺序 | `desktop-windows.yml` **等大实现做完再触发首跑**；施工顺序由实现方定（§16.3） |
+
+### 16.1 逐条决策
+
+| # | 议题 | 决策 | 要点 / 代价 |
+|---|---|---|---|
+| **D7** | 写操作 | **三端全等，web 由 `:server` 代操作**（会话在服务端） | 图书馆约座/换座/签到/取消、场馆预订/取消、**含真支付**（见 D11b）、反馈提交、考勤请假/销假、领券、成绩单 PDF 落盘 —— 逐条端出写端点 |
+| **D11b** | 场馆「去支付」 | **serve 端一条真支付入口，浏览器里真能付款** | 用户明确「要真能付」。这条把 serve 从「只读代理」变成「有支付能力的远端」⇒ HTTPS + 鉴权（D11）从「加分项」变成**前提** |
+| **D8** | 持久化 | **键名逐字 + 统一存档层 + 三端互认** | 立一份「统一存档格式」当唯一真源（目录/文件名 + JSON 形状 + 键名 + 账号后缀 `safeSuffix()` + TTL），三端都能**导出/导入**这套档案、目录**可直接拷过去用**。**Android 内部仍走 SharedPreferences/Room**（不动 C1 红线：`:app` 429 条一条不减、行为逐字不变），但对外形状逐字一致 |
+| **D9** | 多账号 | **三端都支持** | Android 用现状（keystore）；桌面 DPAPI（`docs/windows-delivery.md` 那条缝）；**web = serve 进程**（DPAPI 保护），浏览器上「切换账号」= 让 serve 换一套凭据。账号页在 web 上要与 App 同一套层级（不再落「本端没有账号这回事」） |
+| **D10** | 屁岱（Agent）在浏览器上 | **key 存 serve 侧（DPAPI），浏览器只发消息，serve 转发 SSE** | 工具层按**白名单**开放（先只读口：黄页 / 教师检索 / 课表 / 空教室 / 校历…）；配置 / 会话 / 记忆三份落盘也归 serve，走 D8 的统一存档层。**⇒ 实做现状（2026-10-15，工单 **S-a → S-d 四件全部落地**）**：serve 侧的 **14 个端点 + SSE** 已落地（契约 **§5.11**），key 确实落在 serve 那一侧（`:data` 的 `protectedSecureKeyValueStore`，Windows = DPAPI；Linux/macOS 无保护器 ⇒ 仍是明文 `0600`，与今天逐字相同）；**白名单工具层（S-c）**交给模型的是那九件（`toolAllowlist` 从真下发的定义里读出来）；**`:web` 接线（S-d）**把浏览器那一格换成 `:core` 的 `AgentScreen` 本身（驱动是本端的 `WebAgentSession` + `@JsFun` 的 fetch/SSE 桥），**路由差集 5 → 4**。逐条现状与「还剩哪几件没做」写在契约 §5.11 |
+| **D11** | HTTPS / 部署 / 鉴权 | **serve 内置 HTTPS + 鉴权，开箱可启用** | 证书目录（含自签选项）+ 令牌鉴权 + 写进交付文档；反代仍可由用户自己接。**这是相机扫码 / 剪贴板 / WebCrypto / PWA 的前置**（HTTP 非 localhost = 非安全上下文，浏览器一律禁） |
+| **D12** | 能力边界逐条 | 全部**在 D11 之后**收口 | ① 付款码矩阵：引纯 Kotlin/JS 的 QR + Code128 编码器（不再只画数字）；② 匹配交友分享码：把 deflate + Base64 两条缝搬进 wasm/`commonMain`；③ 相机扫码 / 剪贴板 / WebCrypto：依赖 D11；④ PWA（系统通知 / 小组件 / 后台定时）：依赖 D11 + 用户授权；⑤ `GameMerge`：**浏览器本身就是 JS 引擎 ⇒ web 端最省**（桌面仍卡载体），按此定各端做法。**⇒ 实做与结论（2026-10-16）**：①② 见 §16.10；⑤ 见 §16.11（web 端真能玩、桌面仍卡载体）；③ **已收口**（见 §16.12）：**剪贴板能用**（前置＝安全上下文，D11 已给）、**相机扫码/选图识别做出来了**（解码链按 ① 同一套做法搬进 `:core` 的 commonMain，匹配交友那一屏的「扫一扫 / 从相册选图」在 `:web` 上真能扫）、**WebCrypto 没有消费方**；④ **已做**（2026-10-16，见 §16.12）：`manifest.webmanifest` + 图标（`display: standalone` ⇒ 装成 App）、`sw.js`（Service Worker，**只在安全上下文里注册**；离线壳用**网络优先**）、Notification 权限（用户手势）+ 经 SW 的 `showNotification` 与 `notificationclick`；**Android 小组件在浏览器里没有对应物 ⇒ 那一档不做**（屏上 `?route=probe` 的 PWA 卡与本文档都如实写着），后台定时（`periodicSync`）同理基本不给 |
+| **D13** | 补端点清单 | **一律「端」**（不再逐条请示） | 我课表三端点 `/api/jwxt/changes`（调停补课）+ `exams`（考试）+ `textbooks`（教材）；教材全文库 `jiaocai1` 页图；学堂附件图片代理；成绩分项 `score-detail`；教室座位数（点亮 web 日程/详情里的 `SEAT_COUNT`）；场馆支付（D11b） |
+| **D14** | `:web` 测试源集 | **建** | 丙口径下「没人肉眼点过」不能当验收。目标：路由清单覆盖测试（与 `DesktopRouteCoverageJvmTest` 同型，钉住「清单 = 分支」）+ 存档层互认测试 + 关键屏的 wasmJs 测试 |
+
+### 16.2 「全等」的判据怎么落地（工程口径，四条）
+
+1. **路由全等**：`WebSupport.openableRouteIds` 与 `AppRoute`（43 条）的差集，只允许剩「浏览器/这一端永远做不到」的条目，且**每条都在页面上有如实说明**。
+   今天的差集是 7 条：`Agent`（D10 之后要变成真屏）/ `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader`（D13 之后要做）/ `GameMerge`（D12-⑤）/ `Accounts`（D9 之后要做）/ `Browser`（它不是一屏，口径上不算差集）。**2026-10-15 起是 4 条**：`Accounts` 已由批② 的 S7b 落地、`GameMerge` 已由 D12 ⑤ 落地（§16.11）、`Agent` 已由 D10 的 S-d 落地（§16.1 那一行 + 契约 §5.11）⇒ 剩下 `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader`，外加口径上不算差集的 `Browser` —— `:web` 的 `WebRouteCoverageTest` 钉的就是这 4 条（它同时钉住「差集里每一条在 `WebSupport` 文件头都有一句为什么」）。
+2. **存档全等**：统一存档格式是唯一真源 —— 文档 + 夹具 + 三端消费方，**遵 `docs/api-contract.md` §7 的「三处同改」**。
+3. **屏全等**：每屏的四种状态（加载 / 空 / 错误 / 降级）三端**同一套文案来源**（共享字符串与共享屏，不在各端各写一遍）。
+4. **数字回归网**：§5 那张表**只增不减**（`:app:testDebugUnitTest` **429 条一条不许减**）。
+
+### 16.3 下一批施工顺序（2026-10-14 定，与 §16.1 的 D 编号对应）
+
+| 批 | 内容 | 决策来源 |
+|---|---|---|
+| ① | 补齐端点（`changes`/`exams`/`textbooks`、`jiaocai1` 页图、学堂图片代理、`score-detail`、座位数） | D13 |
+| ② | 统一存档层 + 三端多账号（web 账号页与 App 同层级、凭据进 serve） | D8 / D9 |
+| ③ | 写路径对齐（含真支付入口） | D7 / D11b |
+| ④ | serve 内置 HTTPS + 鉴权 | D11 |
+| ⑤ | 能力边界收口（矩阵 / deflate + Base64 / 相机·剪贴板 / PWA / `GameMerge`）+ **给用户的能力缺口清单** | D12 / D8-口径 |
+| ⑤（状态） | **① ② ⑤ 已落地、③ 已逐条查清、④ PWA 未做** —— 矩阵与分享码见 §16.10，`GameMerge` 与 ③④ 见 §16.11；用户那张清单在 `docs/serve-visual-checklist.md` ⑧⑩⑪ | §16.11 |
+| ⑥ | `:web` 测试源集 + 全量门禁 + **真站点逐屏点位清单** | D14 / D9-口径 |
+
+### 16.4 这一节带出来的新风险（如实记，别藏）
+
+- **丙全等 × C1 红线**：只允许「各端向 Android 现状对齐」；任何要改 Android 可见行为的做法都要先回到用户面前（D8 的「Android 内部仍走 prefs」就是为这条让的路）。
+- **serve 从只读变可写、再变可付**：`0.0.0.0` 明文 + 一枚令牌的现状**不能再拖到 D11 之后**；在 D11 落地之前，**写/支付端点不要在公网口上开着**。
+- **统一存档层要迁移**：三端各自的旧数据（Android prefs / 桌面 0600 文件 / web localStorage）都要有一次性读入旧形状的路径，且**旧形状只能读、不能写**（避免两套格式长期并存）。
+
+---
+
+### 16.5 外部审计的处置决策（2026-10-14 第二轮，用户拍板）
+
+一份外部第三方对本项目的全量代码审计（36 条，1423 行）交进来后，按用户指示**审查也派活**：三个只读复核子代理逐条复核，产出
+`docs/audit-verify-1-correctness.md`（#01–#12）/ `docs/audit-verify-2-security.md`（#13–#20）/ `docs/audit-verify-3-rest.md`（#21–#36），
+再由一个汇总子代理合成 `docs/audit-verification.md`（36 行总表 + 不实之处 + 处置分组 + 统计）。
+
+**复核结论（我方重算，不是转述）**：36 条里**成立 19 / 部分成立 14 / 不成立 2 / 无法判定 1**；审计自报「致命 2 / 高 8」，
+我方**重判无一条致命**，重判为「高」的只有 5 条：**#02 / #13 / #14 / #30 / #33**。
+审计的路径与行号**大量基于 KMP 重构之前的提交**（被点名的 14 个文件里 12 个已搬进 `core`/`data`），
+并有 20 条引文在本仓**任何 ref** 都搜不到（用 `git log --all -S` / `git ls-tree` 核过）。
+
+| # | 议题 | 决策 |
+|---|---|---|
+| **D15** | 审计发现的处置口径 | **审计发现分两类**（用户 2026-10-14 第二轮纠正）：**(a) 安卓原有行为 / 产品设计问题** —— 包括审计认为「该改」的功能改进（如 #29 社区浏览门槛、#32 分享码默认真名、#19 文案宣称口径、#31 无障碍、#28 首屏性能）⇒ **不属于本次重构范围，一行代码不改**，只写进 `docs/audit-response.md` 如实回应「这是安卓侧既有问题，本次是重构不是功能更新」；**(b) 本次重构自己新写的那部分代码里的缺陷**（`:core` / `:data` / `:desktop` / `:server` / `:web` 新写的部分，以及三端行为不一致）⇒ **修**，因为它们是重构的产物。用户原话：「**安卓怎么做就怎么做，这是重构不是功能更新**」 |
+| **D16** | `#01` 算分 Bug | **不在本次重构范围**（它是 `:app` 的既有行为）⇒ **一行代码不改**，写进 `docs/audit-response.md`。若将来能拿到一次真实样本（上游真下发带小数/等级制成绩的抓包）并决定做一次**安卓侧修复**，那是单独一次活，不混进重构 |
+| **D17** | 统一存档档案是否带凭据 | **不带**（`docs/storage-layout.md` 未决 #5 关闭）。档案只装用户数据；跨端/跨机迁移**需要重新登录**。理由：桌面/Windows 凭据是 DPAPI 信封，跨机本来解不开；导出凭据只会让人误以为能用 |
+| **D18** | 对审计的回应 | **出一份正式回应文档** `docs/audit-response.md`（逐条处置 + 无法核实清单 + 请对方补证据的条目），与三份复核报告一起构成完整答复 |
+
+**由复核带出来的、需要跟着修的接口缺口**（审计没提，复核/接线过程中发现）：
+
+1. **课表「已合并调停补课」在 web 上做不到**：`/api/jwxt/changes` 端的是说明面的 `ScheduleChangeEvent`，
+   而 `:data` 的合并函数 `JwxtChanges.apply` 吃的是 `JwxtChange`（含 `jxbid` 认原课、`appliedAt` 定先后）。
+   接线批**如实不合并**（格子给排课原样）+ 页顶缺口说明。**要做真合并，走「让 `/api/jwxt/schedule?merged=1` 直接端已合并的那一份」**
+   （`:data` 的 `JwxtScheduleApi.schedule()` 本来就会合），不要给说明面端点硬加字段。
+2. **`SCHEDULE_CHANGE_BUBBLE` 在 web 上点不亮**：`:app` 那一支走 `InboxStore.post(OwnInbox.scheduleChange(...))`，而工厂 `OwnInbox` **住在 `:app`**
+   （其 KDoc 明写「Web 端不产生这些提醒」）。要按丙口径对齐，得**把 `OwnInbox` 搬进 `:core`**（id 形状逐字一致）—— 这与 §15.7 第 2 条「首页的消息那一格要等本端有 store 宿主」是同一件事。
+3. **教材中心屏（`TextbookScreen`）的「本学期我的教材」仍未接**：数据现在有端点了，但那一屏的宿主端口吃 `JiaocaiTermTextbook`，要再写一次映射（不是「要学号取不到」）。
+
+### 16.6 审计修复的施工顺序（与 §16.3 的一致性线并行，2026-10-14 定）
+
+| 修批 | 内容 | 与一致性线的交叉 |
+|---|---|---|
+| 修批 | 内容 | 与一致性线的交叉 |
+|---|---|---|
+| **P0** | **只做分类，不写代码**：把 36 条按 D15 分成 **(a) 安卓原有行为/产品设计 ⇒ 只进回应文档** 与 **(b) 重构新代码的缺陷 ⇒ 修**；并把这项分类写进 `docs/audit-response.md`（表头：`#NN | 归哪类 | 处置 |`） | 这是后续每一批的判据来源，必须先钉 |
+| **P1** | (b) 类里**安全面**：只含「重构新引入的暴露面」——例如 serve 在 `0.0.0.0` 明文 + 单令牌（D11 的 HTTPS + 鉴权）、serve 变可写/可付后的幂等与重放。**审计的 `#13`/`#14`/`#20` 等安卓侧旧问题不在此列** | 与 §16.3 批④（HTTPS）合流 |
+| **P2** | (b) 类里**多账号隔离**：只修「三端不一致」那部分（如 `:web`/桌面漏了后缀、统一存档层里 `download_tasks` 没有 `accountId`） | **并入 §16.3 批②统一存档层** |
+| **P3** | (b) 类里**正确性**：只修新代码里的坑（例如接线批自己发现的两处：课表合并缺 `jxbid`/`appliedAt` 的接口缺口、教材中心模型映射） | 与 §16.3 批①尾合流 |
+| **P4** | (b) 类里**工程与合规**：`#33`（`miuix = "latest.release"` 破坏可重现性 —— 这是**构建**问题，不是安卓行为，属于重构现场）、`#34`（workflow 内联 `${{ }}` 与 token 拼 URL） | 与 CI 同批 |
+| **—** | **(a) 类全部：不写代码**（城区门槛 / 真名分享码 / 文案口径 / 无障碍 / 首屏性能 / 内存历史 / 工具 schema 全量 / N+1 / 小组件冷启动 / 更新摘要 / 大文件拆分 / 覆盖率 / `latest.release` 之外的库存建议） | 只出现在 `docs/audit-response.md` |
+
+### 16.7 批②（统一存档层 + 三端多账号）的工单与裁定（2026-10-14 定）
+
+**工单真源 = `docs/storage-layout-plan.md`**（602 行，S0→S8，每个工单都能独立提交、独立跑门禁；判据挂在
+`docs/storage-layout.md` §7 的 A1–A13 上）。本节只记主代理替用户对设计里那些"待拍板"点的裁定，以及几处与审计分类相关的更正。
+
+| # | 议题 | 裁定 | 理由 |
+|---|---|---|---|
+| **R1** | 档案容器：JSON 目录 vs `.properties` 目录（规格未决 #1） | **JSON 目录** | wasm 没有 `java.util.Properties`，要在 commonMain 重写它的转义规则（`\uXXXX`、ISO-8859-1、行续接、`= : # !`）并与 JVM 逐字节往返一致 —— 一份新增的易错代码，而值类型标签（long/float/set）在 Properties 里还得另解决 |
+| **R2** | 规格未决 #2：「旧形状只读」在 Android 上做不到 | 口径定为 **「键名逐字 + 档案是端内 store 的投影」** | D8 已拍板 Android 内部仍走 SharedPreferences/Room（不动 `:app` 红线）；旧形状仍要能**读**（一次性导入），但端内**写**路径不变 |
+| **R3** | Android 档案落地通道（规格未决 #3） | **SAF**（零权限、零 manifest 改动） | 已核 `file_provider_paths.xml` 里没有 `archive/` 条目；若走分享导出则需追加 `archive/` |
+| **R4** | 审计 `#02`（切账号屁岱串号并写盘污染） | **Android 侧不改**（D15 (a) 类）；`:core` 只加可选槽位 `AgentHost.onAccountChanged()`（Android 空实现） | `AgentViewModel` 在 `:core`，真修就是三端一起变、直撞 C1 红线（D15 已明确：安卓侧行为一律不动） |
+| **R5** | 审计 `#07` 的三端不一致侧 | **不存在** —— 三端今天**都是无后缀**（已复核 `AppPaymentCode.kt:48` / `ToolboxDesktopApp.kt:759` / `ToolboxWebApp.kt:824`）⇒ 整条归 (a) 类，本次只在 registry 里标 `global` | 回应文档 `docs/audit-response.md` 里 #07 的归类要按此更正 |
+| **R6** | `data_extraction_rules.xml` | **追加 `archive*` 排除** | 这是 `:app` 侧**唯一**必动的地方（纯安全排除，不改可见行为）：否则含学号的档案会进云备份 |
+| **R7** | `CredentialStore.cached_nickname` 不在规格键清单里 | **回写规格**（补进 `docs/storage-layout.md` §3.2） | 规格是唯一真源，漏键就是将来跨端丢东西 |
+| **R8** | 施工序 | `S0`（桌面落盘 0 号前置）→ `S1` → {`S2`,`S3`} → {`S4`,`S5`,`S6`} → `S7a` → `S7b` → `S8` | `S0` 是"档案可直接拷过去用"的前提（桌面那一整族 store 现在只在内存）；`S8`（`:web` 测试源集 + 三端互认）放批末最省 |
+
+**参数提醒**：`S8` 之前，A1/A2/A4 的 **web 侧**与 A5 的**三端形态**跑不了 —— 因为 `:web` 没有测试源集、
+`:core` 也没声明 wasm 测试环境（`core/build.gradle.kts:45-52`）。夹具放 `:core` 的 commonTest（Kotlin 常量），**不能**放 `:testkit`（它是 `kotlin.jvm`，wasm 消费不了）。
+
+**施工坑（批②连踩 3 次，后续子代理必读）**：Kotlin 的**块注释可嵌套** —— KDoc 里只要出现 `/` + `*` 的序列
+（最典型是路径通配 `files/**` / `cache/**` / `accounts/**`），就**开了一层新的块注释**；外层 KDoc 的 `*/`
+只关掉内层 ⇒ 外层注释一路吃到 EOF，把它后面那个声明的 `}` 一起吞掉，报成 `Unclosed comment` 或
+`Missing '}'`（报错行号落在**该 KDoc 所属声明**那一行，很容易误判成括号问题）。**KDoc 里不要写 `/**`**
+（写成 `files/` + 文字说明）。自查一行：`git grep -n 'files/\*\*\|cache/\*\*\|accounts/\*\*' -- '*.kt'`。
+
+### 16.8 批②（统一存档层 + 三端多账号）与批④（serve HTTPS）完工记录（2026-10-15）
+
+| 工单 | 提交 | 一件事实 |
+|---|---|---|
+| S0 | `47cc75cd` | 桌面键值存储从**内存**改成**真落盘**（0 号前置；隔离根里真出现 0600 的 `.properties`） |
+| S1 / S1b | `65567894` / `6ed4adda` | 档案模型 + codec + 纯函数；**S1b 补上导入合并语义**（§6.4）与 `inspect` 收口 |
+| S2 / S3 | `73c4a829` / `4abc4bb0` | 三端只读投影（prefs / 文件 / localStorage）+ `files/` 层与 §2.3 行数组排序 |
+| S4 | `1261913b` | `:app` 接线点（Room 三表适配器 / 导入触发 / 导出动作 / SAF 通道 / 备份排除）——`:app` 侧 **+635/−0 纯追加** |
+| S5 / S6 | `05ee3a9e` / `07720a6d` | 桌面宿主（数据根扫描 + zip/doc 导出 + 设置页）与 web 宿主（下载/上传） |
+| S7a / S7b | `2d0a6f7d` / `f3a75616` | `/api/accounts`（打码学号，与 `SessionRoutes` 既有的 `138****0000` 同形）+ web 账号页（**路由差集 7 → 6**）；桌面 store 名补后缀 |
+| S8 | `732f8b17` | **`:web` 首个测试源集**：真 ChromeHeadless 跑，A5 三端互认 + 路由差集覆盖 |
+| 门禁自足 | `263b5405` | `:web:wasmJsBrowserTest` 的 Chrome 路径自动探测（原来不设 `CHROME_BIN` 直接失败） |
+| **批④** | `ded4c65f` | serve 内置 HTTPS + 收紧鉴权（`--https` 开箱可启用，默认行为逐字不变） |
+
+**我逐个强制重跑复算过的门禁（2026-10-15）**：`:core:jvmTest` **515** · `:server:test` **93** ·
+`:desktop:test` **117** · `:data:jvmTest` **259** · `:app:testDebugUnitTest` **444**（一条未减）·
+`:web:wasmJsBrowserTest` **5 例 / 0 失败**；web 产物重建 `:web:wasmJsBrowserDistribution` 26m36s，
+三份流式 md5 与盘上一致、js 只引用新 wasm 名、新 wasm 里能搜到 `accounts`/`archive` 指纹。
+
+**批④的引擎裁定（写在这里免得后人重踩）**：Ktor 的 **CIO 引擎不接受 `sslConnector`**——配上去会在那个端口
+继续讲明文（静默降级）。为了不引 `ktor-server-netty`（`:server` 选 CIO 的理由写在 `server/build.gradle.kts` 文件头），
+采用 **JDK 终结 TLS（`SSLServerSocket`）+ 回环字节级转发给 CIO**；keep-alive / 分块编码 / 将来的 SSE 在这一层都是
+一段字节流。备选方案（换 Netty、只给 HTTPS 用）记在 `ServeHttps.kt` 的文件头，改动是局部的。
+
+**已接（2026-10-16，S4/S5/S6 收尾；三端分三段提交）**：`StoreArchive.import`（S1b）现在真的被三端的导入写侧
+调用，合并语义**只**有 `:core` 那一份（各端一个 `ArchiveImportTarget` 实现，不重写 §6.4）：
+
+| 段 | 提交 | 落地 | 该段门禁（实测） |
+|---|---|---|---|
+| `:app` | `7840d90a` | `AppArchiveImportTarget`（`prefs.edit()` 逐键、`putStringSet` 照 §8.4、`at` 不重建旁挂键 —— Android 本就没有 `#written_at`）+ `AndroidArchiveFileWriter`（Room 三表走既有 `insert`/`upsert`，`agent_sessions<suffix>/`、`data_cache<suffix>/` 走原子写）+ `AppArchiveImport` 编排 + **「已导入」标记**（档案落地目录里 `.imported`，第一行是档案身份） | `:app:testDebugUnitTest` 444 → **456**（0 失败）· `:app:compileDebugKotlin` SUCCESS |
+| 桌面 | `3b3569f0` | `DesktopArchiveImportTarget`（`secureKeyValueStore` 逐键 + `at` 重建 `<key>#written_at` + `agent_sessions<suffix>/` 原子写）+ `DesktopArchiveImport` 编排 + 标记 + `importStatusText` 接真结果 | `:desktop:test` 119 → **128**（0 失败，**既有 119 条断言一字未改**）· `:desktop:compileKotlin` SUCCESS |
+| web | `098ef332` | `WebArchiveImportTarget`（`localStorage` 同一批键名）+ `files/` 层在导入前滤掉（本端没有落点）+ 状态文本接真结果；**无标记**（用户主动点一次，没有「页面加载时扫一遍」那一步） | `:web:wasmJsBrowserTest` 52 → **58**（0 失败，真 ChromeHeadless）· `:web:compileKotlinWasmJs` SUCCESS |
+
+**这次一并记下的如实边界（不是尾巴，是三端形状本身）**：
+
+- **Android 上「已有的键一律本端胜」**：Android 的 prefs 没有 mtime，读写投影也不产出 `writtenAt`（
+  `ArchiveImportTarget` 的 KDoc 把 `#written_at` 重建指定给**桌面/web**）⇒ §6.4 的「任一方缺 `at` ⇒ 本端胜」
+  在 Android 上对**已存在的键**恒成立；新键、空表、缺文件照写（`AppArchiveImportTest` 有一条用例钉着它）。
+- **桌面的三族行数组（`files/courses`、`files/media`、`files/jiaocai`）不落地**：桌面这三族是 **KV 店**
+  （`KeyValueCustomCourseStore` / `DesktopDownloadTaskStore` / `DesktopJiaocai1Storage`），形状不是行数组；
+  §6.3 那条「拆成行数组」的转换是另一件事，本次**不假装**做了（桌面自导自的档案只含 `agent_sessions` 那族文件）。
+- **web 没有 `l`/`f` 两档槽位**：档案里的 long/float 在这一端按字符串落、读回来反推成 `s`（端上键值缝的形状，
+  与导入无关；桌面同一档靠 `toLongOrNull`/`toFloatOrNull` 反推，web 少的就是那两条）。
+
+### 16.9 批③-a（写路径对齐里的场馆「去支付」/ D11b）完工记录（2026-10-15）
+
+| 项 | 落地内容 |
+|---|---|
+| 端点 | `GET /api/venue/pay?orderId=…` —— **302 + `Location`**（D11b 要的那个真支付入口的**入口那一跳**）。它是 `/api/…` 家族里**第二条不当信封答**的端点（第一条是 `/api/status` 的裸对象），例外清单写在契约 §4 |
+| `:core` | `CampusVenueApi.paymentUrl` 在 serve 形态从「空串」改成 serve 自己的代跳地址（`/api/venue/pay?orderId=…`）；`browserLoginUrl` **仍是空串** |
+| `:web` | 新宿主 `WebVenueHost`（判据 `venuePayTarget`：只开一个标签、优先支付页；两个地址都空时在页顶如实写一句）+ `ToolboxWebApp` 那条分支改指它；`WebVenuePayTargetTest` **3 例** |
+| 夹具 | `:testkit` 的 `VenueFakeUpstream` 新增 `PAYMENT_PAGE_PATH` / `paymentPageUrl`（这一族第一次动夹具；夹具**不扮演**那一页） |
+| 门禁 | `:server:test` **93 → 95** · `:web:wasmJsBrowserTest` **5 → 8 例**；其余四项计数未变（`:core:jvmTest` 515 / `:desktop:test` 117 / `:data:jvmTest` 259 / `:app:testDebugUnitTest` 444） |
+
+**D11b 的原话是「浏览器里真能付款」，本批只做到一半，如实记下**：这一跳**一定被浏览器跟随**（顶层 302），
+但**落成能付款的一页不担保** —— 支付页要的是**它自己那个站点在浏览器这一侧的会话**，而 serve 的会话只在
+serve 进程的 cookie 罐里（页面替不了别的域名写 cookie）。Android 之所以能，是因为它的内置浏览器是**进程内**的
+WebView：`BrowserScreen.syncCookiesToWebView` 把 App 的 cookie 罐灌进 `CookieManager`，再用
+`onPageFinished` + `isAuthHop` 串第二跳 —— 浏览器里没有这两手。逐条依据写在契约 §5.3.2 第 6 条
+（含 `data/…/auth/VenueLogin.kt` 的 `PAY_BASE_URL` KDoc 那句「要求浏览器自身的会话」。）
+⇒ 页面上如实写「**跳过去后若要求登录，请用 App / 桌面端支付**」，**不许**读成「本端已支持真支付」；
+这一格的「第一次点到底落在哪一页」**没能在线验证**（不许真发起支付、也没探测那台支付站），
+以点位清单 `docs/serve-visual-checklist.md` ⑨ 那一行、用户点出来的现象为准。要把它做成「浏览器里真能付」，
+下一步是让 serve **代理**支付页（同源发出去、连表单与 JS 一起转）—— 那是新的写/支付暴露面，需单独授权。
+施工坑照旧：KDoc 里不要写 `/**`（§16.7）。
+
+### 16.10 D12 的完工记录（2026-10-15）：① 付款码矩阵 / ② 分享码两条缝
+
+D12 是「浏览器能力边界逐条收口」，这一批做的是**前两条** —— 两条都属于「让浏览器能做出 Android 已经能做的东西」
+（③ 相机·剪贴板·WebCrypto、④ PWA、⑤ `GameMerge` **不在本批**，如实记在下面「没做的」那一段）。
+
+#### ① 付款码矩阵：QR + Code128 的编码器按「三端一份」搬进 `:core` 的 commonMain
+
+| 项 | 落地内容 |
+|---|---|
+| `:core`（新） | `platform/QrCodec.kt`（模式选择 / 版本选择 / 终止位 / Reed-Solomon / 交织 / 掩码罚分选优）、`platform/QrLayout.kt`（框架排布：定位与校正图案、时序、格式与版本信息、数据位填充）、`platform/QrMaskUtil.kt`（八种掩码与四条罚分规则）、`platform/QrVersionTable.kt`（1~40 版的纠错块表，L 那一列）、`platform/Code128Codec.kt`（码集 A/B/C 自动选择 + 校验位 + 停止符 + 静默区）。全部是 zxing 3.5.4（Apache-2.0）同名实现的**逐字对照**（文件头写了对照表） |
+| `:core`（改） | wasmJs 的两份 actual 从「如实返回 null」改成**转调上面两份**：`qrCodeModules` / `code128Modules` ⇒ 浏览器这一端真出码（`CodeMatrix.wasmJs.kt`） |
+| `:app` / `:desktop` | **两行都没改**：androidMain / jvmMain 两份 actual 仍走 zxing（C1 红线：Android 行为逐字不变） |
+| 与 Android 的关系 | **逐模块相同**（这是「逐字同口径」的机器判据）：`core/src/jvmTest/.../CodeMatrixParityJvmTest.kt` 拿同一批输入（付款码那串 20 位数字、分享码那串 base64url、按长度铺开的数字串、字母数字与字节模式、随机 fuzz）同时跑**两份实现**并逐格断言；并且拿 zxing 的**解码器**把这一份纯 Kotlin 编出来的矩阵扫回原文 —— 「看着像码、扫不出来的假矩阵」过不了这一条 |
+| 接线与文档 | `:web` 的付款码页顶那行缺口说明改成「与 App / 桌面同一张码」；契约 §5.7 的消费方那一行、点位清单 ⑧ 那一行同步改 |
+
+**踩到的两个坑（如实记，下一个动这块的人会撞上同一个）**：
+
+1. **`CodeMatrix` 那份矩阵的「一个模块一个像素」不能直接喂 zxing 的解码器**：`iSkip = MIN_SKIP = 3`
+   的行扫描 + 找定位图案那一套，在**每模块 1 像素 + 有静默区**的图上会抛 `NotFoundException`
+   （同一个矩阵**不留**静默区反而扫得出来 ⇒ 问题在解码侧的找图案，不在矩阵）。所以那两条「扫回原文」
+   的用例按屏幕/相机的真实密度摆图：**4 像素/模块 + 静默区**（二维码 4 个模块、条形码 10 个模块，
+   上下也要留 —— 条形码阵列只有 1 个模块高，不给上下留白等于把整张图剪成一条）。判据一个字没放宽。
+2. **KDoc 里不要写 `/**`**（§16.7 那条施工坑，这次又踩了）：这次是在注释里举反例时写了那个符号，
+   结果注释嵌套、`:core:compileKotlinJvm` 报 `Syntax error: Unclosed comment` 加一串假错
+   （`Unresolved reference` 之类全是连带）。另外 `Throwable.fillInStackTrace` **wasm 上没有**
+   （覆盖它会报 `overrides nothing`），commonMain 里不要覆盖它。
+
+#### ② 匹配交友分享码：把 zlib 与 URL-safe Base64 两条缝搬进 `commonMain`/wasm
+
+| 项 | 落地内容 |
+|---|---|
+| `:core`（新） | `platform/ZlibCodec.kt`（zlib 流的压缩与解压：固定 Huffman + 贪心 LZ77 压、三种块都解的通用解压、Adler-32）、`platform/UrlSafeBase64.kt`（URL-safe Base64 编解码，宽松边界与 `java.util.Base64` 逐条对齐） |
+| `:core`（改） | wasmJs 的 `deflateBytes` / `inflateBytes` / `base64UrlEncode` / `base64UrlDecode` 四件从「如实返回 null / 空串」改成**转调上面两份**，`deflateAvailable` / `base64Available` 在这一端变成 `true` ⇒ `MatchProfile.codecAvailable` 三端都是 `true` |
+| `:app` / `:desktop` | **一行未改**（androidMain / jvmMain 那两份 actual 仍是 `java.util.zip` + `java.util.Base64`） |
+| `:web` | 新宿主面 `WebMatchHost`（课表族缓存 = localStorage，与日程页同一份；学工档案 / 校园卡流水如实没有 ⇒ 那两维禁用，与桌面同一个形状）；`AppPage` 的 `AppRoute.Match` 从 `WebMatchGapScreen` 改成挂 `:core` 的 `MatchScreen`（`scanner = null`：浏览器相机属 D12 ③）——**那张如实说明页删掉**（`WebFallbackScreens.kt`） |
+| 互认怎么钉的 | `core/src/jvmTest/.../ShareCodeInteropJvmTest.kt` 跑**两个方向**：`MatchProfile.encode`（= jvm/Android 那份实现）出的码 → 纯 Kotlin 的 Base64Url + zlib 解回同一段明文；纯 Kotlin 编出来的码 → `MatchProfile.decode`（= Android 那份实现）解回**逐字段相等**的档案。另有 `ZlibCodecJvmTest`（两个方向 + 存储块/固定/动态三种块 + 坏数据两边都 null + 截断与上限）与 `UrlSafeBase64JvmTest`（编码逐字节相同、解码宽松边界与 JDK 一致，含 `QQ` / `QQ=` / `QR` 这些边界）。`:web:wasmJsBrowserTest` 的 `WebMatchShareCodeTest` 在**真浏览器**里再解一遍同一条冻结真码 |
+| ⚠️ 一处**允许**的不一致 | **压缩字节不同**（这一份固定 Huffman，zlib 动态 Huffman ⇒ 压缩率略低），所以「同一份档案在两端各编一次」得到的分享码**字符串不同**；判据是**互相解得开**，不是字节相同（`:platform/ZlibCodec.kt` 文件头有逐条对照表）。要字节也相同就得把 zlib 的匹配启发式整份搬过来，代价与收益不成比例 |
+| ⚠️ 顺手纠正的一处旧错话 | 两条缝的旧 KDoc 写着「原始 deflate，无 zlib 头」—— **那句是错的**：`new java.util.zip.Deflater(BEST_COMPRESSION)` 产出的是**带 zlib 头**的流（`78 DA` + deflate + 4 字节 Adler-32，实测过），也正因为如此喂它随便一串字节能得到 `incorrect header check`。本批按真实格式实现并改正了那两处 KDoc |
+| 接线与文档 | 契约 §5.7 的「分享码那一半在浏览器端不可用」那一段与消费方那一行、点位清单 ⑧ 那一行同步改；`WebSupport` 文件头与 `WebRouteCoverageTest` 的文件头里「Match 落说明页」那两句也改了 |
+
+**渲染与运行时证据**：`:web:wasmJsBrowserTest` 的 `WebMatchShareCodeTest`（3 例）在真浏览器里断言
+`codecAvailable == true`、Android 编的那条真码解得回、自己编的码自己解得回、以及二维码与条形码在这一端
+真编得出来。**没做的**照旧是 D12 ③（相机 / 剪贴板 / WebCrypto —— 这一批只到「HTTPS 是前置」的那一步）、
+④（PWA）、⑤（`GameMerge`）。
+
+### 16.11 D12 的完工记录（2026-10-15）：⑤ `GameMerge` 在浏览器上真能玩 · ③ 相机·剪贴板·WebCrypto 的逐条查清 · ④ PWA 仍未做
+
+本批是 D12 的**后三条**（①② 见 §16.10），逐条给「做了 / 做不到 + 为什么 + 最小可行方案」。口径照 §16 开头那四条，
+**这是重构不是功能更新：安卓怎么做就怎么做**。
+
+#### ⑤ `GameMerge`（合成西交大）：web 端真能玩，Android 与桌面一行未改
+
+| 项 | 落地内容 |
+|---|---|
+| `:web`（新） | `web/.../web/WebGameMerge.kt`：Compose 顶栏（与 Android 那一屏同一句「合成西交大」+ 同一个 `BackButton`）+ 一个 `<iframe>`（挂在 `<body>` 上、按量出来的矩形摆位）+ `MergeGameScoreBridge`（与游戏页那份最高分对齐）。**没有一行游戏逻辑**在 `:web` 里重写 |
+| 资源从哪来 | `web/build.gradle.kts` 的 `mergeGameResources`（一个 `Sync`）：构建期把 `:app` 的 `app/src/main/assets/games/merge/`（`index.html` + `index.js` + 本地 `matter.min.js` + 9 张校徽 webp，408KB）拷进 `:web` 的资源根 `games/merge/` ⇒ 由 `wasmJsProcessResources` 进 wasm 产物目录（serve 的 `--dist` / nginx / dev-server 都是同一个静态根）。**同一份字节，不在仓库里存第二份**（`index.js` 与 `:app` 那份 md5 一致，实测过） |
+| 接线 | `ToolboxWebApp.kt` 一条 `AppRoute.GameMerge` 分支 + `WebSupport.openableRouteIds` 一条门 ⇒ **路由差集 6 → 5**（`WebRouteCoverageTest` 跟着改） |
+| `:app` / `:desktop` | **两行都没改**：Android 仍是 WebView 装 assets，桌面那张 `HostUnavailableScreen`（如实说明缺载体）照旧 |
+| `:server` | 静态 mime 表加一条 `webp` —— 那 9 张校徽是 webp，一张静态托管里的图不该发成 `application/octet-stream`（`ServeServerTest` 里一条断言钉住） |
+
+**两处如实差异**（都不在屏幕上画字，理由在 `WebGameMerge.kt` 的 KDoc）：① **没音效** —— Android 走 JS 桥 `AndroidGameBridge.playSound` ⇒ `GameSound`；
+浏览器里没有那座桥，游戏的 `sfx()` 直接静默。这一条不是本屏的缺口，而是**本端所有小游戏的共同事实**（`:core` 的 `gameAudio()` 在 wasm 上是 `SilentWebGameAudio`）。
+② **成绩回传的时机**不同 —— Android 是「游戏结束那一刻」由桥回调（`submitScore` + `bestScore`）；这里反过来：进屏把 App 侧那份最高分**镜像**进游戏页自己的
+localStorage 键（`merge-xjtu-highscore`），离开这一屏时把游戏页记的成绩**收回** App 侧那份（合集页那一行的最高分两边一致；那个键名由 `WebGameMergeTest` 与游戏页的 `STORAGE_KEY` 逐字对账）。
+
+**为什么是 iframe 而不是「同标签跳过去」**：这一屏在 Android 上是**一屏**（顶栏与返回箭头都在），而跳走之后浏览器的后退键回不到这一屏
+（外壳的路由是 `history.replaceState` 写的，不产生新条目）⇒ 用户会被困在游戏页里。iframe 让外壳原样留着；位置由 JS 按 Compose 量出来的矩形设 ——
+那个「布局 px → CSS px」的换算写成纯函数（`mergeFrameCssRect`），因为「这一端的 density 是不是等于设备像素比」不该由这一屏去猜：两个已知量（画布在 Compose 坐标里的高 × `window.innerHeight`）一比就得到倍数，两种形状各有一条测试钉住。
+
+**真浏览器证据（手工跑的，逐条可核）**：
+
+1. **渲染**：用仓库自己那颗 Chromium（`:web:wasmJsBrowserTest` 用的那颗，`~/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`）
+   无头截图游戏页，画面里出现的像素颜色正好是 `index.js` 的 `LEVELS[].color`（`#185AA8` = 哈工大、`#6C126F` = 南大、`#2F70C4` = 中科大…）—— 那正是 9 枚烘焙棋子外圈描边的颜色
+   （`rgb(0.10,0.35,0.66)` 这类取值在 `magick … histogram` 里数得出来）⇒ **棋真画出来了**。
+2. **输入与物理**：同一颗 Chromium 里给画布派发 `mousedown/mousemove/mouseup`：`Matter.Composite.add` 被计数命中（`adds: 3`）⇒ `Game.drop()` 真跑、真往物理世界里加球；
+   每帧的 `beforeTick/tick/beforeUpdate/beforeRender/afterRender` 都在涨 ⇒ 物理与渲染两个循环都活着。
+3. **合成计分那一步没能在这里验出来（如实）**：`--virtual-time-budget` 下 Matter 的 delta 被拉大 ⇒ 球会穿透、不合成（score 一直 0）。真站点上由用户照单点（点位清单 ⑪）。
+4. **采集坑（下一个动这块的人会撞上）**：那个由 agent 自己开的 Playwright 浏览器（UA `Chrome/145.0.0.0`）**画不出任何渐变** —— 实测矩阵：实心 `fillRect`/`arc` 有像素，
+   而线性与径向渐变填充一律全透明（贴在 DOM 上与否都一样）；而 `index.js` 的烘焙棋子（`createRadialGradient`）与页面上那行渐变文字都靠渐变 ⇒ 在它里面看到的
+   是「整块画布全空、看着像游戏没跑起来」。**别拿它当判据**，用仓库自己那颗 Chromium。
+
+#### ③ 相机扫码 / 剪贴板 / WebCrypto：逐条查清
+
+| 项 | 结论 | 依据 / 为什么 | 最小可行方案 |
+|---|---|---|---|
+| 剪贴板 | **能用**（前置是安全上下文，D11 已给） | CMP 1.12.1 在 wasm 上的 `ClipboardManager` 就是 `navigator.clipboard.writeText`（`PlatformClipboard.wasm.kt` 的 `WasmPlatformClipboardManager`；从 klib 里挖出的字符串：`isSecureContext` / `isFallbackWriteTextApiAvailable` / `console.warn('Clipboard API is not available in insecure contexts.')`）。共享屏里那几处复制（匹配交友的「复制文字」、社区验证码、空闲教室长按复制）走的就是它 ⇒ `127.0.0.1` 或 `--https` 下真能用；**明文 HTTP + 非 localhost 下它只 `console.warn`：点了没反应、也不报错** | 已经到位：`--https`（D11）。另把「这一份部署到底有没有」变成看得见的：`?route=probe` 上的「浏览器能力」表（本批新增，见下） |
+| 相机扫码 | **做不到**（缺的不是相机 API） | ① `getUserMedia` 的安全上下文前置 D11 已经给了；② 真正卡的是**没有二维码解码器**：D12 ① 只把 zxing 的**编码器**搬成了纯 Kotlin（`QrCodec`），解码那一侧（`QrBitmap.read` / `MultiFormatReader`）仍在 `:app`/JVM，而 `decodeImagePixels` 在 wasm 上恒 `null`、`decodeImage*` 那条路只是「图 → 位图」、不认码；③ 浏览器自带识别器也借不到：**桌面 Chrome 没有 `BarcodeDetector`**（只有 Chrome on Android / ChromeOS 有）—— 由 `WebBrowserCapabilitiesTest` 里那条 canary 钉住 | 按 D12 ① 的同一做法把 zxing 的**解码链**（二值化 + 找定位图案 + 透视变换 + Reed-Solomon）搬进 `:core` 的 commonMain，再在 `:web` 写 `WebMatchScanner`（`getUserMedia` + `canvas.getImageData` → 那份解码器）。**这是一份比编码器大得多的纯 Kotlin 移植**，要单独一批授权（本批不做）。更小的一步：先做「选一张图识别」（不需要相机），它只要那份解码器 |
+| WebCrypto | **本端没有消费方**（不是缺 API） | 全仓要密码学的地方只有三处、都在 `:data`（JVM/Android）：WebVPN 的 AES-128-CFB、体测协议（`FitnessProtocol`）的 AES-CBC + MD5、Android 凭据库（`EncryptedSharedPreferences`）。前两样在浏览器上都搬不过来：**WebCrypto 没有 CFB 模式**（只有 CBC/CTR/GCM/KW），**也没有 MD5** | 真要把 WebVPN 转换搬进浏览器：用 `crypto.subtle` 的 `AES-CBC` 单块当 `AES-ECB` 用（IV 全零时 `E(P)` / `D(C)` 就是单块 ECB），再手写 CFB-128 循环 —— 那是一份新的密码学实现，得单独授权；体测那条代价更大（要自写 MD5），且那一族今天整体在服务端 |
+
+**这一条也顺手把 §5.7 里那句旧理由收紧了**：WebVPN 转换器当初「为什么放在服务端」的第一条理由是「`crypto.subtle` 只在安全上下文里存在」——
+D11 给了 `--https` 之后这个前提**可以满足**了，所以真正的理由换成上面那一条（WebCrypto 里没有 CFB）。结论（放服务端）不变，理由更准。
+
+**新增的可见那一半**：`web/.../web/WebBrowserCapabilities.kt` + `?route=probe` 上那张「浏览器能力」卡（5 行：安全上下文 / 剪贴板写入 / 相机 / 浏览器自带二维码识别器 / WebCrypto），
+每行带 ✓/✗ **和一句「本端谁在用 / 差什么」** —— 这几条**跟地址走**（安全上下文），所以只在文档里写没用，得让用户拿自己的地址当场核。
+
+#### ④ PWA（系统通知 / 小组件 / 后台定时）：**未做**（如实）
+
+这一批**没做**。缺的东西逐条：① 一份 `manifest.webmanifest` + 图标 + `display: standalone`（「装成 App」）；② 一个 Service Worker
+（**只在安全上下文里能注册** ⇒ 与 ③ 同一条前置，`--https` 给的那条）；③ 系统通知要 `Notification.requestPermission()` + 用户手势触发 + SW 里 `showNotification`；
+④ 后台定时（`periodicSync`）在桌面浏览器基本没有（Chrome 只在「装成 PWA 且站点参与度够」之后给 `periodicBackgroundSync`），
+而 **Android 小组件在浏览器里没有对应物**。
+
+最小可行方案（按收益排序）：先 `manifest` + SW（离线壳 + 装到桌面），再 `Notification`（serve 侧已有取数路径可用），最后才是 periodicSync；
+**小组件那一档不做**（浏览器没有等价载体，与桌面那张 `HostUnavailableScreen` 同一种诚实写法）。
+
+#### 本批的门禁与复核计数
+
+| 任务 | 结果 |
+|---|---|
+| `:web:compileKotlinWasmJs` | **BUILD SUCCESSFUL** |
+| `:web:wasmJsProcessResources` | 产物里真出现 `games/merge/{index.html,index.js,matter.min.js,img/*.webp}`；`index.js` 与 `:app` 那份 **md5 一致**（`e62b963ccdf1548025e122e71d6b1744`） |
+| `:web:wasmJsBrowserTest` | **11 → 20 例**（新增 `WebGameMergeTest` 6 例 + `WebBrowserCapabilitiesTest` 3 例）；0 失败 |
+| `:server:test` | 109 例（`ServeServerTest` 里加一条 webp mime 断言，**例数不变**）；0 失败 |
+| `:core:jvmTest` / `:data:jvmTest` / `:desktop:test` / `:app:testDebugUnitTest` | 本批一列未动，实测（XML）**536 / 259 / 118 / 444**，全 0 失败 |
+
+**仍未接（如实，不是漏）**：合成计分那一步没能在无头环境里跑出分数（见上面第 3 条）；相机扫码缺解码器；PWA 整档未做。
+
+### 16.12 D12 ③ 的收尾（2026-10-16）：zxing 的**解码链**搬进 `:core` · 匹配交友那一屏在浏览器里**真能扫码** · 桌面 3 处 `then` · 点位清单 ⑩ 的陈旧行
+
+本批是 **D12 ③ 的收尾**（§16.11 把 ③ 查清了、把 ④ 标成未做）。逐项给「做了 / 做不到 + 为什么 + 最小可行方案」。
+
+#### ① 相机/选图扫码：**做出来了**，做法与 D12 ① 的编码器同一条（三端一份纯 Kotlin，JVM/Android 仍走 zxing）
+
+| 项 | 落地内容 |
+|---|---|
+| `:core`（新，`commonMain`） | `platform/qr/` —— zxing 3.5.4 解码链的**逐字对照**：`QrBitMatrix`（可改的位矩阵）、`QrBinarizer`（`HybridBinarizer` / `GlobalHistogramBinarizer` / `PlanarYUVLuminanceSource`）、`QrPerspectiveTransform` + `QrGridSampler`（透视与网格采样）、`QrReedSolomon`（GF(256) + `GenericGFPoly` + `ReedSolomonDecoder`）、`QrVersion`（40 版 × 四级的纠错块表，**从 zxing 的 `Version.java` 逐条抽出来**的，脚本生成的）、`QrFormatInformation` + `QrDataMask`、`QrBitMatrixParser` + `QrDataBlock`、`QrBitSource` + `QrCharset` + `QrDecodedBitStreamParser`、`QrDecoder`、`QrDetector`（定位图案/校正图案/交叉验证）、`QrReader`（入口：一帧 ARGB → 文本）。**每个文件头都有一张「zxing 的那个类 ⇄ 这里的这个类」对照表**，逐行是同一份算法 |
+| `:core`（新，缝） | `platform/QrDecode.kt`：`expect fun qrDecodeArgb(pixels, width, height): String?` —— 一帧 ARGB（`0xAARRGGBB`，就是 `Bitmap.getPixels` 那批 int）→ 二维码文本。**jvmMain / androidMain 两份 actual 仍是 zxing**（`PlanarYUVLuminanceSource` + `HybridBinarizer` + `QRCodeReader`，与 `:app` 的 `QrFrameDecoder` 同参数、同灰度式子），wasmJs 那份转调 `QrReader` |
+| `:app` / `:desktop` | **一行未改**（红线：Android 行为逐字不变 —— `:app` 的匹配交友屏仍走它自己那份 `qrlogin/QrFrameDecoder`，连「补定位块」那一档也在） |
+| `:web`（新） | `WebQrCamera.kt`（`getUserMedia` + `<video>` + 按需画到 canvas → ARGB；`<input type=file>` + `createImageBitmap`；两条路**共用同一段换算**）+ `WebMatchScanner.kt`（`MatchScanner` 的实现：`scan()` 与 `fromImage()`）+ `ToolboxWebApp.kt` 那一行从 `scanner = null` 改成 `scanner = remember { WebMatchScanner() }` ⇒ **那两颗按钮真画出来、真能扫** |
+| 与 Android 的关系 | **同一批像素解出同一段文本**：`:core:jvmTest` 的 `QrDecodeParityJvmTest` 拿同一批 ARGB 同时跑两份实现逐字断言（含「图里没有码」两边都 null、被遮掉一块两边同结论、Reed-Solomon 那一层逐个码字相同） |
+
+**四处如实（都不在屏幕上骗人）**：
+
+1. **「补定位块」那一档没搬** —— `:app` 的 `QrFrameDecoder` 在常规解码失败后还会补一个磨掉的定位块再解一次（图书馆那种被磨掉一角的桌贴）；那一手要 `FinderCandidates` 那一整套候选配对与重画逻辑（`:app` 自己的一份），本批没搬 ⇒ **那种码在浏览器这一端扫不出来**（Android 能）。
+2. **中日文那一档可能解不出来** —— commonMain 没有字符集码表：BYTE 段被猜成 Shift_JIS、或码里写 KANJI / HANZI 段时，这一端返回 null（落到「图里没找到二维码」那句）。匹配交友的分享码是 base64url（纯 ASCII）⇒ **这一屏不受影响**。边界表写在 `QrCharset.kt` 的文件头。
+3. **取景覆盖层是 DOM 画的，不是 Compose** —— Android 是 `QrScannerView` + 两颗 MIUIX 按钮；这一端要真画面只能用一个真 `<video>`（`:web` 的既有先例是 `WebGameMerge` 那个 `<iframe>`），所以覆盖层是 DOM：全屏 `<video>` + 一行提示 + 一颗「取消」（两句文案与 Android **逐字相同**）。观感与 MIUIX 不一致。
+4. **相机那一跳的「真流进来、逐帧扫到」没在 CI 里验过** —— 本机的测试浏览器没有摄像头。详见下面「验过 / 没验过」。
+
+**一处**实测**的互操作坑（下一个动这一块的人会撞上同一个）**：Kotlin/Wasm 的 `@JsFun` **只收 external / 基本类型 / 字符串 / 函数**这四类，`IntArray` **参数与返回值都不行**：
+
+```
+Type 'IntArray' cannot be used as value parameter type of JS interop function.
+Type 'IntArray' cannot be used as return type of JS interop function.
+```
+
+第一版写的是「JS 每 250ms 抓一帧、回调 `onFrame(pixels, w, h)`」，直接编不过。落地形态改成：**JS 把一帧包成 `{ length, valueAt(i) }` 对象（`external interface JsPixelFrame : JsAny`），Kotlin 拿 `JsAny` 句柄按需逐个读进自己那块可复用的 `IntArray`**，循环由 Kotlin 按节拍驱动（4 fps、长边 640 —— 与 `:app` 的相机分析同一档）。这一条也写进了 `WebQrCamera.kt` 的 KDoc。
+
+#### ② 验过 / 没验过（逐条）
+
+| 验的什么 | 怎么验的 | 结果 |
+|---|---|---|
+| 解码链与 zxing **同一批像素同一段文本** | `:core:jvmTest` 的 `QrDecodeParityJvmTest`（4 例）：zxing 编的码 + 纯 Kotlin 编的码、两档密度、没有码/一片白/噪声/太小/参数不对、轻伤（纠错兜住）与重伤（两边同结论）、Reed-Solomon 那一层 40 轮逐个码字相同 | 全过 |
+| 「一帧图像 → canvas → ARGB → Kotlin → 解出原文」在**真浏览器**里跑通 | `:web:wasmJsBrowserTest` 的 `WebMatchScanTest` 第 1 例：把一条真二维码摆进 canvas、用**产品那一段换算**读回来、逐个读进 `IntArray`、交给 `:core` 的解码器，判据是**逐字等于原文** | 过（ChromeHeadless 153） |
+| 相机那三条失败态各自一句人话 | 同上的第 2 例（纯函数） | 过 |
+| 这一份部署「能不能开相机」的判据 + 「测试给的流不在」那条错路 | 同上的第 3 例 | 过 |
+| **真流进来、逐帧扫到** | —— | **没验过**：karma 那颗 Chromium 没有摄像头，也没给 `--use-fake-device-for-media-stream` 那种假设备；要假流就得改 `web/build.gradle.kts` 里那套 `useChromeHeadlessNoSandbox()`（另一个决定，本批没动）。真机上照点位清单 ⑫ 手点 |
+| **`<input type=file>` 那条弹窗** | —— | **没验过**：测试里点不出系统文件选择框（`input.click()` 在用户手势下会不会被拦也只到「按标准用法写在 `onClick` 起的协程里」这一步）。「选完图之后」的那一半由上面第 1 例覆盖 |
+
+#### ③ 顺手的两条
+
+| 项 | 落地内容 |
+|---|---|
+| 桌面 3 处 `is AppRoute.Browser ->` 丢 `then` | 与 f38c2fc8 同一口径：日程 / 消息收纳 / 通知公告那三处改成 `desktopBrowserTarget(r.url, r.then)?.let { openInBrowser(it) }`。**今天的行为一字未变**（那三处收到的路由 `then` 都是空串 —— 课表那一族根本不造 `AppRoute.Browser`，别的几处造它时只传 url）⇒ 修的是**口径**。`DesktopBrowserJvmTest` 加一条源码断言钉住「四处都走同一个判据」 |
+| 点位清单 ⑩ 里 `Accounts` 那条陈旧行 | 改成事实：那一行原本写着「落『这一屏还没搬到 Web』」，而 `AppRoute.Accounts` 自批②（2026-10-15）起就在 `WebSupport.openableRouteIds` 里、也不在 §16.2 第 1 条那 4 条差集里 ⇒ 按它的真实形状（**跟形态走**：serve 落真账号页、campus-api 落「需要 serve 模式」页）挪进 ⑨ |
+
+#### ④ PWA（D12 ④）：**做出来了**，按 §16.11 末段那个「按收益排序」的顺序
+
+| 那一档 | 落地内容 |
+|---|---|
+| `manifest`（装成 App） | `web/src/wasmJsMain/resources/manifest.webmanifest`：名称 / `short_name` / `display: standalone` / `start_url` `./` / `theme_color` / 3 条 `icons`（192、512、以及一张 `maskable`）；图标四张在 `resources/icons/`（**从 `:app` 的 `mipmap-xxxhdpi/ic_launcher.webp` 转出来的**：192 那张 1:1，512 与 maskable 是从 192 放大的 ⇒ 装到桌面大图会略糊，`:app` 里最大就 192）。`index.html` 里加 `<link rel="manifest">` + `theme-color` + `apple-touch-icon` |
+| Service Worker（离线壳 + 装到桌面） | `resources/sw.js`：**网络优先**（在线时永远拿新产物 —— 不然「装成 App」= 再也收不到更新），拿不到才回落到最近一次成功抓到的那一份；不碰 `/api/…` 与跨域；`install` 里 `skipWaiting()`、`activate` 里清旧缓存 + `clients.claim()`（换代不用等）。注册在 `resources/pwa.js`（页面加载时）：**只在安全上下文里试注册**，结果写进 `globalThis.__xjtuToolboxPwa` |
+| Notification（权限与手势） | `?route=probe` 上新增一张「装成 App / 系统通知（PWA）」卡：三行事实（manifest / Service Worker / 通知权限）+ 两颗按钮（「要一下通知权限」= **用户手势**里调 `Notification.requestPermission()`；「发一条测试通知」= 经 `ServiceWorkerRegistration.showNotification` 发一条真通知，顺带证明 `sw.js` 活着）+ 一颗「重查」。`notificationclick` 在 `sw.js` 里（点通知把窗口拉到前台） |
+| `:server` | 静态 mime 表加一条 `webmanifest` → `application/manifest+json`（**不带 charset**）：发成 `octet-stream` 时 Chrome 会拒掉那份 manifest，装成 App 那一步直接没了。`ServeServerTest` 里一条断言钉住（**例数不变**：加在同一发里） |
+| **不做的那一档** | **Android 小组件在浏览器里没有对应物** ⇒ 不做（不是没做，是没有载体），与桌面那张 `HostUnavailableScreen` 同一种诚实写法；后台定时（`periodicSync`）同理：Chrome 桌面普通页面里那个权限就是 `denied`，只在「已装成 PWA 且站点参与度够」之后才可能给 ⇒ **基本不给**。这两句都写在屏上那张卡里（`WebPwa.widgetNote`） |
+
+**四处如实（都不在屏幕上许诺）**：① **不做自定义的「安装」按钮** —— `beforeinstallprompt` 只被记下来（`WebPwa.installable()`），装不装由用户点浏览器自己那条入口说了算（`pwa.js` 里**没有** `preventDefault()`）；② **小组件 / 后台定时那两句**见上表最后一行（屏上写着）；③ **「真注册成功」与「真弹出一条通知」没在 CI 里验过**（karma 那一页不是我们的 `index.html`；agent 自己那颗浏览器里 `navigator.serviceWorker.register()` 的 Promise 一直挂着、`isSecureContext` 还是 `undefined` —— §16.11 记过它画不出渐变，**别拿它当判据**）；ci 里验到的是「`sw.js` / `pwa.js` / `manifest.webmanifest` / `icons/…` 真随 `wasmJsProcessResources` 进产物」+「这张卡读的是**这一份页面**的事实」+「Service Worker / Notification 在这一份部署里都在、权限是个真值」；④ **manifest 的 mime 与 JSON 手工核过**（用与 `:server` 同一张 mime 表起一个静态服务：`application/manifest+json`、JSON 合法、3 条图标都在、`index.html` 里那个 link 在）
+
+#### 本批的门禁与复核计数（XML 实测）
+
+| 任务 | 结果 |
+|---|---|
+| `:core:jvmTest` | **537 → 541 例**（新增 `QrDecodeParityJvmTest` 4 例）；0 失败 |
+| `:web:wasmJsBrowserTest` | **58 → 65 例**（新增 `WebMatchScanTest` 3 例 + `WebPwaTest` 4 例）；0 失败 |
+| `:server:test` | 144 例（`ServeServerTest` 里加一条 `webmanifest` mime 断言，**例数不变**）；0 失败 |
+| `:web:wasmJsProcessResources` | 产物里真出现 `manifest.webmanifest` / `sw.js` / `pwa.js` / `icons/{icon-192,icon-512,maskable-512,apple-touch-icon}.png` |
+| `:desktop:test` | **128 → 129 例**（`DesktopBrowserJvmTest` 加一条源码断言）；0 失败 |
+| `:web:compileKotlinWasmJs` / `:desktop:compileKotlin` | **BUILD SUCCESSFUL** |
+| `:server:test` / `:data:jvmTest` / `:app:testDebugUnitTest` | 本批未动这三块的**代码**，实测复核数见本批的提交说明（`:app` 仍是 456、一条未减） |

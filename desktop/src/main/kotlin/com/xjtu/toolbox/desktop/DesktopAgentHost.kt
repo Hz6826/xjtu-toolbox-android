@@ -15,6 +15,9 @@ import com.xjtu.toolbox.agent.AgentTools
 import com.xjtu.toolbox.agent.AgentTransport
 import com.xjtu.toolbox.agent.SseAgentTransport
 import com.xjtu.toolbox.faculty.FacultyApi
+import com.xjtu.toolbox.platform.SecretProtector
+import com.xjtu.toolbox.platform.protectedSecureKeyValueStore
+import com.xjtu.toolbox.platform.secretProtectorForPlatform
 import com.xjtu.toolbox.platform.secureKeyValueStore
 import com.xjtu.toolbox.yellowpage.YellowPageApi
 import kotlinx.coroutines.CoroutineDispatcher
@@ -41,9 +44,11 @@ import kotlinx.coroutines.flow.map
  * 三份都存在本端的数据根目录里（`dataFilesDir()` = `~/.local/share/xjtu-toolbox`，测试与证据运行
  * 用 `dataRootOverride` 指到临时目录），文件名与 Android 那份**逐字相同**，键名也同一批：
  *
- *  - 配置：[AgentConfigStore] 的非敏感那半走 `secureKeyValueStore`（`:core` 的 jvm `keyValueStore`
- *    是**进程内内存**，设置项存进去重开就没了 —— 与 `DesktopSettingsHost` 同一条理由）；
- *    密钥那一半本来就只能落在密文存储上（Windows 上再套一层 DPAPI，见 `:data` 的 `SecretProtector`）；
+ *  - 配置：[AgentConfigStore] 的非敏感那半走 `secureKeyValueStore`（`keyValueStore` 的 jvm 实现
+ *    现在也真落盘了，但这一端按「同名 store 不得同时以 plain 与 secure 打开」的纪律统一走密文那套 —— 与 `DesktopSettingsHost` 同一条理由）；
+ *    密钥那一半走 `:data` 的 `protectedSecureKeyValueStore`（**与 serve 同一份**）：Windows 上再套一层
+ *    DPAPI 信封（`xjtu-sealed:1:dpapi:…`），Linux / macOS 没有保护器 ⇒ 明文 `0600`，与今天逐字相同；
+ *    盘上那些老的**明文**值原样读得回来（读旧写新），见 `ProtectedKeyValueStore` 的 KDoc。
  *  - 会话：[AgentSessionStore]（`agent_sessions<账号后缀>/index.json` + 每会话一个 `convo_*.json`）；
  *  - 记忆：[AgentMemory] 落在 0600 的 `agent_memory<账号后缀>.properties`（不分账号的旧版文件由它自己迁移）。
  *
@@ -89,7 +94,17 @@ import kotlinx.coroutines.flow.map
  *
  * @param auth 会话 + 凭据（MFA 那一路要它；取数工具本身都不需要校园会话）
  */
-internal class DesktopAgentHost(private val auth: DesktopAuth) : AgentHost {
+internal class DesktopAgentHost(
+    private val auth: DesktopAuth,
+    /**
+     * 密钥那一半的凭据保护器。默认 = 本机那一档（Windows ⇒ DPAPI，其余平台没有）。
+     *
+     * 收成参数只为一件事：Linux / macOS 上 `secretProtectorForPlatform()` 是 `null`，而「读了就密封、
+     * 解不开就抛」那半条契约在那种平台上跑不到 —— 单测传一份夹具保护器就能在本机把它钉住。
+     * 生产调用点（`ToolboxDesktopApp`）一个参数都不传。
+     */
+    private val protector: SecretProtector? = secretProtectorForPlatform(),
+) : AgentHost {
 
     override val honored: Set<AgentCapability> = emptySet()
 
@@ -135,9 +150,22 @@ internal class DesktopAgentHost(private val auth: DesktopAuth) : AgentHost {
 
     /**
      * 非敏感那半的存储：**必须传 `secureKeyValueStore`**（0600 的 `agent_config*<账号后缀>.properties`）。
-     * `:core` 的 `keyValueStore` 在 jvm 上是进程内内存实现，用它等于「服务商/模型/助手名一关窗就丢」。
+     * `keyValueStore` 在 jvm 上现在也真落盘了，但这一端统一走 0600 密文那套（同一 store 名不得同时以 plain 与 secure 打开）。
+     *
+     * 密钥那一半走 [protectedSecureKeyValueStore]：**与 serve 同一个保护器**（`docs/agent-web-spec.md`
+     * §5.1 缺口 A 的桌面那一半）。文件名与键名与搬迁前逐字相同，所以盘上老的明文值读得回来
+     *（[com.xjtu.toolbox.platform.ProtectedKeyValueStore] 对没有信封的值原样通过）—— 读旧写新。
      */
-    private val configStore = AgentConfigStore(plainStoreOf = { secureKeyValueStore(it) })
+    private val configStore = AgentConfigStore(
+        plainStoreOf = { secureKeyValueStore(it) },
+        secureStoreOf = { suffix ->
+            protectedSecureKeyValueStore(
+                AgentConfigStore.STORE_SECURE + suffix,
+                AgentConfigStore.STORE_LEGACY + suffix,
+                protector,
+            )
+        },
+    )
 
     private fun agentMemory(): AgentMemory =
         AgentMemory(storeOf = { secureKeyValueStore(AgentMemory.STORE + AccountContext.safeSuffix()) })

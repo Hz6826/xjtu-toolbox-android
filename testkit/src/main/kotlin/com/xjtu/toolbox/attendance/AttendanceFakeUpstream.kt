@@ -78,13 +78,41 @@ class AttendanceFakeUpstream {
 
         const val COURSE_NAME = "光电子学（假）"
         const val COURSE_CODE = "PHYS999999"
+        /** 上课教师名（**姓名**）：考勤流水里带着它，而 `/api/attendance/records` 按 §5.2 红线**不投影**它 —— 契约测试拿它当钉子。 */
+        const val TEACHER_NAME = "高宏（假）"
         const val ROOM = "西2楼-假-307"
 
         const val LEAVE_ID = "L-假-0001"
         const val LEAVE_REASON = "发烧（假样例）"
 
+        /**
+         * 请假流程预览里那位审批人的**姓名**（编造）。`leave/preview` 的 `name` 格按契约 §5.2 的
+         * 例外④**真投影**（2026-10-15 上一级拍板）—— 契约测试拿它当钉子。
+         */
+        const val LEAVE_APPROVER_NAME = "辅导员甲（假）"
+
+        /**
+         * 请假单里那节课的**任课教师姓名**（编造；与考勤流水那条 `TEACHER_NAME` 是两个不同的人）。
+         * `leave/records` 的 `courses[].teacherNames` 按契约 §5.2 的例外④**真投影** ——
+         * 契约测试拿它当钉子（流水那一格的 `TEACHER_NAME` 仍然不许出现）。
+         */
+        const val LEAVE_COURSE_TEACHER = "李四（假）"
+
         const val EVIDENCE_ID = "E-假-0001"
+
+        /** 上游拒收一次请假提交时给的那句 message（[leaveCreateRejected] 打开后用）。 */
+        const val LEAVE_CREATE_REJECTED_MSG = "当前不在可请假时段（夹具）"
     }
+
+    /**
+     * 打开后：提交请假那一发回 `{"code":500,"message":…}`（HTTP 仍是 200）—— 演「到了上游、
+     * 上游说不给提」（比如不在可请假时段 / 审批人已失效）。
+     *
+     * `KqHttp.execute` 看的是 JSON 里那个 `code`（不是 HTTP 码）⇒ 它抛成 `RuntimeException(message)`
+     * ⇒ serve 那一层按 502 报。
+     */
+    @Volatile
+    var leaveCreateRejected: Boolean = false
 
     // ── 断言用：请求原文与计数 ──
 
@@ -171,6 +199,10 @@ class AttendanceFakeUpstream {
             }
             path == "/sa/student/leaves" && exchange.requestMethod == "POST" -> {
                 createLeaveBodies += exchange.requestBody.readBytes().decodeToString()
+                if (leaveCreateRejected) {
+                    respondJson(exchange, """{"code":500,"message":"$LEAVE_CREATE_REJECTED_MSG"}""")
+                    return
+                }
                 captureHeaders(exchange)
                 respondJson(exchange, """{"code":0,"data":{"leaveId":"$LEAVE_ID"}}""")
             }
@@ -204,10 +236,10 @@ class AttendanceFakeUpstream {
         {"code":0,"msg":"ok","data":{"total":2,"rows":[
           {"resultId":"r-假-1","semesterId":"$TERM_CURRENT_BH","courseName":"$COURSE_NAME","courseCode":"$COURSE_CODE",
            "courseDate":"2026-09-16","startSection":1,"endSection":2,"classroomName":"$ROOM",
-           "teacherName":"高宏（假）","attendanceStatus":"NORMAL"},
+           "teacherName":"$TEACHER_NAME","attendanceStatus":"NORMAL"},
           {"resultId":"r-假-2","semesterId":"$TERM_CURRENT_BH","courseName":"$COURSE_NAME","courseCode":"$COURSE_CODE",
            "courseDate":"2026-09-18","startSection":3,"endSection":4,"classroomName":"$ROOM",
-           "teacherName":"高宏（假）","attendanceStatus":"LATE"}
+           "teacherName":"$TEACHER_NAME","attendanceStatus":"LATE"}
         ]}}
     """.trimIndent()
 
@@ -232,9 +264,9 @@ class AttendanceFakeUpstream {
     private val flowPreviewJson = """
         {"code":0,"msg":"ok","data":{
           "nextNodeNo":1,
-          "nextApprovers":[{"approverUserId":"U-假-1001","approverName":"辅导员甲（假）"}],
+          "nextApprovers":[{"approverUserId":"U-假-1001","approverName":"$LEAVE_APPROVER_NAME"}],
           "nodes":[{"nodeNo":1,"nodeRole":"辅导员","nodeName":"辅导员审批","configured":true,
-                    "approvers":[{"approverUserId":"U-假-1001","approverName":"辅导员甲（假）"}]}]}}
+                    "approvers":[{"approverUserId":"U-假-1001","approverName":"$LEAVE_APPROVER_NAME"}]}]}}
     """.trimIndent()
 
     private val leavePageJson = """
@@ -244,7 +276,9 @@ class AttendanceFakeUpstream {
            "startTime":"2026-09-20 08:00:00","endTime":"2026-09-20 18:00:00",
            "applyTime":"2026-09-19 20:00:00","durationMinutes":600,"durationText":"10 小时",
            "withdrawable":true,"cancellable":false,
-           "evidenceFiles":[],"approvalNodes":[],"courses":[]}
+           "evidenceFiles":[],"approvalNodes":[],
+           "courses":[{"courseId":"C-假-0001","courseName":"$COURSE_NAME","courseDate":"2026-09-20",
+                      "startSection":1,"endSection":2,"teacherName":"$LEAVE_COURSE_TEACHER"}]}
         ]}}
     """.trimIndent()
 

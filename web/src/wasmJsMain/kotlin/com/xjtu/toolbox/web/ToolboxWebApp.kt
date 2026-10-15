@@ -16,17 +16,40 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.core.net.ApiMode
+import com.xjtu.toolbox.core.net.CampusIclassfaceApi
+import com.xjtu.toolbox.core.net.CampusJiaocaiApi
+import com.xjtu.toolbox.core.net.CampusJwappScoreApi
+import com.xjtu.toolbox.core.net.CampusLmsApi
+import com.xjtu.toolbox.core.net.CampusFeedbackApi
+import com.xjtu.toolbox.core.net.CampusPayApi
+import com.xjtu.toolbox.core.net.CampusWebVpnApi
+import com.xjtu.toolbox.core.net.CampusJwxtScheduleApi
+import com.xjtu.toolbox.feedback.FeedbackScreen
+import com.xjtu.toolbox.pay.PaymentCodeScreen
+import com.xjtu.toolbox.pay.PaymentSelectionStore
+import com.xjtu.toolbox.social.MatchScreen
+import com.xjtu.toolbox.webvpn.WebVpnConverterScreen
 import com.xjtu.toolbox.community.CommunityScreen
 import com.xjtu.toolbox.community.GithubSession
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
+import com.xjtu.toolbox.attendance.AttendanceScreen
+import com.xjtu.toolbox.coupon.CouponScreen
+import com.xjtu.toolbox.dzpz.TranscriptScreen
 import com.xjtu.toolbox.card.CampusCardScreen
 import com.xjtu.toolbox.core.net.CampusCardNetApi
+import com.xjtu.toolbox.core.net.CampusAttendanceApi
+import com.xjtu.toolbox.core.net.CampusCouponApi
+import com.xjtu.toolbox.core.net.CampusDormPowerApi
+import com.xjtu.toolbox.core.net.CampusTranscriptApi
 import com.xjtu.toolbox.core.net.CampusInboxApi
-import com.xjtu.toolbox.core.net.CampusVenueApi
 import com.xjtu.toolbox.core.net.CampusEmptyRoomApi
 import com.xjtu.toolbox.core.net.CampusLibraryApi
 import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
 import com.xjtu.toolbox.library.LibraryScreen
+import com.xjtu.toolbox.iclassface.IclassfaceScreen
+import com.xjtu.toolbox.jiaocai.TextbookScreen
+import com.xjtu.toolbox.jwapp.JwappScoreScreen
+import com.xjtu.toolbox.lms.LmsScreen
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.core.net.CampusFitnessApi
 import com.xjtu.toolbox.core.net.CampusSchoolCourseApi
@@ -62,7 +85,6 @@ import com.xjtu.toolbox.shell.ShellPageInsets
 import com.xjtu.toolbox.shell.ShellTarget
 import com.xjtu.toolbox.ui.LocalIsWideLayout
 import com.xjtu.toolbox.ui.calculateIsWideLayout
-import com.xjtu.toolbox.venue.VenueScreen
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.withTimeoutOrNull
@@ -98,7 +120,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * |---|---|
  * | 首页 | **共享屏** `:core` 的 `HomeScreen` + 本端 `WebHomeHost`（真算的：问候 / 教学周 / 下一项安排 / 待办那一格；宫格按「本端真能打开的路由」筛）—— 它是这一端**所有功能屏的入口**，上一轮把这一格留成降级页，于是那些屏的入口全被关上了 |
  * | 日程 | **共享屏** `:core` 的 `ScheduleScreen` + `WebScheduleHost`（本端真接上的唯一一格，见那个类的 KDoc 与页顶那一行说明） |
- * | 屁岱 | **降级页**：`:core` 的 `AgentScreen` 要 `AgentHost`（配置 / 会话 / 记忆三份落盘、SSE 传输、工具层），本端一件都没有 |
+ * | 屁岱 | **共享屏** `:core` 的 `AgentScreen` + 本端 `WebAgentSession` / `WebAgentHost` / `WebAgentScreen`（D10 的 S-d）：循环与工具层、会话与记忆落盘、API Key 都在 **serve**（契约 §5.11 的十四条 + SSE），这一端只做「事件 → 状态」与那几发 HTTP。campus-api 形态下这一族没有端点 ⇒ 落 `WebServeOnlyScreen` |
  * | 学辅 | 本端自己的**可点目录**（`WebServicesScreen`）：`:app` 那格是学业服务目录（宫格 + 每项此刻的状态摘要），本端没有"状态摘要"那半 ⇒ 换成同一份目录的可点清单 + 会话入口，**不是**一张纯文字说明 |
  * | 我的 | **共享屏** `:core` 的 `SettingsScreen` + `WebSettingsHost`（本端没有账号这回事，所以落设置屏而不是账号页） |
  *
@@ -123,7 +145,11 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
     var mode by remember { mutableStateOf<ApiMode?>(null) }
     val initial = remember { initialWebTarget() }
     var target: WebTarget by remember { mutableStateOf(initial) }
-
+    // 归档那两个入口动作（S6）：导出要开浏览器下载锚点、导入要开 `<input type=file>` 选一份 zip，
+    // 两者都是**页面级**的动作 ⇒ 外壳建一份、两处设置屏共用（切走再回来还能看到上一次的结果）。
+    // 页面加载时**没有**「扫一遍待导入档案」那一步：浏览器没有可扫的位置（§6.2 web 那一行说的
+    // 「D9 之后 = serve 侧」），见 `WebArchiveHost` 的 KDoc。
+    val archiveActions = remember { WebArchiveActions() }
     LaunchedEffect(Unit) {
         // `?token=<令牌>`：**一次性入口**（今天唯一能从地址栏进来的东西）。贴进内存持有者、
         // 立刻把地址栏抹干净（免得它进历史/截图），下面那一发 `sessionState()` 顺手换成 cookie。
@@ -187,6 +213,7 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
                             session = session,
                             insets = insets,
                             onAppearanceChanged = onAppearanceChanged,
+                            archiveActions = archiveActions,
                             onNavigate = { target = it },
                         )
 
@@ -210,7 +237,9 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
 
                             WebRoutes.PROFILE -> SettingsScreen(
                                 store = remember { SettingsStore() },
-                                host = remember(onAppearanceChanged) { WebSettingsHost(onAppearanceChanged) },
+                                host = remember(onAppearanceChanged) {
+                                    WebSettingsHost(onAppearanceChanged, archiveActions)
+                                },
                                 // 本端没有返回栈（底栏就是导航）⇒ 返回回日程，与"默认落点"同一条口径。
                                 onBack = { target = WebTarget.App(AppRoute.Schedule) },
                             )
@@ -258,10 +287,16 @@ internal fun initialWebTarget(): WebTarget = when (val raw = browserRouteParam()
  * - 日程：`:core` 的共享屏 + 本端 `WebScheduleHost`（见那个类的 KDoc：哪几条缝是真的、缺哪几档）；
  * - 我的 / 学辅：见 [WebSettingsHost] 与 [WebServicesScreen]；
  * - 首页：`:core` 的共享屏 + 本端 `WebHomeHost`（见那个类的 KDoc：真算哪几样、如实不列哪几块）；
- * - 屁岱：降级页（见 [WebUnavailableScreen]，写清缺哪一个宿主面）；
+ * - 屁岱：`:core` 的共享屏 + 本端 `WebAgentSession`（事件 → 状态）/ `WebAgentHost`（配置那一格只读）/ `WebAgentScreen`（表头 + 「能做什么」那一段按 serve 的 `toolAllowlist` 现生成）；
  * - 黄页：campus-api 版的 [CampusYellowPageApi]（serve 模式下是同一份类的 `ApiMode.SERVE` 那一支）；
  * - 校历/体测：campus-api 版的 [CampusSchoolCalendarApi] / [CampusFitnessApi]（同一条理由：学校域名不给 CORS 头）；
- * - 取数：`mode` 决定 baseUrl 与解析形状（[ApiMode]），13 个 `Campus*Api` 一行不改地两边跑；
+ * - 只读四域：成绩单 / 考勤 / 加餐券 / 宿舍电费（`:core` 的共享屏 + `:core` 的 `Campus*Api` 取数）。
+ *   取数只认 serve 契约（§5.5）⇒ campus-api 形态下画 `WebServeOnlyScreen`；宿舍电费那一屏用的是
+ *   本端自己的读数页（`:core` 那张 `DormPowerScreen` 的全部内容是缴费页浏览器，而缴费页入口不端）。
+ * - 第二批只读域（2026-10-14 接线，契约 §5.6）：思源学堂 / 教材查询 / 成绩 / 快速考勤流水
+ *   （同样：`:core` 的共享屏 + `:core` 的 `Campus*Api`，取数只认 serve 契约 ⇒ campus-api 形态下
+ *   落 `WebServeOnlyScreen`）。那一节里哪些格子不画，逐条写在四个分支的页顶说明里。
+ * - 取数：`mode` 决定 baseUrl 与解析形状（[ApiMode]），21 个 `Campus*Api` 各按自己的契约跑；
  * - 社区：登录态与设备码登录在 Web 上如实报「未配置」（见 [WebGithubSession]）；
  * - 错误文案统一用 `:core` 的 [FriendlyError] —— 与 App 字句相同。
  */
@@ -270,7 +305,7 @@ private fun AppPage(
     route: AppRoute,
     client: HttpClient,
     /**
-     * 这一份 `:web` 在对谁说话（见 [ApiMode]）：13 个 `Campus*Api` 都按它选解析形状与基址。
+     * 这一份 `:web` 在对谁说话（见 [ApiMode]）：21 个 `Campus*Api` 都按它选解析形状与基址。
      * 由外壳探测一次后传下来 —— 屏自己不去猜后端（那是装配层的知识）。
      */
     mode: ApiMode,
@@ -279,18 +314,23 @@ private fun AppPage(
     insets: ShellPageInsets,
     /** 外观改完之后戳一下主题那一层（只有设置屏用得上）。 */
     onAppearanceChanged: () -> Unit,
+    /**
+     * 设置屏「数据与隐私」那两行归档动作的宿主（S6，外壳建一份）：屏自己不开浏览器下载锚点
+     * 与文件选择框，只把点击转给这里 —— 与 `:app` / 桌面同一条分工（见 [WebArchiveActions]）。
+     */
+    archiveActions: WebArchiveActions,
     onNavigate: (WebTarget) -> Unit,
 ) {
     val back = { onNavigate(WebTarget.App(AppRoute.Schedule)) }
     when (route) {
         // 日程：与 Android / 桌面**同一个屏**（`:core` 的 `ScheduleScreen`），本端只提供宿主面
-        //（`WebScheduleHost`：键值缝 + 教务取数 + 那份如实的能力清单），并把它缺的三样写在页顶
-        //（那三个端点在服务端契约里不存在，见 `WebScheduleSource` 的 KDoc）。
+        //（`WebScheduleHost`：键值缝 + 教务取数 + 那份如实的能力清单），并把它残余的缺口写在页顶
+        //（排课原样那一半，与 campus-api 形态下缺的那两栏，见 `WebScheduleSource` 的 KDoc）。
         //
         // 页内自己要去别的功能页（教材全文 / 课程回放 / 考勤那些下钻）：能走到的时候按 `WebTarget`
         // 转回来；本端没接的那两档（`LMS_LINK` / `ATTENDANCE`）不列进 honored，所以屏上不会出现。
         AppRoute.Schedule -> Column(Modifier.fillMaxSize()) {
-            WebScheduleGapNote()
+            WebScheduleGapNote(mode)
             Box(Modifier.weight(1f)) {
                 ScheduleScreen(
                     host = remember(client, mode) { WebScheduleHost(client, mode) },
@@ -320,21 +360,26 @@ private fun AppPage(
             onNavigate = onNavigate,
         )
 
-        // 屁岱：`:core` 的 `AgentScreen` 要 `AgentHost`（配置 / 会话 / 记忆三份落盘、SSE 传输、
-        // 工具层那一堆）—— 本端一件都没有。如实说：浏览器里也没有那几样能落盘的地方，
-        // 模型调用与工具取数都得在服务端有对应端点（今天没有）。
-        AppRoute.Agent -> WebUnavailableScreen(
-            title = "屁岱（Web 这一端）",
-            why = "App 与桌面的屁岱是 `:core` 的 `AgentScreen`，它要一份 `AgentHost`：" +
-                "配置 / 会话 / 记忆三份落盘、一条流式传输、以及工具层那几个取数口；" +
-                "Web 这一端一件都没接（服务端契约里也没有对应的端点）。",
-            missing = listOf(
-                "`AgentHost`：模型配置与 API Key 的持有（本端没有可落盘的凭据位）",
-                "会话与记忆的落盘（本端只有 localStorage，且语义与 `AgentSessionPersistence` 对不上）",
-                "流式传输（`:data` 那份 SSE 客户端）",
-                "工具层（黄页 / 教师检索 / 课表那几个口）",
-            ),
-        )
+        // 屁岱（2026-10-15，D10 的 S-d 接线）：与 Android / 桌面**同一个屏**（`:core` 的 `AgentScreen`），
+        // 但驱动换了人：循环、工具层、会话与记忆落盘、API Key 全在 **serve**（契约 §5.11 的十四条 + SSE），
+        // 这一端只做「事件 → 状态」与那几发 HTTP（`WebAgentSession` / `WebAgentHost`，见 `WebAgentScreen`）。
+        //
+        // 两种形态各自如实：campus-api 形态下这一族**没有端点**（Key 与循环都不在它那一头）⇒ 落
+        // `WebServeOnlyScreen`（说清「切到 serve 模式就能用」）；serve 形态才是真的聊天界面。
+        AppRoute.Agent -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "屁岱",
+                endpoints = "GET/POST /api/agent/{config,models,sessions*,memory*} + POST /api/agent/chat（SSE） + /stop",
+                why = "屁岱的模型调用、工具取数、会话与记忆、API Key 全在 serve 那一侧（campus-api 形态下这几个域没有端点）。",
+                section = "§5.11",
+            )
+        } else {
+            WebAgentScreen(
+                client = client,
+                insets = insets,
+                onNavigate = onNavigate,
+            )
+        }
 
         // 内置浏览器：**Web 端的浏览器就是浏览器本身** —— 把 URL 交给它，同标签导航过去。
         //
@@ -379,8 +424,9 @@ private fun AppPage(
             errorText = { FriendlyError.of(it, "加载黄页") },
         )
         // 游戏合集：与 Android 同一个屏（:core/game/GamesScreen），战绩读同一份 GameStore
-        // （Web 走 localStorage，Android 走 SharedPreferences）。合集里没搬过来的那几条
-        // （合成西交大 = WebView）点进去会落到 NotPortedScreen —— 不冒充。
+        // （Web 走 localStorage，Android 走 SharedPreferences）。合集里那七条子路由在这一端
+        // 全是**真屏**（含「合成西交大」，见下面那条分支 / D12 ⑤）—— 合集那一行读的最
+        // 高分也是同一份（`MergeGameScoreBridge` 在离开游戏那一屏时把成绩收回 App 侧）。
         AppRoute.Games -> GamesScreen(
             onBack = back,
             onNavigate = { onNavigate(WebTarget.App(it)) },
@@ -404,6 +450,15 @@ private fun AppPage(
             onBack = back,
             landmarkImages = rememberWebHopLandmarkImages(),
         )
+        // 合成西交大（`AppRoute.GameMerge`）：这一条卡的不是**取数**，而是**载体** —— 而浏览器
+        // **本身就是那个 JS 引擎**（D12 ⑤）。游戏本体是 `:app` 的 `assets/games/merge/`（HTML +
+        // 776 行 JS + 本地 Matter.js 物理引擎，408KB，全程不联网）：本端把**同一份字节**在构建期
+        // 拷进自己的资源根（`web/build.gradle.kts` 的 `mergeGameResources`），再用一个 `<iframe>`
+        // 挂到 `<body>` 上跑起来 —— 一行游戏逻辑都没有重写，没有任何新依赖。
+        // 桌面那一条**不在本批**：那一端没有浏览器内核也没有 JVM 上的 JS 引擎 ⇒ 仍落
+        // `HostUnavailableScreen`（如实说明），一行未改。
+        AppRoute.GameMerge -> WebGameMergeScreen(onBack = back)
+
         // 通知公告：与 Android 同一个屏与模型（:core/notification），取数换成 campus-api ——
         // 它覆盖同样 29 个源，两端拿到的是同一批通知（差别只在「谁去爬」）。
         AppRoute.Notification -> NotificationScreen(
@@ -478,32 +533,16 @@ private fun AppPage(
         //    ⇒ canBook/canCancel 翻 true，于是屏上真能下单 —— **滑块在本端画**：服务端把挑战
         //    （图 + captchaId）按值端出来，`WebSlideCaptchaHost` 用 `:core` 的图片缝解码、按与
         //    Android/桌面同一协议采集拖动轨迹，`POST /api/venue/book` 把 captchaId + 轨迹原文带回。
-        //    ⚠️ 「去支付」那一跳仍不可达（浏览器里没有场馆站的会话，支付页地址也只有 `:data` 知道）
-        //    ⇒ CampusVenueApi.paymentUrl 如实给空串，见契约 §5.3.2 末尾的缺口说明。
+        // 宿主面（取数形态 + 「去支付」那一跳）在 `WebVenueHost` 里：`CampusVenueApi.paymentUrl` 在 serve 形态
+        // 给的是 `GET /api/venue/pay`，serve 回 302 到 80 端口那台站点上的支付页（契约 §5.3.2 第 6 条）。
+        // ⚠️ 302 这一跳浏览器一定跟；但**落成能付款的一页不担保**：浏览器只能开**一个**地址、两跳串不成
+        // 一条链（跨源跳转看不见、也接不住、更不能替别的域名写 cookie）⇒ 场馆站要的会话只能由站点自己
+        // 那次登录给，第一次点很可能先落在该站点自己的登录页（屏顶那句如实说明与 `WebVenueHost` 的文件头）。
         // 逐字段映射写在 CampusVenueApi 的 KDoc 里（订单缺 areaName/serviceName、明细时间常为 null
         // ⇒ 如实留空，屏上那几段不画）。
         // **自动识别**（`solveCaptcha`）在浏览器里没有：`:core` 的 `decodeImagePixels` 在 wasm 上恒 null，
         // 本端也不传 autoSolveCaptcha（默认 false）⇒ 停在手动滑动那一档。
-        AppRoute.Venue -> {
-            val hintPrefs = remember { keyValueStore("feature_hints") }
-            VenueScreen(
-                source = remember(client, mode) { CampusVenueApi(client, API_BASE, mode) },
-                onBack = back,
-                // 支付那半在两种形态下都不可达（campus-api：canBook=false ⇒ 屏上不画入口；serve：
-                // canBook=true 但支付页地址只有 `:data` 能拼、而且浏览器里没有场馆站的会话 ⇒
-                // `CampusVenueApi.paymentUrl` 如实给空串，这一枪什么都不做）。真走到这里也只做浏览器
-                // 做得到的那一件：打开那个网址；`then`（先过 App 的登录再跳下一站）在浏览器里做不到，
-                // 因为会话在 serve / campus-api 进程里而不在页面上 —— 如实忽略，不假装。
-                onOpenBrowser = { url, _ -> if (url.isNotBlank()) openInNewTab(url) },
-                // 滑块宿主槽位（见上面那段注：serve 模式下下单要它；campus-api 的 canBook=false
-                // ⇒ 验证码弹窗根本不出现）。宿主端口见 `:core` 的 `SlideCaptchaHost`。
-                captchaHost = remember { WebSlideCaptchaHost },
-                // 「功能说明弹过了没」在 Web 存 localStorage（:app 存 feature_hints 那个 SharedPreferences），
-                // 键名与 :app 同一个；文案里那两条只在能下单那端成立的话，屏会自己按 canBook 少说。
-                showFirstUseHint = !hintPrefs.getBoolean("venue_hint_shown", false),
-                onFirstUseHintRead = { hintPrefs.putBoolean("venue_hint_shown", true) },
-            )
-        }
+        AppRoute.Venue -> WebVenueScreen(client = client, mode = mode, onBack = back)
         // 图书馆座位：与 Android 同一个屏与 ViewModel（`:core/library`）。两种形态（见 CampusLibraryApi 的
         // KDoc）：campus-api 只读（写方法一律抛）；serve 模式的 `/api/library/action` 已落地（契约 §5.3.1）
         // ⇒ canBook 随服务端如实报的 `canBook:true` 翻 true —— 座位格可点、有预约/换座/签到/离开/返回/退座
@@ -521,6 +560,365 @@ private fun AppPage(
             )
         }
 
+        // ── 只读四域（2026-10-13 接线，契约 §5.5）──────────────────────────────
+        //
+        // 这四屏的屏与模型都在 `:core`，取数是 `:core` 的四个新 `Campus*Api`（它们只认 serve 契约：
+        // `ApiMode.SERVE` 那一支走新端点，campus-api 那一支**不猜、不返回空数据**，直接抛错）。
+        // campus-api 形态下这四个域**没有端点**（`:app` / 桌面是走 `:data` 的 okhttp 抓的）⇒
+        // 非 serve 形态画的是 `WebServeOnlyScreen`（说清「切到 serve 模式就能用」），
+        // 而不是「还没搬到 Web」—— 那是假话（屏就在 `:core`）。
+        //
+        // 每屏顶部那条 `WebGapNote` 说的是这张屏**拿不到什么**（照 §5.5 逐条，不编）：
+        // 成绩单只有「选类型」一步；考勤只有学期 + 流水表；加餐券没有封面图与「领取」；
+        // 宿舍电费没有读数时间戳与「去缴费」那一跳。
+        AppRoute.Transcript -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "电子成绩单",
+                endpoints = "GET /api/dzpz/transcript",
+                why = "成绩单走 `dzpz` 站点的会话。",
+            )
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                WebGapNote(
+                    "这一屏只画得了「选类型」这一步：serve 契约 §5.5 只端了建单表单（GET /api/dzpz/transcript）。" +
+                        "学籍联动 / 生成预览 PDF / 两次提交 / 签章 / 取下载链接 / 下载 PDF 六步刻意不投影" +
+                        "（第二步的返回值里有学号，其余是写路径）⇒ 出 PDF 那半条链在浏览器里没有端点，" +
+                        "那一块不画按钮、只写缺口。要出 PDF 请在 App 或桌面端申请。",
+                )
+                Box(Modifier.weight(1f)) {
+                    // 没有 saveSink：浏览器这一端没有「保存到下载目录 / 下载管理」那一档（也不会有 PDF 可存）
+                    TranscriptScreen(
+                        source = remember(client, mode) { CampusTranscriptApi(client, API_BASE, mode) },
+                        onBack = back,
+                    )
+                }
+            }
+        }
+
+        AppRoute.Attendance -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "考勤",
+                endpoints = "GET /api/attendance/{terms,records} + /api/attendance/leave/{window,preview,records} + POST /api/attendance/leave{,/withdraw,/cancel}",
+                why = "考勤走 `new_attendance` 站点的会话。",
+            )
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                WebGapNote(
+                    "三处如实不画：① 考勤**流水那一栏**的上课教师名（那一格是当堂上课的教师名，§5.2 的" +
+                        "例外清单里没有它 —— 红线）；②「统计」那一栏（getKqtjCurrentWeek / computeCourseStatsFromRecords " +
+                        "没有端点，本端也不拿流水在本机算第二份口径）；③「打卡流水」那一栏（打卡原始流水没有端点）。" +
+                        "本人姓名那一格同理不画（getStudentInfo 不端）。" +
+                        "请假那一族的**两类姓名已按 §5.2 例外 ④ 端出来**（审批人姓名、请假单里那节课的任课教师姓名）；" +
+                        "「请假」那一栏**已经真能用了**（窗口 / 审批人 / 列表 / 提交 / 撤回 / 销假六条端点）；" +
+                        "只有**附件**没端 —— 本端没有文件选择宿主，与桌面同一条（不发附件）。",
+                )
+                Box(Modifier.weight(1f)) {
+                    AttendanceScreen(
+                        source = remember(client, mode) { CampusAttendanceApi(client, API_BASE, mode) },
+                        onBack = back,
+                        // 快速考勤流水那一屏（AppRoute.Iclassface）在本端没有取数（`iclassface` 站点的会话，
+                        // 契约里没有它的端点）⇒ 顶栏那个入口不画：传 null 是「本端没有这一档」，
+                        // 不是「点了不做事」。
+                        onOpenIclassface = null,
+                    )
+                }
+            }
+        }
+
+        AppRoute.Coupon -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "加餐券",
+                endpoints = "GET /api/coupon/list + /api/coupon/detail + POST /api/coupon/activate",
+                why = "加餐券走 `coupon` 站点的会话。",
+            )
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                WebGapNote(
+                    "一处如实不画：券封面图 —— 那张图要带 egc 的 Authorization 才取得到，浏览器直接打开" +
+                        "那个 URL 会拿到登录页（契约里没有图片代理端点）⇒ 券卡退化成图标。金额一格单位是分" +
+                        "（屏自己除 100 显示，本端不换算）。「领取」按钮**照旧画**：领券已端" +
+                        "（POST /api/coupon/activate），失败会如实报（领券被上游拒 / 会话失效都落 502）。",
+                )
+                Box(Modifier.weight(1f)) {
+                    CouponScreen(
+                        source = remember(client, mode) { CampusCouponApi(client, API_BASE, mode) },
+                        onBack = back,
+                    )
+                }
+            }
+        }
+
+        // 宿舍电费：⚠️ 这一屏用的是 `:web` 自己的读数页（[WebDormPowerScreen]），**不是** `:core` 的
+        // `DormPowerScreen` —— 后者的全部内容是「缴费页浏览器」（只要 `freshPayUrl()`），而缴费页入口
+        // 在 serve 契约里没有端点（§5.5）。契约真端的是 `/api/dorm/rooms` 与 `/api/dorm/reading`，
+        // 所以这里按拿得到的两个端点画一份只读读数页（理由与逐条降级写在那个文件的 KDoc 里）。
+        AppRoute.DormPower -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "宿舍电费",
+                endpoints = "GET /api/dorm/rooms + /api/dorm/reading",
+                why = "宿舍电费走 `ssn` 站点的会话（`cid` 是登录时写进会话的）。",
+            )
+        } else {
+            WebDormPowerScreen(
+                source = remember(client, mode) { CampusDormPowerApi(client, API_BASE, mode) },
+                onBack = back,
+            )
+        }
+
+        // ── 第二批只读域（2026-10-14 接线，契约 §5.6）──────────────────────────────
+        //
+        // 思源学堂 / 教材查询 / 成绩 / 快速考勤流水。四条分支与上面那四屏同一条规矩：屏在 `:core`，
+        // 本端只填取数与宿主面；这四族的取数也**只认 serve 契约**（campus-api 里没有这些端点）⇒
+        // campus-api 形态下画 `WebServeOnlyScreen`（说清「切到 serve 模式就能用」），而不是
+        // 「还没搬到 Web」—— 后者是假话（屏就在 `:core`，而且这一段刚刚接上）。
+        //
+        // 每屏页顶那条 `WebGapNote` 说的是这张屏**拿不到什么**（照 §5.6 逐条，不编）：
+        // 学堂的教师名 / 附件预览与下载 / 播放与回放地址 / 提交记录；教材的**全文阅读**（「本学期我的
+        // 教材」那一段 2026-10-14 批①收尾已接上，取数见 `WebJiaocaiTermTextbooks`）；
+        // 成绩的分项成绩；签到的姓名与学号（屏本来也不画那两格）。
+        // ⚠️ 必须写 `is`：`AppRoute.Lms` 带一个默认参数，裸写它会被当成「构造一个 Lms(null) 再比相等」
+        // （与下面浏览器那一条同一条坑）。
+        is AppRoute.Lms -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "思源学堂",
+                endpoints = "GET /api/lms/courses + /api/lms/activities + /api/lms/activity",
+                why = "思源学堂走 `lms` 站点的会话（独立登录页，直连 CAS）。",
+            )
+        } else {
+            val hintPrefs = remember { keyValueStore("feature_hints") }
+            Column(Modifier.fillMaxSize()) {
+                WebGapNote(
+                    "四处如实不画：① 教师姓名 —— 契约不投影 `instructors`，课程卡上那一格显示「未知」；" +
+                        "② 附件的预览与下载、以及「批量下载」那一整档 —— 附件的三个地址都没有端点" +
+                        "（要站点会话，浏览器直接打开只会拿到登录页）；③ 回放与直播的**播放地址**、" +
+                        "作业的**提交记录** —— 也都不投影（提交记录里有提交人姓名与学号）。" +
+                        "详情正文是服务端端出的 HTML 原文，本端按纯文本近似显示（契约刻意不端「转纯文本」" +
+                        "那个纯函数）；「已提交」标签在详情打开过之后才画。",
+                )
+                Box(Modifier.weight(1f)) {
+                    LmsScreen(
+                        source = remember(client, mode) { CampusLmsApi(client, API_BASE, mode) },
+                        onBack = back,
+                        // 深链 `?route=lms?courseId=` 带的课程：一到课程列表就直接翻到那门课的活动页
+                        initialCourseId = route.courseId,
+                        // 课表缓存那一格不传（null = 不缓存，取数照常）：浏览器里的 localStorage 与
+                        // `LmsCacheStore` 的语义对不上，本端不假装有一份首屏秒开。
+                        cacheStore = null,
+                        // 「功能说明」弹过了没：与 App 同一个 pref 文件、同一个键（本端存 localStorage）
+                        showFirstUseHint = !hintPrefs.getBoolean("lms_hint_shown", false),
+                        onFirstUseHintRead = { hintPrefs.putBoolean("lms_hint_shown", true) },
+                        // 播放器槽位不传：serve 形态下回放/直播的地址不投影 ⇒ 屏上没有可点的播放动作，
+                        // 那条「本端没有播放器」的说明页也走不到（地址不在，那一档不出现）。
+                        videoPlayer = null,
+                    )
+                }
+            }
+        }
+
+        AppRoute.Jiaocai -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "教材查询",
+                endpoints = "GET /api/jiaocai/search + /api/jiaocai/ssno",
+                why = "教材中心走 `jiaocai` 站点的会话（`/entry/login` → 超星 SSO）。",
+            )
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                WebGapNote(
+                    "这一屏真接上了两处（2026-10-14 批①收尾）：「查教材」那一栏与【本学期我的教材】那一段" +
+                        "（那一段的数据在**教务**的报表里，serve 契约 §5.8 已端出它：`GET /api/jwxt/textbooks`，" +
+                        "学号由服务端从会话里取 ⇒ 与日程屏的教材那一栏同一个端点）。「查教材」那一栏检索只有一个关键词输入：" +
+                        "没有院系/教师筛选，也没有翻页；结果里的书目号（ssno）在列表里恒为空，要它进详情才补。" +
+                        "全文阅读（`jiaocai1` 的页图与阅读器）是另一个域名、另一套会话，本轮没有端点 ⇒ 书架与" +
+                        "全文库两栏不画，各处的「读全文 / 阅读全文」入口也不画（拿了书目号只够显示「这本书有本地全文」）。",
+                )
+                Box(Modifier.weight(1f)) {
+                    TextbookScreen(
+                        source = remember(client, mode) { CampusJiaocaiApi(client, API_BASE, mode) },
+                        // 「本学期我的教材」那一段的宿主端口：serve 形态下走 `GET /api/jwxt/textbooks`
+                        // （学号由服务端取，本端不传）—— 见 [WebJiaocaiTermTextbooks] 的 KDoc。
+                        termTextbooks = remember(client, mode) {
+                            WebJiaocaiTermTextbooks(CampusJwxtScheduleApi(client, API_BASE, mode))
+                        },
+                        // 全文库那一半（`jiaocai1Source` / `jiaocai1Shelf`）一个都不传 = 本端没有那一档
+                        // ⇒ 屏上只留「查教材」一栏，也不画任何阅读全文的入口（见那个参数的 KDoc）。
+                        onBack = back,
+                        // 走不到：没有全文库那一半时那个入口一个都不画（拿不到的东西不摆入口）
+                        onOpenBook = { _, _ -> },
+                    )
+                }
+            }
+        }
+
+        AppRoute.JwappScore -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "成绩",
+                endpoints = "GET /api/jwapp/scores + /api/jwapp/precise-scores + /api/jwapp/score-detail",
+                why = "三条端点分属两个站点（`scores` 与 `score-detail` 打移动教务，`precise-scores` 打教务），两个站点各要自己的会话。",
+            )
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                WebGapNote(
+                    "一处如实缺口：未评教名单与「按学号补的报表」那两路 —— 一个属评教那一侧、" +
+                        "一个要学号（红线），本端都不调（学号那一格传空串）。其余都真读：学期成绩 + GPA + " +
+                        "「点开一门课」的分项（`/api/jwapp/score-detail`，课程没有分项时出的是空明细而不是" +
+                        "「加载失败」）。成绩是两份上游拼的：移动教务的粗分 + 教务的精确成绩，**后者拿不到时" +
+                        "只出前一份**（那条端点的失败被屏的 VM 容忍），所以整屏照常可用。",
+                )
+                Box(Modifier.weight(1f)) {
+                    val scoreSource = remember(client, mode) { CampusJwappScoreApi(client, API_BASE, mode) }
+                    JwappScoreScreen(
+                        source = scoreSource,
+                        // 本端不知道学号（也不去要：学号是红线）⇒ 传空串，VM 因此不调未评教名单与报表
+                        // 那两路 —— 那正是契约不端的两路（见 `JwappScoreViewModel.fetch` 里那一行判断）。
+                        studentId = "",
+                        onBack = back,
+                        onOpenReport = { onNavigate(WebTarget.App(AppRoute.ScoreReport)) },
+                        // 成绩单只有本科生的流程，而「是不是本科生」要身份才知道（本端没有那条链）
+                        // ⇒ 不画那个入口（成绩单在首页宫格里本来就有入口，见 WebSupport）。
+                        onOpenTranscript = null,
+                        // 第二、三条上游在**教务**那一站：同一个实例把两个端口都实现了
+                        // （与 `:data` 的 `AppJwappScoreSource` 同一条分工）。
+                        jwxt = scoreSource,
+                        // 落盘缓存不传：浏览器这边没有 `DataCache` 的等价物（不假装有首屏秒开）
+                        cache = null,
+                    )
+                }
+            }
+        }
+
+        AppRoute.Iclassface -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "快速考勤流水",
+                endpoints = "GET /api/iclassface/records",
+                why = "人脸识别签到走 `iclassface` 站点的会话。",
+            )
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                WebGapNote(
+                    "这一屏与 App / 桌面**同一个屏、同三格**（时刻 / 地点 / 类型）：姓名与学号是红线、" +
+                        "契约不投影，屏上本来也不画。时间那一格是服务端时区的**墙上时间**（上游原文），" +
+                        "本端不做转换 —— 换成本地时区只会整体平移几个钟头。没有分页（上游是一天一枪）。",
+                )
+                Box(Modifier.weight(1f)) {
+                    IclassfaceScreen(
+                        source = remember(client, mode) { CampusIclassfaceApi(client, API_BASE, mode) },
+                        onBack = back,
+                    )
+                }
+            }
+        }
+
+        // ── 第三批（2026-10-14 接线，契约 §5.7）──────────────────────────────
+        //
+        // 付款码 / 反馈与建议 / 匹配交友 / WebVPN 转换器。三条分支三种落法：
+        //  - 付款码 / 反馈 / WebVPN：屏在 `:core`、取数只认 serve 契约（campus-api 里这三族没有端点）
+        //    ⇒ campus-api 形态下画 `WebServeOnlyScreen`；
+        //  - 匹配交友：**两种形态下都用不了**（wasm 上没有 deflate / URL-safe Base64 ⇒
+        //    `MatchProfile.codecAvailable` 是 false）⇒ 落一张如实说明页 [WebMatchGapScreen]，
+        //    不把那张共享屏半开着挂上去。
+        // 每屏页顶那条 `WebGapNote` 说的是这一屏**拿不到什么**（照 §5.7 逐条，不编）。
+        AppRoute.PaymentCode -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "付款码",
+                endpoints = "GET /api/pay/code + /api/pay/vouchers + POST /api/pay/vouchers/select",
+                why = "付款码借的是校园卡那个站点的会话。",
+                section = "§5.7",
+            )
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                WebGapNote(
+                    "这一屏与 App / 桌面**同一个屏、同一张码**：二维码与 Code128 条形码在自己这一端算出来" +
+                        "（D12 ①：编码器在 `:core` 的 commonMain，与 Android 那份 zxing 逐模块相同）⇒ 手机上" +
+                        "扫出来就是下面那串付款码数字。加餐券的勾选**照旧真能勾**" +
+                        "（POST /api/pay/vouchers/select 真把「这一轮用哪几张」推给上游）。" +
+                        "⚠️ 这一屏显示的是**能付钱的东西**：`--host 0.0.0.0` 部署要先解决鉴权（§3.3）。",
+                )
+                Box(Modifier.weight(1f)) {
+                    PaymentCodeScreen(
+                        source = remember(client, mode) { CampusPayApi(client, API_BASE, mode) },
+                        // 勾选的落盘存储：与 Android 同一个存储名、同一批键（wasm 上是 localStorage）。
+                        // 上游那一份勾选走 `POST /api/pay/vouchers/select`；本机这一份就是它。
+                        selections = remember { PaymentSelectionStore(keyValueStore("payment_code")) },
+                        // 这一屏在 `:app` 是个弹窗，"关掉"就是退出；本端的等价物是回日程（与其它屏的返回同一条）。
+                        onDismiss = back,
+                    )
+                }
+            }
+        }
+
+        AppRoute.Feedback -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "反馈与建议",
+                endpoints = "GET /api/feedback/replies + /api/feedback/public-qa + POST /api/feedback/submit",
+                why = "反馈没有校园站点会话：凭据由 serve 进程启动时读 FEEDBACK_* 环境变量注入。",
+                section = "§5.7",
+            )
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                WebGapNote(
+                    "三处如实缺口：① 这一族**不套会话** —— 反馈没有学校站点，所谓「登录」是服务端拿" +
+                        "`app_id` + `app_secret` 换一张租户令牌，所以本端没有「先登录校园账号」那一步；" +
+                        "② 提交要服务端配了那三个 `FEEDBACK_*` 环境变量：没配全时三条端点一律答 502（含提交那一枪），" +
+                        "而屏把取数失败吞掉了 ⇒「我提过的 / 大家在问」会显示成「没有新回复」；" +
+                        "③ 提交那一发在服务端**真的**往多维表格里加一行，而且工单号是**屏自己生成**的" +
+                        "（`FeedbackStore`，本端落在 localStorage ⇒ 换了浏览器就找不回旧工单）。" +
+                        "⚠️ 写的那一格只该走回环 + 令牌闸门：对外部署要先加反代 + 鉴权（§3.3）。",
+                )
+                Box(Modifier.weight(1f)) {
+                    FeedbackScreen(
+                        source = remember(client, mode) { CampusFeedbackApi(client, API_BASE, mode) },
+                        onOpenUrl = { openInNewTab(it) },
+                        onBack = back,
+                    )
+                }
+            }
+        }
+
+        // 匹配交友（`AppRoute.Match`）：与 App / 桌面**同一张共享屏**（`:core` 的 `MatchScreen` + 本端
+        // 宿主面 `WebMatchHost`）。2026-10-14 接线的第一版在这里落的是**如实说明页**（`WebMatchGapScreen`）：
+        // 那时 wasm 上没有 deflate 与 URL-safe Base64 ⇒ `MatchProfile.codecAvailable` 是 false，出码与解码
+        // 都不可用，而整屏的价值全在那两步上。2026-10-15（D12 ②）两条缝补进 `:core` 的 commonMain
+        // （`ZlibCodec` / `UrlSafeBase64`）⇒ 这一端真能出码、真能解朋友的码，那张说明页随之删掉。
+        //
+        // 这一屏一条请求都不发（只读本机缓存：课表族缓存 = localStorage，与日程页同一份）⇒ 与后端是
+        // 哪一形态无关。2026-10-16（D12 ③ 的收尾）：`scanner` 从 `null` 改成本端的 `WebMatchScanner` ——
+        // 那两颗按钮（「扫一扫」/「从相册选图」）在这一端**真能扫**：解码链按 D12 ① 同一套做法搬进了
+        // `:core` 的 commonMain（`platform/qr/`），本端只做「拿到一帧像素」（`WebQrCamera`：`getUserMedia`
+        // + `<video>` + canvas，或 `<input type=file>` + `createImageBitmap`）。
+        // 三处如实差异（「补定位块」没搬、中日文码表没有、失败态多两条）写在 `WebMatchScanner` 的 KDoc 里。
+        AppRoute.Match -> MatchScreen(
+            host = remember { WebMatchHost() },
+            onBack = back,
+            scanner = remember { WebMatchScanner() },
+        )
+
+        AppRoute.WebVpnConverter -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "WebVPN 转换器",
+                endpoints = "POST /api/webvpn/convert",
+                why = "转换本体要一个对称密码：浏览器只在安全上下文（HTTPS / localhost）里有 crypto.subtle，" +
+                    "而 serve 默认明文 HTTP ⇒ 这一族放在服务端（纯函数，不收会话）。",
+                section = "§5.7",
+            )
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                WebGapNote(
+                    "两处如实缺口：① 转换是**一发 HTTP**（服务端那份 `WebVpnUtil` 算的，与 Android / " +
+                        "桌面注入的是同一个算法）⇒ 断网时转不了，而 Android / 桌面是本地纯函数；② 转换结果那颗" +
+                        "「用 WebVPN 打开」只做浏览器做得到的那一件：新标签打开那个网关地址 —— 网关自己的会话" +
+                        "不在这个浏览器里，所以要过它自己的登录页（`:app` 的免验证打开靠的是 App 内的 WebVPN 会话）。" +
+                        "这一族**不收会话**，所以本端没有「先登录」那一步。",
+                )
+                Box(Modifier.weight(1f)) {
+                    WebVpnConverterScreen(
+                        codec = remember(client, mode) { CampusWebVpnApi(client, API_BASE, mode) },
+                        onOpenWithWebVpn = { openInNewTab(it) },
+                        onBack = back,
+                    )
+                }
+            }
+        }
+
         AppRoute.Community -> CommunityScreen(
             session = session,
             // Web 端只有「粘贴 token」这一条登录路（设备码流程在浏览器里拿不到 device code）；
@@ -530,12 +928,28 @@ private fun AppPage(
             onOpenLegacyFeedback = {},
         )
 
+        // 账号管理（D9 / 工单 S7a）：**屏是 `:core` 那份 `AccountManagerScreen`**（三端同一份），
+        // 取数是 serve 的 `GET /api/accounts`（契约 §5.10）。这一端**只读** —— 切换 / 新增 / 删除 / 改密
+        // 要在 App 或桌面端做，页顶那一行写明这件事（见 `WebAccountsScreen`）。
+        // campus-api 形态下这一族不存在（那一头的账号与凭据都在它自己的进程里）⇒ 与其余只认 serve 的
+        // 那几屏同一条做法：落一张写清「切到 serve 模式就能用」的如实页，而不是一张空账号表。
+        AppRoute.Accounts -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "账号管理",
+                endpoints = "/api/accounts",
+                why = "serve 的账号表（与桌面端共用同一份 xjtu_accounts）与「当前是哪个账号」都读自 serve 进程。",
+                section = "§5.10",
+            )
+        } else {
+            WebAccountsScreen(client = client, mode = mode, onBack = back)
+        }
+
         // 设置（`AppRoute.Settings`）：与 Android / 桌面**同一个屏**（`:core` 的 `SettingsScreen`）。
         // 本端只会从 `?route=settings` 深链走到这里（底栏第五格是"我的"，落在同一个屏上）——
         // 两条路都给同一份 store 与 host，改设置的行为完全一样。
         AppRoute.Settings -> SettingsScreen(
             store = remember { SettingsStore() },
-            host = remember(onAppearanceChanged) { WebSettingsHost(onAppearanceChanged) },
+            host = remember(onAppearanceChanged) { WebSettingsHost(onAppearanceChanged, archiveActions) },
             onBack = back,
         )
 
