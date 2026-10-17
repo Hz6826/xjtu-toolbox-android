@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.schedule
 
-import com.xjtu.toolbox.util.nowInSystemZone
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.nowOnCampus
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
@@ -93,7 +93,7 @@ object ExamCountdown {
      * 今天的考试只有在**确实解析出了结束时刻、并且已经过了**的时候才算结束；
      * 时间写得乱、解析不出来的，宁可一直标成「今天」到半夜，也不能提前把它压暗成「已结束」。
      */
-    fun phaseOf(exam: ExamItem, now: LocalDateTime = nowInSystemZone()): ExamPhase {
+    fun phaseOf(exam: ExamItem, now: LocalDateTime = nowOnCampus()): ExamPhase {
         val date = parseDate(exam.examDate) ?: return ExamPhase.UNDATED
         val today = now.date
         return when {
@@ -127,7 +127,41 @@ object ExamCountdown {
      * 传的是今天（包括不传、用默认值）时，用此刻的时间判断，今天已考完的会被跳过；
      * 传的是别的日期时，按那一天的零点算，行为和以前一样：那天的考试都还没考。
      */
-    fun next(exams: List<ExamItem>, today: LocalDate = todayInSystemZone()): Next? =
-        if (today == todayInSystemZone()) next(exams, nowInSystemZone())
+    fun next(exams: List<ExamItem>, today: LocalDate = todayOnCampus()): Next? =
+        if (today == todayOnCampus()) next(exams, nowOnCampus())
         else next(exams, LocalDateTime(today, LocalTime(0, 0)))
+
+    /**
+     * 新拉到的考试表和上次缓存的比，还没考完的场次里谁改了什么，一场一句。
+     * 老师改时间、换考场是常事，只按日期比会漏掉「日期没变、考场换了」。
+     * 上次没有缓存（第一次拉）不算变化；新表是空的也不报「取消」，教务偶尔会抽风返回空表。
+     */
+    fun changes(old: List<ExamItem>?, new: List<ExamItem>, now: LocalDateTime = nowOnCampus()): List<String> {
+        if (old.isNullOrEmpty()) return emptyList()
+        fun key(e: ExamItem) = e.courseCode.ifBlank { e.courseName }
+        fun name(e: ExamItem) = e.courseName.ifBlank { "考试" }
+        val before = old.associateBy(::key)
+        val out = mutableListOf<String>()
+        for (e in new) {
+            if (phaseOf(e, now) == ExamPhase.ENDED) continue
+            val o = before[key(e)]
+            if (o == null) {
+                out += "新增 ${name(e)}：" + listOf(e.examDate, e.examTime, e.location).filter { it.isNotBlank() }.joinToString(" ")
+                continue
+            }
+            val diffs = listOfNotNull(
+                "日期 ${o.examDate} → ${e.examDate}".takeIf { o.examDate != e.examDate },
+                "时间 ${o.examTime.ifBlank { "未定" }} → ${e.examTime.ifBlank { "未定" }}".takeIf { o.examTime != e.examTime },
+                "考场 ${o.location.ifBlank { "未定" }} → ${e.location.ifBlank { "未定" }}".takeIf { o.location != e.location },
+                "座位 ${o.seatNumber.ifBlank { "未定" }} → ${e.seatNumber.ifBlank { "未定" }}".takeIf { o.seatNumber != e.seatNumber },
+            )
+            if (diffs.isNotEmpty()) out += "${name(e)}：" + diffs.joinToString("，")
+        }
+        if (new.isNotEmpty()) {
+            val now0 = new.map(::key).toSet()
+            old.filter { key(it) !in now0 && phaseOf(it, now) != ExamPhase.ENDED }
+                .forEach { out += "${name(it)}：考试表里没有这场了，去日程页确认一下" }
+        }
+        return out
+    }
 }
