@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.platform.qr
 
-/** 把解出来的一串码字按分段模式拼成文本。 */
+/** 把解出来的一串码字按分段模式拼成文本；KANJI / HANZI 两段的码表在 [QrCjkTables]（见 [QrCharset]）。 */
 internal object QrDecodedBitStreamParser {
 
     private val ALPHANUMERIC_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:".toCharArray()
@@ -47,8 +47,8 @@ internal object QrDecodedBitStreamParser {
                         val subset = bits.readBits(4)
                         val countHanzi = bits.readBits(mode.characterCountBits(version))
                         if (subset == GB2312_SUBSET) {
-                            // ⚠️ GB2312 码表在 commonMain 里没有 ⇒ 这一路解不出来（见文件头）
-                            throw QrFormatException()
+                            // 子集指示 = 1 就是 GB2312 那一档（别的子集按 zxing 的口径：什么都不加）
+                            decodeHanziSegment(bits, result, countHanzi)
                         }
                     }
                     else -> {
@@ -58,10 +58,8 @@ internal object QrDecodedBitStreamParser {
                             QrMode.NUMERIC -> decodeNumericSegment(bits, result, count)
                             QrMode.ALPHANUMERIC -> decodeAlphanumericSegment(bits, result, count, fc1InEffect)
                             QrMode.BYTE -> decodeByteSegment(bits, result, count, currentCharacterSetEci)
-                            QrMode.KANJI -> {
-                                // ⚠️ Shift_JIS 码表在 commonMain 里没有 ⇒ 这一路解不出来（见文件头）
-                                throw QrFormatException()
-                            }
+                            // 13 位一个字符 ⇒ Shift_JIS 的两个字节（见 decodeKanjiSegment）
+                            QrMode.KANJI -> decodeKanjiSegment(bits, result, count)
                             else -> throw QrFormatException()
                         }
                     }
@@ -88,6 +86,49 @@ internal object QrDecodedBitStreamParser {
         // ISO-8859-1 与 Shift_JIS 都见过。有 ECI 就按它，没有就只能猜。
         val encoding = currentCharacterSetEci ?: QrCharset.guessCharset(readBytes)
         result.append(QrCharset.decode(encoding, readBytes) ?: throw QrFormatException())
+    }
+
+    /**
+     * KANJI 段：13 位一个字符，先拼回 Shift_JIS 的两个字节，再整段按 Shift_JIS 解 —— zxing
+     * `DecodedBitStreamParser.decodeKanjiSegment` 的逐字对照（连 `0x8140` / `0xC140` 两个偏移都一样）。
+     */
+    private fun decodeKanjiSegment(bits: QrBitSource, result: StringBuilder, count: Int) {
+        // 别去读比手上还多的位
+        if (count * 13 > bits.available()) throw QrFormatException()
+        val buffer = ByteArray(2 * count)
+        var offset = 0
+        var remaining = count
+        while (remaining > 0) {
+            val twoBytes = bits.readBits(13)
+            var assembledTwoBytes = ((twoBytes / 0xC0) shl 8) or (twoBytes % 0xC0)
+            assembledTwoBytes += if (assembledTwoBytes < 0x1F00) 0x8140 else 0xC140
+            buffer[offset] = ((assembledTwoBytes shr 8) and 0xFF).toByte()
+            buffer[offset + 1] = (assembledTwoBytes and 0xFF).toByte()
+            offset += 2
+            remaining--
+        }
+        result.append(QrCharset.decode("Shift_JIS", buffer) ?: throw QrFormatException())
+    }
+
+    /**
+     * HANZI 段：13 位一个字符，先拼回 GB2312 的两个字节，再整段按 GB2312 解 —— zxing
+     * `DecodedBitStreamParser.decodeHanziSegment` 的逐字对照（两个偏移 `0xA1A1` / `0xA6A1` 与它一样）。
+     */
+    private fun decodeHanziSegment(bits: QrBitSource, result: StringBuilder, count: Int) {
+        if (count * 13 > bits.available()) throw QrFormatException()
+        val buffer = ByteArray(2 * count)
+        var offset = 0
+        var remaining = count
+        while (remaining > 0) {
+            val twoBytes = bits.readBits(13)
+            var assembledTwoBytes = ((twoBytes / 0x60) shl 8) or (twoBytes % 0x60)
+            assembledTwoBytes += if (assembledTwoBytes < 0xA00) 0xA1A1 else 0xA6A1
+            buffer[offset] = ((assembledTwoBytes shr 8) and 0xFF).toByte()
+            buffer[offset + 1] = (assembledTwoBytes and 0xFF).toByte()
+            offset += 2
+            remaining--
+        }
+        result.append(QrCharset.decode("GB2312", buffer) ?: throw QrFormatException())
     }
 
     private fun toAlphaNumericChar(value: Int): Char {

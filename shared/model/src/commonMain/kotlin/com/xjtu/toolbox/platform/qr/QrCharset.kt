@@ -1,6 +1,15 @@
 package com.xjtu.toolbox.platform.qr
 
-/** 字符集那一小片—— zxing 3.5.4 `com.google.zxing.common.CharacterSetECI` 与`StringUtils.guessCharset` 的移植，但只留下能在 commonMain 里真解出来的那几个。 */
+/**
+ * 字符集那一小片 —— zxing 3.5.4 `com.google.zxing.common.CharacterSetECI` 与 `StringUtils.guessCharset` 的移植，
+ * 码表本体是 [QrCjkTables]（`tools/gen-qr-charset-tables.java` 枚举本机 JDK 的 `Charset` 生成的纯数据）。
+ *
+ * 现在解得出来的：ECI 表里那些**单字节**集（Cp437 / ISO-8859-2…9、11、13、15、16 / windows-125x）、
+ * UTF-8 / ISO-8859-1 / US-ASCII / UTF-16(BE)、Shift_JIS（含 [guessCharset] 猜出来的）、
+ * GB18030（含它的四字节形态）、Big5、EUC-KR，以及 KANJI / HANZI 那两个数据段（见 [QrDecodedBitStreamParser]）。
+ * 解不出来的只剩 ECI 12（ISO-8859-10）与 16（ISO-8859-14）—— zxing 3.5.4 的 `getCharacterSetECIByValue`
+ * 同样查不到这两个值（它也在这一步失败），本机 JDK 也没有这两个 `Charset`，生成不出码表。
+ */
 internal object QrCharset {
 
     /** ECI 值 → 编码名（zxing 的 `VALUE_TO_ECI` 那张表，逐个值抄过来）。 */
@@ -17,6 +26,7 @@ internal object QrCharset {
         put(9, "ISO-8859-7")
         put(10, "ISO-8859-8")
         put(11, "ISO-8859-9")
+        // ⚠️ 12 / 16 这两个值 zxing 3.5.4 自己查不到（名字留着只为「认得出是哪个编码」，结论与它一样是解码失败）
         put(12, "ISO-8859-10")
         put(13, "ISO-8859-11")
         put(15, "ISO-8859-13")
@@ -33,22 +43,42 @@ internal object QrCharset {
         put(27, "US-ASCII")
         put(170, "US-ASCII")
         put(28, "Big5")
-        put(29, "GB2312")
+        // ⚠️ 值是 29 的编码，zxing 真正拿来解的那份 Charset 是 **GB18030**（不是 GB2312；HANZI 段用的才是 GB2312）
+        put(29, "GB18030")
         put(30, "EUC-KR")
     }
 
-    /** ECI 值 → 编码名（`CharacterSetECI.getCharacterSetECIByValue`）。 */
+    /** 本实现自己解、不走 [QrCjkTables] 码表的编码名。 */
+    private val BUILT_IN = setOf(
+        "ISO-8859-1",
+        "UTF-8", "UTF8",
+        "US-ASCII", "ASCII",
+        "UTF-16BE", "UnicodeBig",
+        "UTF-16",
+        // GB18030 有「四字节形态」，走专门的 [decodeGb18030]
+        "GB18030",
+    )
+
+    /** ECI 值 → 编码名（`CharacterSetECI.getCharacterSetECIByValue`）；查不到返回 null（zxing 也返回 null），由调用方抛。 */
     fun eciNameFor(value: Int): String? {
         if (value < 0 || value >= 900) return null
         return ECI_NAMES[value]
     }
 
-    /** 按编码名解一段字节；解不出来（见文件头的边界表）返回 null，由调用方抛 `FormatException`。 */
+    /** 这个编码名本实现解不解得出来（解不出来的是哪一档，见文件头）。 */
+    fun canDecode(name: String): Boolean = name in BUILT_IN || QrCjkTables.TABLES.containsKey(name)
+
+    /**
+     * 按编码名解一段字节；解不出来返回 null，由调用方抛 `FormatException`。
+     *
+     * `ISO-8859-1` 是逐字节映射（与 `new String(bytes, ISO_8859_1)` 逐字相同），其余走 [QrCjkTables] 那张表
+     * （单字节集与双字节集同一套走法，见 [decodeWithTable]）。
+     */
     fun decode(name: String, bytes: ByteArray): String? = when (name) {
         "ISO-8859-1" -> bytes.map { (it.toInt() and 0xFF).toChar() }.joinToString("")
         "UTF-8", "UTF8" -> bytes.decodeToString()
         "US-ASCII", "ASCII" ->
-            bytes.map { if ((it.toInt() and 0xFF) < 0x80) (it.toInt() and 0x7F).toChar() else '\uFFFD' }.joinToString("")
+            bytes.map { if ((it.toInt() and 0xFF) < 0x80) (it.toInt() and 0x7F).toChar() else REPLACEMENT }.joinToString("")
         "UTF-16BE", "UnicodeBig" -> decodeUtf16(bytes, bigEndian = true)
         "UTF-16" -> {
             // 有 BOM 时按 BOM 走；没有就按大端（Java 的 UTF-16 解码器也是这个规矩）
@@ -60,7 +90,8 @@ internal object QrCharset {
                 else -> decodeUtf16(bytes, bigEndian = true)
             }
         }
-        else -> null
+        "GB18030" -> decodeGb18030(bytes)
+        else -> QrCjkTables.TABLES[name]?.let { decodeWithTable(it, bytes) }
     }
 
     private fun decodeUtf16(bytes: ByteArray, bigEndian: Boolean): String {
@@ -74,6 +105,117 @@ internal object QrCharset {
             i += 2
         }
         if (i < bytes.size) sb.append('\uFFFD') // 落单的那个字节（Java 也是替换字符）
+        return sb.toString()
+    }
+
+    /**
+     * 表里的编码走一遍 —— 与生成器里那个 `walk` 逐字同源（生成器穷举校验过它跟 JDK 的
+     * `new String(bytes, charset)` 逐字相同）：`singleCps[字节] >= 0` 就是它自己一个字符；否则看
+     * `(首, 尾)` 那一格 —— 正常字符吞 2 字节、[UNMAPPED_CELL] 换成 U+FFFD 也吞 2 字节、
+     * [INVALID_CELL] 换成 U+FFFD 只吞 1 字节；其余情况（不是首字节 / 是最后一个字节）只吞 1 字节。
+     */
+    private fun decodeWithTable(table: QrCharsetTable, bytes: ByteArray): String {
+        val sb = StringBuilder(bytes.size)
+        var i = 0
+        while (i < bytes.size) {
+            val b = bytes[i].toInt() and 0xFF
+            val single = table.singleCps[b]
+            if (single >= 0) {
+                sb.append(single.toChar())
+                i++
+                continue
+            }
+            if (table.rows[b] >= 0 && i + 1 < bytes.size) {
+                when (val cell = table.cell(b, bytes[i + 1].toInt() and 0xFF)) {
+                    INVALID_CELL -> {
+                        sb.append(REPLACEMENT)
+                        i++
+                    }
+                    UNMAPPED_CELL -> {
+                        sb.append(REPLACEMENT)
+                        i += 2
+                    }
+                    else -> {
+                        sb.append(cell)
+                        i += 2
+                    }
+                }
+                continue
+            }
+            sb.append(REPLACEMENT)
+            i++
+        }
+        return sb.toString()
+    }
+
+    /**
+     * GB18030（上面那套 + 四字节形态）—— 与生成器里的 `walkGb18030` 逐字对应，规则来自实测的 JDK 口径：
+     * 首字节后面若是 `0x30-0x39` 就是四字节形态，**吞的字节数就是「前缀校验到哪一步」**（缺第三个字节 = 吞 2 或 3；
+     * 第三字节不在 `0x81-0xFE` = 吞 3；第四字节不在 `0x30-0x39` = 吞 4；指针超出定义范围（≥ 39420）= 吞 4）。
+     */
+    private fun decodeGb18030(bytes: ByteArray): String {
+        val table = QrCjkTables.GB18030
+        val four = QrCjkTables.GB18030_FOUR
+        val n = bytes.size
+        val sb = StringBuilder(n)
+        var i = 0
+        while (i < n) {
+            val b1 = bytes[i].toInt() and 0xFF
+            if (b1 < 0x80) {
+                sb.append(b1.toChar())
+                i++
+                continue
+            }
+            if (b1 > 0xFE || table.rows[b1] < 0 || i + 1 >= n) {
+                sb.append(REPLACEMENT)
+                i++
+                continue
+            }
+            val b2 = bytes[i + 1].toInt() and 0xFF
+            if (b2 >= 0x30 && b2 <= 0x39) {
+                if (i + 2 >= n) {
+                    sb.append(REPLACEMENT)
+                    i += 2
+                    continue
+                }
+                val b3 = bytes[i + 2].toInt() and 0xFF
+                if (b3 < 0x81 || b3 > 0xFE) {
+                    sb.append(REPLACEMENT)
+                    i += 3
+                    continue
+                }
+                if (i + 3 >= n) {
+                    sb.append(REPLACEMENT)
+                    i += 3
+                    continue
+                }
+                val b4 = bytes[i + 3].toInt() and 0xFF
+                if (b4 < 0x30 || b4 > 0x39) {
+                    sb.append(REPLACEMENT)
+                    i += 4
+                    continue
+                }
+                val pointer = ((b1 - 0x81) * 10 + (b2 - 0x30)) * 1260 + (b3 - 0x81) * 10 + (b4 - 0x30)
+                val cp = four.lookup(pointer)
+                if (cp >= 0) sb.appendCodePoint(cp) else sb.append(REPLACEMENT)
+                i += 4
+                continue
+            }
+            when (val cell = table.cell(b1, b2)) {
+                INVALID_CELL -> {
+                    sb.append(REPLACEMENT)
+                    i++
+                }
+                UNMAPPED_CELL -> {
+                    sb.append(REPLACEMENT)
+                    i += 2
+                }
+                else -> {
+                    sb.append(cell)
+                    i += 2
+                }
+            }
+        }
         return sb.toString()
     }
 
@@ -200,5 +342,105 @@ internal object QrCharset {
         if (canBeUtf8) return "UTF-8"
         // 实在猜不出，就按平台默认编码来（JVM 上就是 UTF-8）
         return "UTF-8"
+    }
+}
+
+/** 替换字符：解不出来时填的那个（与 `new String(bytes, charset)` 的宽松口径同一个字）。 */
+private const val REPLACEMENT = '\uFFFD'
+
+/** 码表里的两种「坏格子」—— 见 [QrCharsetTable]。 */
+private const val UNMAPPED_CELL = '\uFFFD'
+private const val INVALID_CELL = '\u0000'
+
+/**
+ * 一张码表（[QrCjkTables] 里的每一个 `val` 都是它）。
+ *
+ * 布局（生成器那边是同一份定义，改一处要改两处）：
+ *
+ *  - [singleCps]：256 项。`singleCps[b] >= 0` = 字节 `b` 自己就是一个字符（就是那个码位）；`-1` = 它不是单字节字符；
+ *  - [rows] / [cols]：256 项。首字节 → 行号、尾字节 → 列号，`-1` = 不是首/尾字节；
+ *  - [flat]：行主序的 `rows × nCols` 表，格子三种：正常字符、[UNMAPPED_CELL]（结构合法但没映射，吞 2 字节）、
+ *    [INVALID_CELL]（结构不合法，只吞 1 字节）。
+ *
+ * 单字节集没有双字节那一半 ⇒ [rows] 全 `-1`、[flat] 是空的。
+ */
+internal class QrCharsetTable private constructor(
+    val singleCps: IntArray,
+    val rows: IntArray,
+    val cols: IntArray,
+    val nCols: Int,
+    val flat: String,
+) {
+
+    /**
+     * `(首字节, 尾字节)` → 那一格；`rows[lead] < 0` 或 `cols[trail] < 0` 都算 [INVALID_CELL]（只吞首字节）。
+     */
+    fun cell(lead: Int, trail: Int): Char {
+        val row = rows[lead]
+        if (row < 0) return INVALID_CELL
+        val col = cols[trail]
+        if (col < 0) return INVALID_CELL
+        return flat[row * nCols + col]
+    }
+
+    internal companion object {
+        /** 单字节集：只有 [singleCps]。 */
+        fun single(singleCps: IntArray): QrCharsetTable =
+            QrCharsetTable(singleCps, NO_ROWS, NO_ROWS, 0, "")
+
+        /** 双字节集：单字节 + 双字节那半张表。 */
+        fun double(
+            singleCps: IntArray,
+            rows: IntArray,
+            cols: IntArray,
+            nCols: Int,
+            flat: String,
+        ): QrCharsetTable = QrCharsetTable(singleCps, rows, cols, nCols, flat)
+
+        private val NO_ROWS = IntArray(256) { -1 }
+    }
+}
+
+/**
+ * GB18030 的四字节形态：指针 → 码位。
+ *
+ * 同一个 `[starts[i], ends[i]]` 段里，指针每 +1、码位也 +1（起始码位在 [cps] 里）；段之间的空档就是「没有映射」。
+ * 指针超出定义范围（≥ 39420）时 [lookup] 返回 -1，[QrCharset.decodeGb18030] 给替换字符。
+ */
+internal class QrGb18030Four(
+    private val starts: IntArray,
+    private val ends: IntArray,
+    private val cps: IntArray,
+) {
+
+    /** 指针 → 码位；没有映射返回 -1。二分找段。 */
+    fun lookup(pointer: Int): Int {
+        var lo = 0
+        var hi = starts.size - 1
+        while (lo <= hi) {
+            val mid = (lo + hi) / 2
+            when {
+                pointer < starts[mid] -> hi = mid - 1
+                pointer > ends[mid] -> lo = mid + 1
+                else -> return cps[mid] + (pointer - starts[mid])
+            }
+        }
+        return -1
+    }
+}
+
+/**
+ * 把一个码位接到 `StringBuilder` 上。
+ *
+ * commonMain 的 `StringBuilder` 没有 `appendCodePoint`，而 GB18030 的四字节形态会映到补充平面
+ * （U+10000 以上）⇒ 这里自己按 UTF-16 拼代理对 —— 与 Java 的 `String` 逐字相同。
+ */
+private fun StringBuilder.appendCodePoint(cp: Int) {
+    if (cp <= 0xFFFF) {
+        append(cp.toChar())
+    } else {
+        val v = cp - 0x10000
+        append((0xD800 + (v shr 10)).toChar())
+        append((0xDC00 + (v and 0x3FF)).toChar())
     }
 }
