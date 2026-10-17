@@ -51,7 +51,7 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
 /**
- * 暴露给 Agent 的只读工具注册表 —— 工具层的**取数那半边**。
+ * 暴露给 Agent 的工具注册表 —— 工具层的**取数那半边**。
  *
  * 工具层现在切成三块（见 `core/.../agent/`）：
  * - **纯逻辑**（工具定义表、schema 构造器、算表达式、闹钟判据、结果格式化、缓存回退文案）
@@ -61,7 +61,7 @@ import java.time.format.DateTimeFormatter
  * - **取数**（下面那二十来个 `*Api`，都已经是 `:data` 的类）留在本类。
  *
  * 安全约束：
- * - 全部只读，无写/预订/支付接口
+ * - 不碰学校系统的写/预订/支付接口；写的只有本机：记偏好、改 App 设置、加日程/待办、设闹钟
  * - 优先复用 SessionManager 已有站点会话；若对应子系统未登录，调用一次 ensureSite，
  *   60s 内不重试（防止反复触发导致服务端风控）
  * - Auth 异常直接上抛给 AgentRunner 终止循环（不重试）
@@ -1260,25 +1260,8 @@ class AgentToolRegistry(
 
     // ── 联网搜索/网页阅读（无需登录） ─────────────────────────────────────
 
-    private val webCookies = object : okhttp3.CookieJar {
-        private val lock = Any()
-        private val jar = mutableListOf<okhttp3.Cookie>()
-        override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
-            synchronized(lock) {
-                cookies.forEach { incoming ->
-                    jar.removeAll { it.name == incoming.name && it.domain == incoming.domain && it.path == incoming.path }
-                    jar.add(incoming)
-                }
-            }
-        }
-        override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
-            val now = System.currentTimeMillis()
-            synchronized(lock) {
-                jar.removeAll { it.expiresAt < now }
-                return jar.filter { it.matches(url) }
-            }
-        }
-    }
+    /** 联网搜索 / 网页阅读的匿名 cookie：只在内存里，不和学校站点的登录态混在一起。 */
+    private val webCookies = com.xjtu.toolbox.network.InMemoryCookieJar()
 
     private val webClient by lazy {
         AgentWeb.applyPublicNetworkPolicy(HttpClients.base.newBuilder())
@@ -1341,20 +1324,7 @@ class AgentToolRegistry(
      * - 每次搜索前换一份新 cookie：8/8 一次通过，只多一次首页请求（约 0.3 秒）。
      * 所以不再「一个会话热身一次」，而是每次都新拿；万一还是被拦，换 cookie 再试一次。
      */
-    private val baiduJar = object : okhttp3.CookieJar {
-        private val store = java.util.concurrent.CopyOnWriteArrayList<okhttp3.Cookie>()
-        fun clear() = store.clear()
-        override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
-            for (c in cookies) {
-                store.removeAll { it.name == c.name && it.domain == c.domain && it.path == c.path }
-                store.add(c)
-            }
-        }
-        override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
-            val now = System.currentTimeMillis()
-            return store.filter { it.expiresAt > now && it.matches(url) }
-        }
-    }
+    private val baiduJar = com.xjtu.toolbox.network.InMemoryCookieJar()
     private val baiduClient by lazy { searchClient.newBuilder().cookieJar(baiduJar).build() }
     /** 换 cookie 这件事不能并发：两次搜索同时清空、同时热身会互相踩掉。 */
     private val baiduMutex = kotlinx.coroutines.sync.Mutex()
