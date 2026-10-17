@@ -1148,16 +1148,20 @@ campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端
 |---|---|---|---|
 | `:app` | `7840d90a` | `AppArchiveImportTarget`（`prefs.edit()` 逐键、`putStringSet` 照 §8.4、`at` 不重建旁挂键 —— Android 本就没有 `#written_at`）+ `AndroidArchiveFileWriter`（Room 三表走既有 `insert`/`upsert`，`agent_sessions<suffix>/`、`data_cache<suffix>/` 走原子写）+ `AppArchiveImport` 编排 + **「已导入」标记**（档案落地目录里 `.imported`，第一行是档案身份） | `:app:testDebugUnitTest` 444 → **456**（0 失败）· `:app:compileDebugKotlin` SUCCESS |
 | 桌面 | `3b3569f0` | `DesktopArchiveImportTarget`（`secureKeyValueStore` 逐键 + `at` 重建 `<key>#written_at` + `agent_sessions<suffix>/` 原子写）+ `DesktopArchiveImport` 编排 + 标记 + `importStatusText` 接真结果 | `:desktop:test` 119 → **128**（0 失败，**既有 119 条断言一字未改**）· `:desktop:compileKotlin` SUCCESS |
-| web | `098ef332` | `WebArchiveImportTarget`（`localStorage` 同一批键名）+ `files/` 层在导入前滤掉（本端没有落点）+ 状态文本接真结果；**无标记**（用户主动点一次，没有「页面加载时扫一遍」那一步） | `:web:wasmJsBrowserTest` 52 → **58**（0 失败，真 ChromeHeadless）· `:web:compileKotlinWasmJs` SUCCESS |
+| web | `098ef332` | `WebArchiveImportTarget`（`localStorage` 同一批键名）+ `files/` 层里**除自建日程那一族外的**条目在导入前滤掉（本端只有 `custom_courses` 一族有落点，`download_tasks` / `jiaocai1_shelf` 没有对应业务 ⇒ 如实不落、状态文本报未落地条数）+ 状态文本接真结果；**无标记**（用户主动点一次，没有「页面加载时扫一遍」那一步） | `:web:wasmJsBrowserTest` 52 → **58**（0 失败，真 ChromeHeadless）· `:web:compileKotlinWasmJs` SUCCESS |
 
 **这次一并记下的如实边界（不是尾巴，是三端形状本身）**：
 
 - **Android 上「已有的键一律本端胜」**：Android 的 prefs 没有 mtime，读写投影也不产出 `writtenAt`（
   `ArchiveImportTarget` 的 KDoc 把 `#written_at` 重建指定给**桌面/web**）⇒ §6.4 的「任一方缺 `at` ⇒ 本端胜」
   在 Android 上对**已存在的键**恒成立；新键、空表、缺文件照写（`AppArchiveImportTest` 有一条用例钉着它）。
-- **桌面的三族行数组（`files/courses`、`files/media`、`files/jiaocai`）不落地**：桌面这三族是 **KV 店**
-  （`KeyValueCustomCourseStore` / `DesktopDownloadTaskStore` / `DesktopJiaocai1Storage`），形状不是行数组；
-  §6.3 那条「拆成行数组」的转换是另一件事，本次**不假装**做了（桌面自导自的档案只含 `agent_sessions` 那族文件）。
+- **桌面的三族行数组（`files/courses`、`files/media`、`files/jiaocai`）已落地**（2026-10-18 补完）：这三族在桌面
+  是 **KV 店**（`KeyValueCustomCourseStore` / `DesktopDownloadTaskStore` / `DesktopJiaocai1Storage`），
+  §6.3 那条「拆成行数组」的转换由 `ArchiveRowFamilies` 做（排序**只**调 `ArchiveFileRows`）——
+  导出侧**有行才写**（空表不写 `[]` 假装空表），导入侧按 §6.4 裁决：**端内已有主键的行整行保留、
+  只追加端内没有的主键**，档案行的 `id` 保持原值（`maxOf(id)+1` 口径不破）。web 同一形状，
+  但那一端只有 `custom_courses` 一族有落点（`download_tasks` / `jiaocai1_shelf` 在这一端没有对应业务落点
+  ⇒ 如实不落，状态文本里报「还有几个 `files/` 条目未落地」）。
 - **web 没有 `l`/`f` 两档槽位**：档案里的 long/float 在这一端按字符串落、读回来反推成 `s`（端上键值缝的形状，
   与导入无关；桌面同一档靠 `toLongOrNull`/`toFloatOrNull` 反推，web 少的就是那两条）。
 
@@ -1312,12 +1316,12 @@ D11 给了 `--https` 之后这个前提**可以满足**了，所以真正的理�
 | `:core`（新，缝） | `platform/QrDecode.kt`：`expect fun qrDecodeArgb(pixels, width, height): String?` —— 一帧 ARGB（`0xAARRGGBB`，就是 `Bitmap.getPixels` 那批 int）→ 二维码文本。**jvmMain / androidMain 两份 actual 仍是 zxing**（`PlanarYUVLuminanceSource` + `HybridBinarizer` + `QRCodeReader`，与 `:app` 的 `QrFrameDecoder` 同参数、同灰度式子），wasmJs 那份转调 `QrReader` |
 | `:app` / `:desktop` | **一行未改**（红线：Android 行为逐字不变 —— `:app` 的匹配交友屏仍走它自己那份 `qrlogin/QrFrameDecoder`，连「补定位块」那一档也在） |
 | `:web`（新） | `WebQrCamera.kt`（`getUserMedia` + `<video>` + 按需画到 canvas → ARGB；`<input type=file>` + `createImageBitmap`；两条路**共用同一段换算**）+ `WebMatchScanner.kt`（`MatchScanner` 的实现：`scan()` 与 `fromImage()`）+ `ToolboxWebApp.kt` 那一行从 `scanner = null` 改成 `scanner = remember { WebMatchScanner() }` ⇒ **那两颗按钮真画出来、真能扫** |
-| 与 Android 的关系 | **同一批像素解出同一段文本**：`:core:jvmTest` 的 `QrDecodeParityJvmTest` 拿同一批 ARGB 同时跑两份实现逐字断言（含「图里没有码」两边都 null、被遮掉一块两边同结论、Reed-Solomon 那一层逐个码字相同） |
+| 与 Android 的关系 | **同一批像素解出同一段文本**：`shared/model` 的 `QrDecodeParityJvmTest`（`:shared:model:jvmTest`） 拿同一批 ARGB 同时跑两份实现逐字断言（含「图里没有码」两边都 null、被遮掉一块两边同结论、Reed-Solomon 那一层逐个码字相同） |
 
-**四处如实（都不在屏幕上骗人）**：
+**三处如实 + 一条已补齐（都不在屏幕上骗人）**：
 
 1. **「补定位块」那一档没搬** —— `:app` 的 `QrFrameDecoder` 在常规解码失败后还会补一个磨掉的定位块再解一次（图书馆那种被磨掉一角的桌贴）；那一手要 `FinderCandidates` 那一整套候选配对与重画逻辑（`:app` 自己的一份），本批没搬 ⇒ **那种码在浏览器这一端扫不出来**（Android 能）。
-2. **中日文那一档可能解不出来** —— commonMain 没有字符集码表：BYTE 段被猜成 Shift_JIS、或码里写 KANJI / HANZI 段时，这一端返回 null（落到「图里没找到二维码」那句）。匹配交友的分享码是 base64url（纯 ASCII）⇒ **这一屏不受影响**。边界表写在 `QrCharset.kt` 的文件头。
+2. **中日文那一档已经能解**（2026-10-18 补齐）—— 码表按「共享层一份纯 Kotlin 数据」搬进了 `platform/qr/QrCjkTables.kt`（由 `tools/gen-qr-charset-tables.java` 从本机 JDK 的 `Charset` 枚举生成；生成器自检覆盖 **8,546,348** 种输入（17 个单字节集各 256 + Shift_JIS/GB2312/Big5/EUC-KR 各 327,936 + GB18030 1,659,692）与 JDK **0 处不同**，重复运行 md5 相同（`a4469a8c05478d838958867c983f08b0`））：BYTE 段被猜成 Shift_JIS、以及码里写 **KANJI / HANZI 段**、ECI 20/21/22/23/24/26/28/29/30（Shift_JIS / windows-125x / UTF-8 / Big5 / GB18030 / EUC-KR）与 ECI 表里那一整族单字节编码都解得出来，且与 zxing 逐字相同（parity 用例钉在 `shared/model` 的 jvmTest，`:shared:model:jvmTest` 178 → **190**）。**仍不能解的只剩 ECI 12 / 16**（ISO-8859-10 / 14）—— 那两档 zxing 3.5.4 自己也不认、本机 JDK 没有这两个 `Charset`。边界表写在 `QrCharset.kt` 的文件头。
 3. **取景覆盖层是 DOM 画的，不是 Compose** —— Android 是 `QrScannerView` + 两颗 MIUIX 按钮；这一端要真画面只能用一个真 `<video>`（`:web` 的既有先例是 `WebGameMerge` 那个 `<iframe>`），所以覆盖层是 DOM：全屏 `<video>` + 一行提示 + 一颗「取消」（两句文案与 Android **逐字相同**）。观感与 MIUIX 不一致。
 4. **相机那一跳的「真流进来、逐帧扫到」没在 CI 里验过** —— 本机的测试浏览器没有摄像头。详见下面「验过 / 没验过」。
 
@@ -1371,3 +1375,51 @@ Type 'IntArray' cannot be used as return type of JS interop function.
 | `:desktop:test` | **128 → 129 例**（`DesktopBrowserJvmTest` 加一条源码断言）；0 失败 |
 | `:web:compileKotlinWasmJs` / `:desktop:compileKotlin` | **BUILD SUCCESSFUL** |
 | `:server:test` / `:data:jvmTest` / `:app:testDebugUnitTest` | 本批未动这三块的**代码**，实测复核数见本批的提交说明（`:app` 仍是 456、一条未减） |
+
+### 16.13 新基线（模块化后的 `dev`）上的尾巴移植（2026-10-18）
+
+**背景**：这一批开始前，`dev` 被重做过一次（`bcb56c13` → `cc894f94`，历史改写 + 模块化：`:shared:*` + `:feature:*`），
+原 `refactor/kmp-multiplatform` 的 208 个提交以「重写形态」进了 `dev`，原线用 tag `kmp-refactor-2026-10-16`（→ `fef72cac`）留档。
+两条还没做完的尾巴（§16.8 末段的「三族行数组不落地」、§16.12 的「中日文码表没搬」）在旧线上做完后（`1bcd1f80` / `831efde1`），
+**以「移植」方式重做到新布局上**（不是 cherry-pick：路径变了、注释被删瘦，见下面映射）。
+
+**落点映射**
+
+| 旧（`refactor`） | 新（`dev`） |
+|---|---|
+| `core/…/archive/*` | `feature/settings/src/commonMain/…/archive/*`（测试 `commonTest` / `jvmTest`，门禁 `:feature:settings:jvmTest`） |
+| `core/…/platform/qr/*`、`platform/QrDecode.kt` | `shared/model/src/commonMain/…/platform/qr/*`（测试 `jvmTest`，门禁 `:shared:model:jvmTest`） |
+| `desktop/…/archive/*`、`web/…/web/WebArchive*.kt` | 路径不变 |
+
+**两件都做完的事**
+
+- **三族行数组跨端**：`ArchiveRowFamilies`（端内那段 JSON ⇄ 档案行数组，排序只调 `ArchiveFileRows`）+
+  §6.4 合并裁决「**端内已有主键的行整行保留、只追加端内没有的主键**」（档案行 `id` 保持原值）；桌面导出**有行才写**、
+  导入 `putFile` 先认领行数组那一笔；web 只有 `custom_courses` 一族有落点，另两族如实不落并报未落地条数。
+- **中日韩码表**：`QrCjkTables`（生成物）+ `tools/gen-qr-charset-tables.java`（从本机 JDK 的 `Charset` 枚举，
+  自检覆盖 8,546,348 种输入 0 处不同，重复运行 md5 相同）+ `QrCharset` 接码表 + KANJI / HANZI 段。
+
+**门禁（新基线，逐目录数 XML）**
+
+| 门禁 | 新基线 | 两条尾巴叠加后 |
+|---|---|---|
+| `:shared:model:jvmTest` | 178 | **190**（+12：两条新 parity 各 6 例） |
+| `:core:jvmTest` | 18 | 18（不变） |
+| `:feature:settings:jvmTest` | 27 | **34**（+7） |
+| `:desktop:test` | 129 | **133**（+4） |
+| `:web:wasmJsBrowserTest` | 65 | **69**（+4） |
+| `:app:testDebugUnitTest` | 453 | 453（未动 `app/` 源码） |
+
+（`:core` 从旧线的 560 降到 18、`:app` 从 456 到 453，都是模块化把测试拆进了 `:feature:*` / `:shared:*`
+与 `LibrarySeatQrTest` 搬去 `:shared:data` 的结果，不是丢测试。）
+
+**这一批的如实边界**
+
+- web 的 `download_tasks` / `jiaocai1_shelf` 两族**没有落点**（不是漏做，端上没有对应业务）⇒ 导入前滤掉、状态文本报数。
+- 桌面**未登录时**那一发导入会把两个带后缀的族落到 `<端内名>default`，与登录后的 `<端内名>_<学号>` 错位（KDoc 已记）。
+- `custom_courses` 档案行缺必填列 ⇒ 整行跳过并计数（宁可少一行，也不让端内那一段解不开）；UI 暂不报这一项。
+- **仍不能解**：ECI 12 / 16（ISO-8859-10 / 14）—— zxing 3.5.4 自己也不认、本机 JDK 无这两个 `Charset`。
+- 码表是**本机 JDK 枚举**的产物：换 JDK 重跑生成器可能得到不同字节，生成器自检会先拦住。
+
+**文风**：新基线的注释是**瘦注释**（同一批文件比旧线少 10%–40% 行），移植时只写「事实」那一两句，
+**不把旧线的长 KDoc / 决策过程搬回来**（那些留在本节与 tag `kmp-refactor-2026-10-16` 里）。
