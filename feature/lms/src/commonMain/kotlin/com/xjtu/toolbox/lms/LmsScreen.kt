@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.lms
 
+import com.xjtu.toolbox.html.renderer.HtmlImageLoader
+
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import com.xjtu.toolbox.platform.BackHandler
@@ -53,15 +55,20 @@ internal class LmsPageCache(private val disk: LmsCacheStore?) {
     var courses by mutableStateOf<List<LmsCourseSummary>>(emptyList())
     var selectedSemester by mutableStateOf<String?>(null)
     val activities = mutableStateMapOf<Int, List<LmsActivity>>()
+    val bulletins = mutableStateMapOf<Int, List<LmsBulletin>>()
     val selectedTypes = mutableStateMapOf<Int, LmsActivityType?>()
     val details = mutableStateMapOf<Int, LmsActivity>()
+    val forumTopics = mutableStateMapOf<Int, List<LmsForumTopic>>()
+    val topicReplies = mutableStateMapOf<Int, List<LmsForumReply>>()
 
     /** 本次进入后已联网刷新过，返回时不再请求。 */
     var coursesSynced by mutableStateOf(false)
         private set
     private val syncedActivities = mutableSetOf<Int>()
+    private val syncedBulletins = mutableSetOf<Int>()
 
     fun activitiesSynced(courseId: Int) = courseId in syncedActivities
+    fun bulletinsSynced(courseId: Int) = courseId in syncedBulletins
 
     /** 取数与落盘的 IO 都由实现方自己包（见 [LmsSource] / [LmsCacheStore]），这里只按顺序编排。 */
     suspend fun syncCourses(source: LmsSource) {
@@ -74,6 +81,12 @@ internal class LmsPageCache(private val disk: LmsCacheStore?) {
         if (activities[courseId] == null) disk?.readActivities(courseId)?.let { activities[courseId] = it }
         activities[courseId] = source.courseActivities(courseId).also { writeSafe { disk?.writeActivities(courseId, it) } }
         syncedActivities += courseId
+    }
+
+    suspend fun syncBulletins(source: LmsSource, courseId: Int) {
+        if (bulletins[courseId] == null) disk?.readBulletins(courseId)?.let { bulletins[courseId] = it }
+        bulletins[courseId] = source.courseBulletins(courseId).also { writeSafe { disk?.writeBulletins(courseId, it) } }
+        syncedBulletins += courseId
     }
 
     /** 作业 id → 交过没有。列表接口不给 `user_submit_count`，看作业时由 [syncSubmitted] 逐条查详情补上。 */
@@ -111,6 +124,8 @@ private sealed class LmsPage {
     data object CourseList : LmsPage()
     data class ActivityList(val course: LmsCourseSummary) : LmsPage()
     data class ActivityDetail(val course: LmsCourseSummary, val activity: LmsActivity) : LmsPage()
+    data class BulletinDetail(val course: LmsCourseSummary, val bulletin: LmsBulletin) : LmsPage()
+    data class ForumTopicDetail(val course: LmsCourseSummary, val activity: LmsActivity, val topic: LmsForumTopic) : LmsPage()
     /** 视频播放器页面（直播 HLS 或录播） */
     data class VideoPlayer(
         val title: String,
@@ -234,7 +249,9 @@ fun LmsScreen(
         }
         currentPage = when (cur) {
             is LmsPage.VideoPlayer -> cur.returnPage
+            is LmsPage.ForumTopicDetail -> LmsPage.ActivityDetail(cur.course, cur.activity)
             is LmsPage.ActivityDetail -> LmsPage.ActivityList(cur.course)
+            is LmsPage.BulletinDetail -> LmsPage.ActivityList(cur.course)
             is LmsPage.ActivityList -> LmsPage.CourseList
             else -> LmsPage.CourseList
         }
@@ -268,7 +285,8 @@ fun LmsScreen(
         transitionSpec = {
             val forward = when {
                 targetState is LmsPage.ActivityList && initialState is LmsPage.CourseList -> true
-                targetState is LmsPage.ActivityDetail && initialState is LmsPage.ActivityList -> true
+                (targetState is LmsPage.ActivityDetail || targetState is LmsPage.BulletinDetail) && initialState is LmsPage.ActivityList -> true
+                targetState is LmsPage.ForumTopicDetail && initialState is LmsPage.ActivityDetail -> true
                 targetState is LmsPage.VideoPlayer -> true
                 else -> false
             }
@@ -304,7 +322,8 @@ fun LmsScreen(
                 // 标题栏的返回箭头要和系统返回键一致：深链进来的直接退出，
                 // 否则点箭头仍会掉进那个用户没进过的课程列表。
                 onBack = { if (deepLinked) onBack() else currentPage = LmsPage.CourseList },
-                onActivitySelected = { currentPage = LmsPage.ActivityDetail(page.course, it) }
+                onActivitySelected = { currentPage = LmsPage.ActivityDetail(page.course, it) },
+                onBulletinSelected = { currentPage = LmsPage.BulletinDetail(page.course, it) }
             )
             is LmsPage.ActivityDetail -> ActivityDetailPage(
                 source = source,
@@ -312,6 +331,7 @@ fun LmsScreen(
                 course = page.course,
                 activity = page.activity,
                 onBack = { currentPage = LmsPage.ActivityList(page.course) },
+                onTopicSelected = { topic -> currentPage = LmsPage.ForumTopicDetail(page.course, page.activity, topic) },
                 onPlayVideo = { title, instrUrl, encUrl, isLive, headers, startInDual ->
                     currentPage = LmsPage.VideoPlayer(
                         title = title,
@@ -323,6 +343,20 @@ fun LmsScreen(
                         startInDual = startInDual,
                     )
                 }
+            )
+            is LmsPage.ForumTopicDetail -> LmsForumTopicDetailPage(
+                source = source,
+                cache = cache,
+                course = page.course,
+                activity = page.activity,
+                topic = page.topic,
+                onBack = { currentPage = LmsPage.ActivityDetail(page.course, page.activity) }
+            )
+            is LmsPage.BulletinDetail -> BulletinDetailPage(
+                source = source,
+                course = page.course,
+                bulletin = page.bulletin,
+                onBack = { currentPage = LmsPage.ActivityList(page.course) }
             )
             is LmsPage.VideoPlayer -> { /* handled above */ }
         }
@@ -358,6 +392,13 @@ internal fun BoxScope.EmptyState(icon: ImageVector, title: String, subtitle: Str
         Text(subtitle, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
 }
+/** 思源学堂站点根：富文本里 `/api/...` 这类相对地址按它补全。 */
+internal const val LMS_BASE_URL = "https://lms.xjtu.edu.cn"
+
+/** 富文本配图的取图函数：走 [LmsSource.imageBytes]（学堂自己的图带登录态，外站图不带）。 */
+@Composable
+internal fun rememberLmsImageLoader(source: LmsSource): HtmlImageLoader =
+    remember(source) { { url -> source.imageBytes(url) } }
 @Composable
 internal fun SectionHeader(title: String) {
     Text(

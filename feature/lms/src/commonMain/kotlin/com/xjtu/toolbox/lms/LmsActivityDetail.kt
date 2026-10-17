@@ -40,6 +40,7 @@ import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.html.HtmlContent
 
 private const val TAG = "LmsScreen"
 
@@ -54,6 +55,7 @@ internal fun ActivityDetailPage(
     course: LmsCourseSummary,
     activity: LmsActivity,
     onBack: () -> Unit,
+    onTopicSelected: (LmsForumTopic) -> Unit = {},
     onPlayVideo: (title: String, instructorUrl: String?, encoderUrl: String?, isLive: Boolean, headers: Map<String, String>, startInDual: Boolean) -> Unit
 ) {
     val authExpiry = LocalAuthExpiry.current
@@ -65,6 +67,35 @@ internal fun ActivityDetailPage(
     val listState = rememberRetainedLazyListState("lms_detail_${activity.id}")
     var errorMsg by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+
+    // 讨论区帖子列表
+    val categoryId = (detail?.topicCategoryId ?: activity.topicCategoryId)
+    val forumTopics = categoryId?.let { cache.forumTopics[it] }
+    var isForumLoading by remember { mutableStateOf(false) }
+    var forumErrorMsg by remember { mutableStateOf<String?>(null) }
+
+    fun loadForumTopics() {
+        if (categoryId == null) return
+        scope.launch {
+            isForumLoading = true
+            forumErrorMsg = null
+            try {
+                val res = source.forumCategoryTopics(categoryId)
+                cache.forumTopics[categoryId] = res.topics
+            } catch (e: Exception) {
+                Log.e(TAG, "loadForumTopics error", e)
+                forumErrorMsg = com.xjtu.toolbox.error.FriendlyError.of(e, "加载讨论区帖子失败")
+            } finally {
+                isForumLoading = false
+            }
+        }
+    }
+
+    LaunchedEffect(categoryId) {
+        if (categoryId != null && cache.forumTopics[categoryId] == null) {
+            loadForumTopics()
+        }
+    }
 
     // 思源学堂回放下载：走 media.DownloadManager 队列。
     // download_url 本身就是直链，不必再解析。
@@ -159,15 +190,13 @@ internal fun ActivityDetailPage(
                         val desc = d.description.orEmpty()
                         if (desc.isNotBlank()) {
                             item(key = "desc") {
-                                // 正文转纯文本用的是 jsoup（在 :data 那边），实现方自己包 IO
-                                val plainText by produceState(initialValue = "", desc) {
-                                    value = source.htmlToPlainText(desc).orEmpty()
-                                }
+                                // 正文（富文本 HTML 原生渲染；配图走 `LmsSource.imageBytes` 带登录态）
                                 SectionHeader(if (d.type == LmsActivityType.HOMEWORK) "作业描述" else "内容")
                                 Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                                    Text(
-                                        plainText,
-                                        style = MiuixTheme.textStyles.body2,
+                                    HtmlContent(
+                                        html = desc,
+                                        imageLoader = rememberLmsImageLoader(source),
+                                        baseUrl = LMS_BASE_URL,
                                         modifier = Modifier.padding(16.dp)
                                     )
                                 }
@@ -358,6 +387,46 @@ internal fun ActivityDetailPage(
                             }
                         }
 
+                        // 讨论区帖子列表 (FORUM 类型)
+                        if (d.type == LmsActivityType.FORUM) {
+                            val topics = forumTopics
+                            item(key = "forum_topics_header") {
+                                SectionHeader(if (topics != null) "帖子列表 (${topics.size})" else "帖子列表")
+                            }
+                            when {
+                                isForumLoading && topics == null -> {
+                                    item(key = "forum_loading") {
+                                        Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                            LoadingIndicator("加载帖子列表中…")
+                                        }
+                                    }
+                                }
+                                forumErrorMsg != null && topics == null -> {
+                                    item(key = "forum_error") {
+                                        Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                            ErrorRetry(forumErrorMsg!!) { loadForumTopics() }
+                                        }
+                                    }
+                                }
+                                topics != null && topics.isEmpty() -> {
+                                    item(key = "forum_empty") {
+                                        Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                            EmptyState(
+                                                Icons.Default.Forum,
+                                                "暂无帖子",
+                                                "该分区还没有发布任何帖子"
+                                            )
+                                        }
+                                    }
+                                }
+                                topics != null -> {
+                                    items(topics, key = { "topic_${it.id}" }) { topic ->
+                                        LmsForumTopicCard(topic, source, onClick = { onTopicSelected(topic) })
+                                    }
+                                }
+                            }
+                        }
+
                         item { Spacer(Modifier.height(16.dp)) }
                     }
                 }
@@ -436,7 +505,7 @@ private fun InfoChip(text: String, icon: ImageVector) {
     }
 }
 @Composable
-private fun UploadCard(
+internal fun UploadCard(
     upload: LmsUpload,
     /** 取数与落盘。 */
     source: LmsSource? = null,

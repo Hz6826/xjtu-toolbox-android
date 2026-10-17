@@ -63,7 +63,16 @@ fun LmsActivity.mergeBrief(brief: LmsActivity?): LmsActivity {
             ?: brief?.deadline?.takeIf { it.isNotBlank() }
             ?: end
     }
-    return copy(startTime = start, visibleStartAt = visibleStart, endTime = end, deadline = due)
+    val catId = topicCategoryId ?: brief?.topicCategoryId
+    val count = if (topicCount > 0) topicCount else (brief?.topicCount ?: 0)
+    return copy(
+        startTime = start,
+        visibleStartAt = visibleStart,
+        endTime = end,
+        deadline = due,
+        topicCategoryId = catId,
+        topicCount = count
+    )
 }
 
 /**
@@ -74,6 +83,54 @@ fun LmsActivity.mergeBrief(brief: LmsActivity?): LmsActivity {
 fun lmsActivityBody(data: JsonObject?): String? =
     data?.get("description").safeString()?.takeIf { it.isNotBlank() }
         ?: data?.get("content").safeString()?.takeIf { it.isNotBlank() }
+
+internal fun extractUpload(obj: JsonObject, baseUrl: String = "https://lms.xjtu.edu.cn"): LmsUpload {
+    val uploadId = obj.get("id").safeInt()
+    val refId = obj.get("reference_id").safeInt()
+    return LmsUpload(
+        id = uploadId,
+        name = obj.get("name").safeString() ?: "",
+        type = obj.get("type").safeString() ?: "",
+        size = obj.get("size").safeInt(),
+        referenceId = refId,
+        status = obj.get("status").safeString() ?: "",
+        createdAt = obj.get("created_at").safeString() ?: "",
+        updatedAt = obj.get("updated_at").safeString() ?: "",
+        downloadUrl = if (uploadId > 0) "$baseUrl/api/uploads/$uploadId/blob" else "",
+        previewUrl = if (refId > 0) "$baseUrl/api/uploads/reference/document/$refId/url?preview=true" else ""
+    )
+}
+
+internal fun extractBulletin(obj: JsonObject, courseId: Int, baseUrl: String = "https://lms.xjtu.edu.cn"): LmsBulletin {
+    val createdByObj = obj.get("created_by").safeObject()
+    val updatedByObj = obj.get("updated_by").safeObject()
+    val uploads = obj.get("uploads").safeArray().mapNotNull { elem ->
+        try { extractUpload(elem.jsonObject, baseUrl).copy(courseId = courseId) } catch (_: Exception) { null }
+    }
+    return LmsBulletin(
+        id = obj.get("id").safeInt(),
+        courseId = courseId,
+        title = obj.get("title").safeString() ?: "",
+        content = obj.get("content").safeString() ?: "",
+        createdAt = obj.get("created_at").safeString() ?: "",
+        updatedAt = obj.get("updated_at").safeString(),
+        createdBy = LmsBulletinAuthor(
+            id = createdByObj?.get("id").safeInt(),
+            name = createdByObj?.get("name").safeString() ?: ""
+        ),
+        updatedBy = updatedByObj?.let {
+            LmsBulletinAuthor(
+                id = it.get("id").safeInt(),
+                name = it.get("name").safeString() ?: ""
+            )
+        },
+        startTime = obj.get("start_time").safeString(),
+        endTime = obj.get("end_time").safeString(),
+        targets = obj.get("targets").safeArray().mapNotNull { it.safeString() },
+        targetsName = obj.get("targets_name").safeArray().mapNotNull { it.safeString() },
+        uploads = uploads
+    )
+}
 
 // ════════════════════════════════════════
 //  LmsApi — 思源学堂 API 封装
@@ -189,6 +246,27 @@ class LmsApi(private val site: SiteSession) {
     }
 
     /**
+     * 获取课程公告列表
+     */
+    suspend fun getCourseBulletins(courseId: Int): List<LmsBulletin> {
+        val data = getJson("$baseUrl/api/courses/$courseId/bulletins")
+        if (data == null) {
+            Log.w(TAG, "getCourseBulletins($courseId): 响应为空或非 JSON 对象")
+            return emptyList()
+        }
+        val bulletins = data.arr("bulletins") ?: return emptyList()
+        return bulletins.mapNotNull { elem ->
+            try {
+                val obj = elem.jsonObject
+                extractBulletin(obj, courseId)
+            } catch (e: Exception) {
+                Log.w(TAG, "getCourseBulletins: skip bad bulletin", e)
+                null
+            }
+        }
+    }
+
+    /**
      * 获取活动详细信息
      * - homework 类型自动注入 submissionList
      * - lesson 类型自动注入 replayVideos + replayDownloadUrls
@@ -223,6 +301,132 @@ class LmsApi(private val site: SiteSession) {
     suspend fun getUserSubmitCount(activityId: Int): Int =
         (getJson("$baseUrl/api/activities/$activityId") ?: throw RuntimeException("获取活动详情失败"))
             .get("user_submit_count").safeInt()
+
+    /**
+     * 获取讨论区分区下的帖子列表
+     * URL 参照 HAR 抓包：/api/forum/categories/{categoryId}
+     */
+    suspend fun getForumCategoryTopics(categoryId: Int, page: Int = 1): LmsForumCategoryResult {
+        val conditions = """{"topic_sort_by":{"predicate":"lastUpdatedDate","reverse":true}}"""
+        val encodedConditions = java.net.URLEncoder.encode(conditions, "UTF-8")
+        val fields = "id,title,created_by(id,name,nickname,comment),group_id,created_at,updated_at,content,read_replies(reply_id),reply_count,unread_reply_count,like_count,current_user_read,current_user_liked,in_common_category,enrollments(roles,aliases),has_matched_replies,uploads"
+        val url = "$baseUrl/api/forum/categories/$categoryId?conditions=$encodedConditions&fields=$fields&page=$page"
+        val data = getJson(url) ?: return LmsForumCategoryResult()
+        val result = data.get("result").safeObject() ?: return LmsForumCategoryResult()
+
+        val topics = result.arr("topics")?.mapNotNull { elem ->
+            try {
+                val obj = elem.jsonObject
+                extractForumTopic(obj, categoryId)
+            } catch (e: Exception) {
+                Log.w(TAG, "getForumCategoryTopics: skip bad topic", e)
+                null
+            }
+        }.orEmpty()
+
+        return LmsForumCategoryResult(
+            page = result.get("page").safeInt(page),
+            pageSize = result.get("page_size").safeInt(10),
+            pages = result.get("pages").safeInt(1),
+            total = result.get("total").safeInt(topics.size),
+            topics = topics
+        )
+    }
+
+    /**
+     * 获取帖子的回复列表
+     * URL: /api/forum/topics/{topicId}/replies
+     */
+    suspend fun getTopicReplies(topicId: Int): List<LmsForumReply> {
+        val data = getJson("$baseUrl/api/forum/topics/$topicId/replies") ?: return emptyList()
+        val result = data.arr("result") ?: return emptyList()
+        return result.mapNotNull { elem ->
+            try {
+                val obj = elem.jsonObject
+                extractForumReply(obj, topicId)
+            } catch (e: Exception) {
+                Log.w(TAG, "getTopicReplies: skip bad reply", e)
+                null
+            }
+        }
+    }
+
+    private fun extractForumTopic(obj: JsonObject, categoryId: Int): LmsForumTopic {
+        val createdByObj = obj.get("created_by").safeObject()
+        val enrollments = obj.get("enrollments").safeArray()
+        val role = enrollments.firstOrNull()?.safeObject()?.arr("roles")?.firstOrNull()?.safeString()
+        val uploads = obj.get("uploads").safeArray().mapNotNull { elem ->
+            try { extractUpload(elem.jsonObject, baseUrl) } catch (_: Exception) { null }
+        }
+        val topicId = obj.get("id").safeInt()
+
+        return LmsForumTopic(
+            id = topicId,
+            categoryId = categoryId,
+            title = obj.get("title").safeString().orEmpty(),
+            content = obj.get("content").safeString().orEmpty(),
+            createdAt = obj.get("created_at").safeString().orEmpty(),
+            updatedAt = obj.get("updated_at").safeString(),
+            createdBy = LmsForumUser(
+                id = createdByObj?.get("id").safeInt(),
+                name = createdByObj?.get("name").safeString().orEmpty(),
+                nickname = createdByObj?.get("nickname").safeString(),
+                userNo = createdByObj?.get("user_no").safeString(),
+                role = role
+            ),
+            replyCount = obj.get("reply_count").safeInt(),
+            unreadReplyCount = obj.get("unread_reply_count").safeInt(),
+            likeCount = obj.get("like_count").safeInt(),
+            currentUserLiked = obj.get("current_user_liked").safeBoolean(),
+            currentUserRead = obj.get("current_user_read").safeBoolean(),
+            isHotTopic = obj.get("is_hot_topic").safeBoolean(),
+            isTeacherTop = obj.get("is_teacher_top").safeBoolean(),
+            topicToppedSort = obj.get("topic_topped_sort").safeInt(),
+            userVisitsNumber = obj.get("user_visits_number").safeInt(),
+            uploads = uploads
+        )
+    }
+
+    private fun extractForumReply(obj: JsonObject, topicId: Int): LmsForumReply {
+        val createdByObj = obj.get("created_by").safeObject()
+        val comments = obj.arr("comments")?.mapNotNull { elem ->
+            try {
+                val cObj = elem.jsonObject
+                val cCreatedBy = cObj.get("created_by").safeObject()
+                LmsForumComment(
+                    id = cObj.get("id").safeInt(),
+                    content = cObj.get("content").safeString().orEmpty(),
+                    createdAt = cObj.get("created_at").safeString().orEmpty(),
+                    createdBy = LmsForumUser(
+                        id = cCreatedBy?.get("id").safeInt(),
+                        name = cCreatedBy?.get("name").safeString().orEmpty(),
+                        nickname = cCreatedBy?.get("nickname").safeString(),
+                        userNo = cCreatedBy?.get("user_no").safeString()
+                    ),
+                    likeCount = cObj.get("like_count").safeInt()
+                )
+            } catch (_: Exception) { null }
+        }.orEmpty()
+
+        return LmsForumReply(
+            id = obj.get("id").safeInt(),
+            topicId = topicId,
+            content = obj.get("content").safeString().orEmpty(),
+            createdAt = obj.get("created_at").safeString().orEmpty(),
+            updatedAt = obj.get("updated_at").safeString(),
+            createdBy = LmsForumUser(
+                id = createdByObj?.get("id").safeInt(),
+                name = createdByObj?.get("name").safeString().orEmpty(),
+                nickname = createdByObj?.get("nickname").safeString(),
+                userNo = createdByObj?.get("user_no").safeString()
+            ),
+            likeCount = obj.get("like_count").safeInt(),
+            currentUserLiked = obj.get("current_user_liked").safeBoolean(),
+            replyCount = obj.get("reply_count").safeInt(),
+            userVisitsNumber = obj.get("user_visits_number").safeInt(),
+            comments = comments
+        )
+    }
 
     // ── 内部方法 ──────────────────────
 
@@ -575,23 +779,8 @@ class LmsApi(private val site: SiteSession) {
             createdAt = obj.get("created_at").safeString() ?: "",
             updatedAt = obj.get("updated_at").safeString() ?: "",
             isClosed = obj.get("is_closed").safeBoolean(),
-        )
-    }
-
-    private fun extractUpload(obj: JsonObject): LmsUpload {
-        val uploadId = obj.get("id").safeInt()
-        val refId = obj.get("reference_id").safeInt()
-        return LmsUpload(
-            id = uploadId,
-            name = obj.get("name").safeString() ?: "",
-            type = obj.get("type").safeString() ?: "",
-            size = obj.get("size").safeInt(),
-            referenceId = refId,
-            status = obj.get("status").safeString() ?: "",
-            createdAt = obj.get("created_at").safeString() ?: "",
-            updatedAt = obj.get("updated_at").safeString() ?: "",
-            downloadUrl = if (uploadId > 0) "$baseUrl/api/uploads/$uploadId/blob" else "",
-            previewUrl = if (refId > 0) "$baseUrl/api/uploads/reference/document/$refId/url?preview=true" else ""
+            topicCategoryId = obj.get("topic_category_id")?.safeInt() ?: obj.get("category_id")?.safeInt(),
+            topicCount = obj.get("topic_count")?.safeInt() ?: obj.get("forum_count")?.safeInt() ?: 0,
         )
     }
 
@@ -626,6 +815,10 @@ class LmsApi(private val site: SiteSession) {
             updatedAt = obj.get("updated_at").safeString() ?: "",
             uploads = uploads,
             isClosed = obj.get("is_closed").safeBoolean(),
+            topicCategoryId = obj.get("topic_category_id")?.safeInt()
+                ?: obj.get("category_id")?.safeInt()
+                ?: dataObj?.get("category_id")?.safeInt(),
+            topicCount = obj.get("topic_count")?.safeInt() ?: obj.get("forum_count")?.safeInt() ?: 0,
         )
 
         return when (type) {
