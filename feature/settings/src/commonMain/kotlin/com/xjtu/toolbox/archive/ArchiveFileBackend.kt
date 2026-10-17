@@ -1,6 +1,11 @@
 package com.xjtu.toolbox.archive
 
-/** 端内 `files` 那一层的只读投影（§1.4 缝 B）。 */
+/**
+ * 端内 `files` 那一层的只读投影（§1.4 缝 B）—— 只覆盖端内**真实是文件**的那些条目
+ * （`agent_sessions<suffix>/`、`schedule/<key>.json`）。三族行数组（`files/courses`、`files/media`、
+ * `files/jiaocai` 下的 `.json`）不在这一格：端内源是 Room 表（`:app`）或键值店里的一个键
+ * （[ArchiveRowFamilies]），由各端宿主在 [ArchiveFileRows] 之外单独投影。
+ */
 interface ArchiveFileBackend {
     /** 枚举某个账号档下 `files/` 某前缀的相对路径，按码点升序（§2.3）。 */
     fun list(suffix: String, prefix: String): List<String>

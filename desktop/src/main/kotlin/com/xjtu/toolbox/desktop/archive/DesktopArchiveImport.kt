@@ -19,7 +19,21 @@ import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.platform.secureKeyValueStore
 import java.io.File
 
-/** 桌面端的导入写侧：`:core` 的 [ArchiveImportTarget] 在 jvm 上的落点。 */
+/**
+ * 桌面端的导入写侧：`:core` 的 [ArchiveImportTarget] 在 jvm 上的落点。
+ *
+ * `files/` 那一层在这端有两个落点，形状不同：`agent_sessions<suffix>/` 是真文件（原子写，见下），
+ * 三族行数组（`courses/custom_courses.json` / `media/download_tasks.json` /
+ * `jiaocai/jiaocai1_shelf.json`）⇄ 端内那三个键值店（名与键的映射见 [DesktopArchiveRows]）：那三族
+ * 在端内**本来就是行数组**（单键里的一段 JSON），所以进来时按 `ArchiveRowFamilies.merge` 合并（本端
+ * 已有的主键整行保留、只追加端内没有的主键），合并基含两个带后缀族的旧名只读兜底。其余条目在这一端
+ * 没有落点，不落地。
+ *
+ * ⚠️ 三族的端内名按 `AccountContext.activeAccountId` 解析（与运行时那几个 Store 同一条规则）：启动时
+ * （`Main.kt` 那一发）还没登录 ⇒ 两个带后缀的族落到 `<端内名>default`，登录后运行时建的那两个 Store
+ * 用的是 `<端内名>_<学号>`。这个错位与导出侧（`DesktopArchiveHost.exportArchive` 的默认账号）是同一处，
+ * 本工单不动它，只如实记下。
+ */
 class DesktopArchiveImportTarget(
     /** 写侧：按端内名取那个已有句柄（默认 [secureKeyValueStore]）。 */
     private val storeOf: (String) -> KeyValueStore = { secureKeyValueStore(it) },
@@ -50,14 +64,24 @@ class DesktopArchiveImportTarget(
     override fun readFile(suffix: String, relPath: String): String? = files?.read(suffix, relPath)
 
     override fun putFile(suffix: String, relPath: String, content: String) {
+        // §2.3 那三族：端内落点是键值店里的一个键（认领了这一笔就不再当文件写）
+        if (landRowFamily(suffix, relPath, content)) return
         val root = dataRoot ?: return
         if (!relPath.startsWith(AGENT_SESSIONS_PREFIX)) return
         val target = File(File(root, "agent_sessions$suffix"), relPath.removePrefix(AGENT_SESSIONS_PREFIX))
         DesktopArchiveIo.writeFile(target, content.toByteArray(Charsets.UTF_8))
     }
 
+    /**
+     * 档案里那一族行数组合并进端内键值店（[DesktopArchiveRows.land]）；认领了这一笔 ⇒ true。
+     *
+     * 「是不是那三族 / `suffix` 是不是空」都在 `:core` 的 `ArchiveRowFamilies` 里判，这里不另写一份。
+     */
+    private fun landRowFamily(suffix: String, relPath: String, content: String): Boolean =
+        DesktopArchiveRows.land(suffix, relPath, content, storeOf = storeOf) != null
+
     private companion object {
-        /** §2.3：桌面 `files/` 这一层只有这一族（课表族在 KV 店）。 */
+        /** §2.3：桌面 `files/` 这一层除三族行数组之外唯一落文件的那一族。 */
         const val AGENT_SESSIONS_PREFIX = "agent_sessions/"
     }
 }

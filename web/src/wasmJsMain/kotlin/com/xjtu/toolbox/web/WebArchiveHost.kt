@@ -3,6 +3,7 @@ package com.xjtu.toolbox.web
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.xjtu.toolbox.archive.ArchiveFile
 import com.xjtu.toolbox.archive.ArchiveImportTarget
 import com.xjtu.toolbox.archive.ArchiveInspection
 import com.xjtu.toolbox.archive.ArchiveStoreBackend
@@ -14,7 +15,11 @@ import com.xjtu.toolbox.archive.archiveSourceOf
 import com.xjtu.toolbox.archive.archiveStoreBackend
 import kotlin.time.Clock
 
-/** Web 这一端的档案宿主装配。 */
+/**
+ * Web 这一端的档案宿主装配 —— 只**读**端内已有的东西（`localStorage` 的 store 投影 + 三族行数组里
+ * 有落点的那一族），交给 `:core` 的纯函数 [StoreArchive.export] 组装成档案。这一端没有文件系统
+ * （`archiveFileBackend()` 在 wasm 上返回 `null`）：`files/` 那一层里只有行数组一族有落点，见 [WebArchiveRows]。
+ */
 internal object WebArchiveHost {
 
     /** §2.1 `createdBy`：本端固定写 `web`。 */
@@ -27,9 +32,14 @@ internal object WebArchiveHost {
     fun readStores(backend: ArchiveStoreBackend = archiveStoreBackend()): List<StoreSnapshot> =
         backend.storeNames().mapNotNull { backend.readStore(it) }
 
-    /** 纯组装：已投影的 stores → [StoreArchive.export] 的档案字节映射。 */
+    /**
+     * 纯组装：已投影的 stores（+ 本端有落点的行数组） → [StoreArchive.export] 的档案字节映射。
+     * `accounts` 传空表 = 「这一端没有账号」⇒ 全部落在 `global/`。`files` 默认取 [WebArchiveRows.filesOf]
+     * （**只有自建日程那一族**：另两族本端没有落点，见那段 KDoc）。
+     */
     fun buildArchive(
         stores: List<StoreSnapshot>,
+        files: List<ArchiveFile> = WebArchiveRows.filesOf(),
         now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
     ): Map<String, String> =
         StoreArchive.export(
@@ -37,13 +47,13 @@ internal object WebArchiveHost {
             createdBy = CREATED_BY,
             appVersion = APP_VERSION,
             stores = stores,
-            files = emptyList(),
+            files = files,
             options = ExportOptions(now = now),
         )
 
     /** 端内 → 完整档案字节映射（只读端内，不写任何 store）。 */
     fun exportArchive(now: () -> Long = { Clock.System.now().toEpochMilliseconds() }): Map<String, String> =
-        buildArchive(readStores(), now)
+        buildArchive(readStores(), now = now)
 
     /** 导出：组装 + 交给浏览器下载，返回结论文本。 */
     fun exportToDownload(now: () -> Long = { Clock.System.now().toEpochMilliseconds() }): String {
@@ -76,10 +86,10 @@ internal object WebArchiveHost {
     fun importArchive(
         entries: Map<String, String>,
         target: ArchiveImportTarget = WebArchiveImportTarget(),
-    ): ImportResult = StoreArchive.import(archiveSourceOf(withoutFilesLayer(entries)), target)
+    ): ImportResult = StoreArchive.import(archiveSourceOf(withoutUnlandedFiles(entries)), target)
 
     private fun importAndReport(picked: PickedArchive.Entries): String {
-        val skippedFiles = filesLayerCount(picked.entries)
+        val unlandedFiles = unlandedFilesCount(picked.entries)
         return when (val result = importArchive(picked.entries)) {
             is ImportResult.Failed -> "「${picked.fileName}」不可用：${result.reason}（本机数据未改动）"
             is ImportResult.Ok -> buildString {
@@ -88,8 +98,11 @@ internal object WebArchiveHost {
                 append(" 个键 / 保持 ")
                 append(result.keysKept)
                 append(" 个")
-                if (skippedFiles > 0) {
-                    append("；本端没有文件系统 ⇒ 档案里 $skippedFiles 个 files/ 条目未落地")
+                if (result.filesWritten > 0) {
+                    append("；三族行数组里有落点的那一族落了 ${result.filesWritten} 条")
+                }
+                if (unlandedFiles > 0) {
+                    append("；本端没有文件系统，$unlandedFiles 个其他 files/ 条目未落地")
                 }
             }
         }
@@ -104,7 +117,7 @@ internal sealed interface WebArchiveCheck {
         val version: Int,
         /** 档案里 `stores/` 那一层的相对路径（码点升序）。 */
         val stores: List<String>,
-        /** `files/` 那一层里的文件数（web 上恒 0 —— 本端导出时不写 `files/`）。 */
+        /** `files/` 那一层里的文件数（本端导出时最多 1 条 —— 只有自建日程那一族有落点）。 */
         val files: Int,
         /** `manifest.redacted` 的条目数（凭据族没跟过来的那些，UI 只说数量）。 */
         val redacted: Int,
