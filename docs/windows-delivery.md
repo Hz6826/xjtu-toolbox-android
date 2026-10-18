@@ -191,8 +191,8 @@ JvmCredentialStore(storeName, protector = secretProtectorForPlatform())
 |---|---|---|---|
 | 1 | **DPAPI 的真实行为**（往返、篡改失败、换用户解不开） | 本机是 Linux；`DpapiSecretProtector` 的调用路只有 Windows 上有 | CI 的 `desktop-windows.yml` → `:data:jvmTest --tests "com.xjtu.toolbox.platform.*"`（`SecretProtectorJvmTest` 里那两条用例在 Windows 上不再跳过）—— **这条 CI 还没跑过** |
 | 2 | **`:desktop:packageMsi` / `packageExe` 真的出得来包** | jpackage 不接受交叉构建；本机上那两个任务直接被 `SKIPPED`（见 §1），只能验到「任务名在 + Linux 那几样（`createDistributable`）真跑通」 | 同一条 CI（`packageMsi` + `packageExe` + artifact 上传）—— **还没跑过** |
-| 3 | **`desktop/icons/windows.ico` 被 jpackage/WiX 接受** | 同上（Windows 才能读它）。收尾轮把 §3 那段校验脚本用本机 `pwsh` **重跑了一遍**（正例 + 三个负例，§8）⇒「文件本身是合法 ICO、且有 256×256 那张」已经钉住；钉不住的仍然只有「WiX 收不收」 | 同一条 CI；若报图标问题，退回「不设 `iconFile`」也能出包（只是图标是默认的 Java 那个） |
-| 4 | **WiX 自动下载在 CI 上通** | 本机不是 Windows，`configureWix` 在非 Windows 上直接返回 | 同一条 CI；万一被拦，就加一步 `choco install wixtoolset` 或 `WIX_PATH` 指现成的 |
+| 3 | **`desktop/icons/windows.ico` 被 jpackage/WiX 接受** | ✅ **2026-10-19 在 CI 上实证**：`Desktop Windows Packaging` 真跑通、`.msi` 与 `.exe` 都出来了（artifact `xjtu-toolbox-windows`，`xjtu-toolbox-5.2.0.msi` 118.4 MB）⇒ 这份 ICO 是被 WiX 收下的（本机那套校验脚本仍然管「文件本身合法 + 有 256×256」那一半，见 §3 / §8） | 已闭环 |
+| 4 | **WiX 在 CI 上能出包** | ✅ **2026-10-19 闭环，但结论与当初的假设相反**：Compose 自动下载的那份 **WiX 3.11 要 .NET Framework 3.5**，而 `windows-latest` 不带 3.5 ⇒ `light.exe` 起不来、**不打印任何错误**就退出（实测退出码 311）。改成**发现 runner 自带的 WiX 3.14**（`WIX_PATH` 交给 Compose，没有才 `choco install`）后出包成功 | 已闭环；预案当初就写在 `docs/windows-delivery.md` §7 第 4 条（`choco install wixtoolset` / `WIX_PATH`） |
 | 5 | **`.msi` 的 per-user 安装 + 开始菜单 + 升级 UUID 的真实观感** | 需要一台真 Windows 装一遍 | 手动：装 → 看安装目录/开始菜单 → 装第二版看是否**升级**而不是并存 |
 | 6 | **未签名产物的 SmartScreen 行为** | 没有证书，也没做签名（§4） | 手动（同一台 Windows）：下载 `.msi` 双击看提示文案 |
 | 7 | **整套 `:desktop:test` / `:data:jvmTest` 在 Windows 上是否全绿** | **已知会红一条**：`:desktop` 的 `DesktopAuthLibraryJvmTest` 断言凭据文件是 `0600`（POSIX 权限），Windows 没有这个概念 ⇒ 那条用例在 Windows 上必然失败 | 要么把那条用例改成按平台判（POSIX 不支持就跳过这段断言），要么在 Windows 上只跑指定类（现在 workflow 就是这么做的）。**这一轮没改别人的用例** |
@@ -216,7 +216,7 @@ JvmCredentialStore(storeName, protector = secretProtectorForPlatform())
 | `:desktop:tasks --all` | `packageMsi` / `packageExe` / `packageDeb` / `packageAppImage` / `createDistributable` / `packageTarGz` 都在（任务名核实过；workflow 里用的是前两个） |
 | `:desktop:createDistributable`（Linux 真跑） | ✓ 196MB，落点 `desktop/build/compose/binaries/main/app/xjtu-toolbox`（声明了 Msi/Exe 也没影响 Linux 这条路） |
 | `:desktop:packageMsi`（Linux） | `SKIPPED`（见 §1：不兼容的宿主上它连任务体都不跑） |
-| `.github/workflows/desktop-windows.yml` | YAML 解析通过（`yaml.safe_load`，**11** 个 step：这一批加了两步 —— job 级 `timeout-minutes` 与 ICO 自证）；**没有在 GitHub 上真跑过**（§7 第 1/2/3/4 条） |
+| `.github/workflows/desktop-windows.yml` | **2026-10-19 起在 GitHub 上真跑通**（PR #142 的 `Desktop Windows Packaging` = pass，`.msi` 与 `.exe` 都出来了）。此后又加了几步：装 WiX 3.14 / Defender 排除 / 打包 3 次重试 / 失败时上传诊断（测试报告 + `desktop/build/compose/logs/**`） |
 
 ⚠️ **桌面交付打磨的末轮（收尾轮）没重跑上表任何一条**：那轮改的只有 `desktop/build.gradle.kts` 的
 `linux { }` 那一块、新增 `desktop/icons/linux.png`、两条 workflow 与两份交付文档（`windows { }` 一个字
