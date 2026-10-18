@@ -142,9 +142,11 @@ jobs:
 
       - name: 打 Windows 安装包（.msi 与 .exe）
         # ⚠️ 这一步本机（Linux）跑不了，只能在这里验。WiX 是上面那一步装好、由 WIX_PATH 指过去的。
-        # -Pcompose.desktop.verbose=true：把 jpackage 的完整命令行与 WiX 的 stdout/stderr 都打进控制台 ——
-        # 这一步失败时唯一有用的东西（上次那条 311 在控制台只有一行、进到日志文件里 out.txt 还是空的）。
-        run: .\gradlew.bat :desktop:packageMsi :desktop:packageExe -Pcompose.desktop.verbose=true
+        # 不加 `-Pcompose.desktop.verbose=true`：在 Windows 上这一行会被拆成 `-Pcompose` 与
+        # `.desktop.verbose=true` 两段（Gradle 报 `Task '.desktop.verbose=true' not found`，实测过一轮）。
+        # 这一步失败时需要的 jpackage 完整命令行与 WiX 自己的输出，靠下面的 artifact
+        # （`desktop/build/compose/logs/**`）拿，不靠那个开关。
+        run: .\gradlew.bat :desktop:packageMsi :desktop:packageExe
 
       - name: 列出产物
         shell: pwsh
