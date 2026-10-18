@@ -47,7 +47,6 @@ internal object QrDecodedBitStreamParser {
                         val subset = bits.readBits(4)
                         val countHanzi = bits.readBits(mode.characterCountBits(version))
                         if (subset == GB2312_SUBSET) {
-                            // 子集指示 = 1 就是 GB2312 那一档（别的子集按 zxing 的口径：什么都不加）
                             decodeHanziSegment(bits, result, countHanzi)
                         }
                     }
@@ -58,7 +57,6 @@ internal object QrDecodedBitStreamParser {
                             QrMode.NUMERIC -> decodeNumericSegment(bits, result, count)
                             QrMode.ALPHANUMERIC -> decodeAlphanumericSegment(bits, result, count, fc1InEffect)
                             QrMode.BYTE -> decodeByteSegment(bits, result, count, currentCharacterSetEci)
-                            // 13 位一个字符 ⇒ Shift_JIS 的两个字节（见 decodeKanjiSegment）
                             QrMode.KANJI -> decodeKanjiSegment(bits, result, count)
                             else -> throw QrFormatException()
                         }
@@ -88,10 +86,7 @@ internal object QrDecodedBitStreamParser {
         result.append(QrCharset.decode(encoding, readBytes) ?: throw QrFormatException())
     }
 
-    /**
-     * KANJI 段：13 位一个字符，先拼回 Shift_JIS 的两个字节，再整段按 Shift_JIS 解 —— zxing
-     * `DecodedBitStreamParser.decodeKanjiSegment` 的逐字对照（连 `0x8140` / `0xC140` 两个偏移都一样）。
-     */
+    /** KANJI 段：13 位拼回 Shift_JIS 双字节再解（对照 zxing `decodeKanjiSegment`）。 */
     private fun decodeKanjiSegment(bits: QrBitSource, result: StringBuilder, count: Int) {
         // 别去读比手上还多的位
         if (count * 13 > bits.available()) throw QrFormatException()
@@ -110,10 +105,7 @@ internal object QrDecodedBitStreamParser {
         result.append(QrCharset.decode("Shift_JIS", buffer) ?: throw QrFormatException())
     }
 
-    /**
-     * HANZI 段：13 位一个字符，先拼回 GB2312 的两个字节，再整段按 GB2312 解 —— zxing
-     * `DecodedBitStreamParser.decodeHanziSegment` 的逐字对照（两个偏移 `0xA1A1` / `0xA6A1` 与它一样）。
-     */
+    /** HANZI 段：13 位拼回 GB2312 双字节再解（对照 zxing `decodeHanziSegment`）。 */
     private fun decodeHanziSegment(bits: QrBitSource, result: StringBuilder, count: Int) {
         if (count * 13 > bits.available()) throw QrFormatException()
         val buffer = ByteArray(2 * count)

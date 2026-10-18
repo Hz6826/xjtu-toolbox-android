@@ -73,12 +73,7 @@ object DesktopArchiveHost {
     fun readStores(backend: ArchiveStoreBackend): List<StoreSnapshot> =
         backend.storeNames().mapNotNull { backend.readStore(it) }
 
-    /**
-     * 读端内 `files` 那一层（缝 B）里**真落在文件里**的那一族：`agent_sessions<suffix>/`。
-     *
-     * 三族行数组（`courses` / `media` / `jiaocai`）在这一端是 KV 店、不在文件层 ⇒ 不在这里，
-     * 由 [readRowFiles] 追加（§2.3 / §6.3）。
-     */
+    /** 读端内 `files` 那一层（缝 B）：只有 `agent_sessions<suffix>/`；三族行数组见 [readRowFiles]。 */
     fun readFiles(backend: ArchiveFileBackend?, suffixes: List<String>): List<ArchiveFile> {
         val fb = backend ?: return emptyList()
         return suffixes.flatMap { suffix ->
@@ -97,12 +92,7 @@ object DesktopArchiveHost {
     ): Map<String, String> =
         StoreArchive.export(accounts, createdBy, appVersion, stores, files, ExportOptions(now = now))
 
-    /**
-     * 端内 → 完整档案字节映射（导出动作；只读端内，不写任何 store / 文件）。
-     *
-     * 两类来源都在：[readFiles] 给出 `agent_sessions<suffix>/` 那一族真文件，[readRowFiles] 给出
-     * 三族行数组（桌面上是 KV 店，§2.3）。
-     */
+    /** 端内 → 完整档案字节映射（导出动作；只读端内，不写任何 store / 文件）。 */
     fun exportArchive(
         now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
         storeOf: (String) -> KeyValueStore = { secureKeyValueStore(it) },
@@ -118,17 +108,12 @@ object DesktopArchiveHost {
         )
     }
 
-    /**
-     * 三族行数组的端内投影（§2.3）：桌面这三族都是键值店里的一个键
-     * （`custom_courses` / `download_tasks<账号后缀>` / `jiaocai1_shelf<账号后缀>`），档案里写成
-     * 与 Android 同形的行数组（列名逐字、`id` 保持原值、排序按 §2.3）。
-     *
-     * 端上没有行的那一族**不写**（不拿一个 `[]` 去声称「本端这一族是空的」）。
-     */
+    /** 三族行数组（桌面上是键值店），写成与 Android 同形的行数组；没有行的族不写。 */
     fun readRowFiles(
         storeOf: (String) -> KeyValueStore = { secureKeyValueStore(it) },
         accountId: String? = AccountContext.activeAccountId,
     ): List<ArchiveFile> = DesktopArchiveRows.filesOf(storeOf, accountId)
+
     /** 导出到数据根：目录形态（`<数据根>/archive/`，可整拷）+ zip 形态（`<数据根>/archive.zip`，给另一台机器 / 给 Android）。 */
     fun exportToDataRoot(now: () -> Long = { Clock.System.now().toEpochMilliseconds() }): ExportOutcome {
         val archive = exportArchive(now)

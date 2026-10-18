@@ -5,12 +5,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-/**
- * `files` 层里「行数组」的排序纯函数（§2.3）。
- *
- * 输入的 [JsonArray] 由各端宿主给出（Android 是 Room 三张表的只读投影、桌面/web 是端内键值店里那段
- * 行数组，见 [ArchiveRowFamilies]），这里只是它们要调的排序，不含任何端内 I/O。
- */
+/** `files` 层里「行数组」的排序纯函数（§2.3）。 */
 object ArchiveFileRows {
 
     /** §2.3：`files/courses/custom_courses.json` 按六键升序。 */

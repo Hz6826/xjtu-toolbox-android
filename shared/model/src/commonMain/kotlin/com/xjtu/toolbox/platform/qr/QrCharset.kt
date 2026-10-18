@@ -1,14 +1,9 @@
 package com.xjtu.toolbox.platform.qr
 
 /**
- * 字符集那一小片 —— zxing 3.5.4 `com.google.zxing.common.CharacterSetECI` 与 `StringUtils.guessCharset` 的移植，
- * 码表本体是 [QrCjkTables]（`tools/gen-qr-charset-tables.java` 枚举本机 JDK 的 `Charset` 生成的纯数据）。
- *
- * 现在解得出来的：ECI 表里那些**单字节**集（Cp437 / ISO-8859-2…9、11、13、15、16 / windows-125x）、
- * UTF-8 / ISO-8859-1 / US-ASCII / UTF-16(BE)、Shift_JIS（含 [guessCharset] 猜出来的）、
- * GB18030（含它的四字节形态）、Big5、EUC-KR，以及 KANJI / HANZI 那两个数据段（见 [QrDecodedBitStreamParser]）。
- * 解不出来的只剩 ECI 12（ISO-8859-10）与 16（ISO-8859-14）—— zxing 3.5.4 的 `getCharacterSetECIByValue`
- * 同样查不到这两个值（它也在这一步失败），本机 JDK 也没有这两个 `Charset`，生成不出码表。
+ * zxing 3.5.4 `CharacterSetECI` 与 `StringUtils.guessCharset` 的移植；码表在 [QrCjkTables]
+ * （由 `tools/gen-qr-charset-tables.java` 从 JDK 的 `Charset` 生成）。
+ * 不支持 ECI 12（ISO-8859-10）和 16（ISO-8859-14）：zxing 也不认，JDK 也没有这两个 `Charset`。
  */
 internal object QrCharset {
 
@@ -26,7 +21,7 @@ internal object QrCharset {
         put(9, "ISO-8859-7")
         put(10, "ISO-8859-8")
         put(11, "ISO-8859-9")
-        // ⚠️ 12 / 16 这两个值 zxing 3.5.4 自己查不到（名字留着只为「认得出是哪个编码」，结论与它一样是解码失败）
+        // 12 / 16 留名只为认出是哪个编码，解码照样失败（与 zxing 一致）
         put(12, "ISO-8859-10")
         put(13, "ISO-8859-11")
         put(15, "ISO-8859-13")
@@ -43,7 +38,7 @@ internal object QrCharset {
         put(27, "US-ASCII")
         put(170, "US-ASCII")
         put(28, "Big5")
-        // ⚠️ 值是 29 的编码，zxing 真正拿来解的那份 Charset 是 **GB18030**（不是 GB2312；HANZI 段用的才是 GB2312）
+        // zxing 对 ECI 29 实际用 GB18030 解；HANZI 段才用 GB2312
         put(29, "GB18030")
         put(30, "EUC-KR")
     }
@@ -65,15 +60,10 @@ internal object QrCharset {
         return ECI_NAMES[value]
     }
 
-    /** 这个编码名本实现解不解得出来（解不出来的是哪一档，见文件头）。 */
+    /** 这个编码名能不能解。 */
     fun canDecode(name: String): Boolean = name in BUILT_IN || QrCjkTables.TABLES.containsKey(name)
 
-    /**
-     * 按编码名解一段字节；解不出来返回 null，由调用方抛 `FormatException`。
-     *
-     * `ISO-8859-1` 是逐字节映射（与 `new String(bytes, ISO_8859_1)` 逐字相同），其余走 [QrCjkTables] 那张表
-     * （单字节集与双字节集同一套走法，见 [decodeWithTable]）。
-     */
+    /** 按编码名解一段字节；解不出来返回 null，由调用方抛 `FormatException`。 */
     fun decode(name: String, bytes: ByteArray): String? = when (name) {
         "ISO-8859-1" -> bytes.map { (it.toInt() and 0xFF).toChar() }.joinToString("")
         "UTF-8", "UTF8" -> bytes.decodeToString()
@@ -109,10 +99,8 @@ internal object QrCharset {
     }
 
     /**
-     * 表里的编码走一遍 —— 与生成器里那个 `walk` 逐字同源（生成器穷举校验过它跟 JDK 的
-     * `new String(bytes, charset)` 逐字相同）：`singleCps[字节] >= 0` 就是它自己一个字符；否则看
-     * `(首, 尾)` 那一格 —— 正常字符吞 2 字节、[UNMAPPED_CELL] 换成 U+FFFD 也吞 2 字节、
-     * [INVALID_CELL] 换成 U+FFFD 只吞 1 字节；其余情况（不是首字节 / 是最后一个字节）只吞 1 字节。
+     * 查表解码，与生成器里的 `walk` 同一套规则：单字节字符吞 1 字节；双字节格子里正常字符和 [UNMAPPED_CELL]
+     * 吞 2 字节，[INVALID_CELL] 只吞首字节。
      */
     private fun decodeWithTable(table: QrCharsetTable, bytes: ByteArray): String {
         val sb = StringBuilder(bytes.size)
@@ -149,9 +137,8 @@ internal object QrCharset {
     }
 
     /**
-     * GB18030（上面那套 + 四字节形态）—— 与生成器里的 `walkGb18030` 逐字对应，规则来自实测的 JDK 口径：
-     * 首字节后面若是 `0x30-0x39` 就是四字节形态，**吞的字节数就是「前缀校验到哪一步」**（缺第三个字节 = 吞 2 或 3；
-     * 第三字节不在 `0x81-0xFE` = 吞 3；第四字节不在 `0x30-0x39` = 吞 4；指针超出定义范围（≥ 39420）= 吞 4）。
+     * GB18030：在 [decodeWithTable] 之上加四字节形态（第二字节为 `0x30-0x39`）。坏序列吞掉的字节数
+     * 按前缀校验到哪一步算，与 JDK 一致（对应生成器里的 `walkGb18030`）。
      */
     private fun decodeGb18030(bytes: ByteArray): String {
         val table = QrCjkTables.GB18030
@@ -429,12 +416,7 @@ internal class QrGb18030Four(
     }
 }
 
-/**
- * 把一个码位接到 `StringBuilder` 上。
- *
- * commonMain 的 `StringBuilder` 没有 `appendCodePoint`，而 GB18030 的四字节形态会映到补充平面
- * （U+10000 以上）⇒ 这里自己按 UTF-16 拼代理对 —— 与 Java 的 `String` 逐字相同。
- */
+/** commonMain 的 `StringBuilder` 没有 `appendCodePoint`；GB18030 四字节形态会映到补充平面，要拼代理对。 */
 private fun StringBuilder.appendCodePoint(cp: Int) {
     if (cp <= 0xFFFF) {
         append(cp.toChar())

@@ -12,29 +12,11 @@ import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.secureKeyValueStore
 
 /**
- * 三族行数组在桌面这一端的**落点映射**（§2.3 / §6.3 的 `custom_courses` KV 那一条）。
- *
- * 桌面没有 Room：那三族是三个键值店，端内名各不相同 ——
- *
- * | 族（档案里的相对路径） | 端内名 | 键 | 谁在用 |
- * |---|---|---|---|
- * | `courses/custom_courses.json` | `custom_courses`（无后缀） | `custom_courses` | `DesktopScheduleHost.customCourses` |
- * | `media/download_tasks.json` | `download_tasks<账号后缀>` | `rows` | `DesktopDownloadTaskStore` |
- * | `jiaocai/jiaocai1_shelf.json` | `jiaocai1_shelf<账号后缀>` | `rows` | `DesktopJiaocai1ShelfStore` |
- *
- * 端内名逐字取自那三个 Store 自己的常量，不在这里另起一份字面量。行数组的搬运与合并规则只有
- * `:core` 的 [ArchiveRowFamilies] 一份；这里只做键值店的读 / 写与端内名解析。
- *
- * ## 旧名只读兜底照业务那一套来
- *
- * 下载队列与教材书架在带账号后缀之前用的是**无后缀**的端内名，两个 Store 都留了「新名里没有行时
- * 读一次旧名」的兜底（`AgentSessionStore` 同一条口径：只读，不往回写）。导出与导入的**合并基**走
- * 同一条兜底 —— 不兜的话，一次导入会把旧名里那些行变成「新名里只剩追加的那几行」。
- * `custom_courses` 一直没有后缀，所以它没有旧名。
+ * 三族行数组在桌面的落点：各是一个键值店。自建日程店名不带账号后缀；下载队列和教材书架带，
+ * 新名里没有时只读一次无后缀的旧名（与两个 Store 自己的兜底一致，否则导入会丢掉旧名里的行）。
  */
 internal object DesktopArchiveRows {
 
-    /** 族 → 端内名（`custom_courses` 无后缀，另两族带当前账号后缀）。 */
     fun storeName(
         family: ArchiveRowFamilies.Family,
         accountId: String? = AccountContext.activeAccountId,
@@ -46,14 +28,12 @@ internal object DesktopArchiveRows {
             accountScopedStoreName(DesktopJiaocai1ShelfStore.STORE_NAME, accountId)
     }
 
-    /** 带后缀之前那份无后缀的端内名（只读兜底）；`custom_courses` 从来没有后缀 ⇒ null。 */
     fun legacyStoreName(family: ArchiveRowFamilies.Family): String? = when (family) {
         ArchiveRowFamilies.Family.CUSTOM_COURSES -> null
         ArchiveRowFamilies.Family.DOWNLOAD_TASKS -> DesktopDownloadTaskStore.STORE_NAME
         ArchiveRowFamilies.Family.JIAOCAI_SHELF -> DesktopJiaocai1ShelfStore.STORE_NAME
     }
 
-    /** 端内这一族现在的行数组原文（新名 → 旧名只读兜底）；端上没有这一族 ⇒ null。 */
     fun rowsOf(
         family: ArchiveRowFamilies.Family,
         storeOf: (String) -> KeyValueStore = { secureKeyValueStore(it) },
@@ -64,7 +44,7 @@ internal object DesktopArchiveRows {
         return storeOf(legacy).getString(family.key)
     }
 
-    /** 导出侧：三族里**有行**的那几族 → `files/` 条目（§2.3 的排序由 `:core` 做）。 */
+    /** 导出：有行的族 → `files/` 条目。 */
     fun filesOf(
         storeOf: (String) -> KeyValueStore = { secureKeyValueStore(it) },
         accountId: String? = AccountContext.activeAccountId,
@@ -74,13 +54,7 @@ internal object DesktopArchiveRows {
         ArchiveFile(suffix = "", relPath = family.relPath, content = content)
     }
 
-    /**
-     * 导入侧：档案里那一族合并进端内键值店（§6.4 的「本端胜」在行这一级）。写的是**整段**——
-     * 一次 `putString` 换掉那一个键，不逐行落文件。
-     *
-     * 不是这三族、或 `suffix` 非空（这三族在档案里恒在 `global/`）⇒ null = 「这一笔不归这里管」，
-     * 交由调用方按 `agent_sessions` 那一族处理。
-     */
+    /** 导入：合并后整段写回。不是这三族（或带账号后缀，这三族只在 `global/`）返回 null，交给调用方。 */
     fun land(
         suffix: String,
         relPath: String,
