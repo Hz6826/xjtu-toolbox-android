@@ -49,6 +49,17 @@ jobs:
           :shared:model:jvmTest :shared:navigation:jvmTest :shared:designsystem:jvmTest :shared:network:jvmTest
           :feature:account:jvmTest :feature:agent:jvmTest :feature:attendance:jvmTest :feature:campus:jvmTest :feature:community:jvmTest :feature:game:jvmTest :feature:home:jvmTest :feature:jiaocai:jvmTest :feature:library:jvmTest :feature:lms:jvmTest :feature:notice:jvmTest :feature:schedule:jvmTest :feature:score:jvmTest :feature:settings:jvmTest :feature:webvpn:jvmTest
 
+      - name: 装中日字体（:desktop:test 里量的是离屏渲染的文字宽度）
+        # ubuntu-latest 镜像没有中日字体 ⇒ 字形缺失、量出来的文字宽度不对，而
+        # DesktopShellRailJvmTest 断言的正是那个宽度（CI 上实测 15.0px）。装完用 fc-list 响亮自检：
+        # 镜像/包一旦变了就在这里红，而不是让人去猜后面那条断言。
+        run: |
+          set -x
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          fc-list :lang=zh | grep -q . || { echo "::error::装完 fonts-noto-cjk 仍查不到中文字体"; exit 1; }
+          fc-list :lang=zh | head -3
+
       - name: 数据层（:data）与桌面端（:desktop）也要能编、能测
         # :data 是同一条判据的第二个消费者：它刻意**只有 jvm + android** 两个目标
         # （okhttp 只发布 jvm/android 变体、jsoup 只有一份 JVM jar，加 wasm 立刻编不过），
