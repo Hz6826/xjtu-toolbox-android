@@ -10,13 +10,11 @@ import okhttp3.Request
 import okhttp3.Response
 
 // ─────────────────────────────────────────────────────────────────────
-//  留在 :app 的 SiteSession 实现（其余站点已在 :data，同包同名）。
+//  :app 侧的 SiteSession 实现（其余站点在 :shared:data，同包同名）。
 //
-//  设计原则：
-//  - 每个子类内部仍然依赖一个 *Login 实例完成 CAS 登录与局部 token 抽取，
-//    这是过渡期复用——XJTULogin 状态机本身已经成熟，无须重写。
+//  - 每个子类用一个 *Login 实例完成 CAS 登录与局部 token 抽取。
 //  - 局部 token / 标识在 onLoginSuccess 钩子里写入 SiteSession.localToken 供业务层读取。
-//  - 业务 API 类只接 SiteSession，不持有 *Login，便于后续整体替换。
+//  - 业务 API 类只接 SiteSession，不持有 *Login。
 // ─────────────────────────────────────────────────────────────────────
 
 // ── HELLO 迎新/个人信息 ────────────────────────────────────────────────

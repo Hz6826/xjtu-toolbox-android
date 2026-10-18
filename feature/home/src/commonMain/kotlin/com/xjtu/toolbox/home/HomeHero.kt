@@ -153,9 +153,9 @@ object HomeHero {
 
     /** kotlinx-datetime 没有 `plusDays`（见 `ScheduleScreen` 同一句注释），按距 1970 的天数走。 */
     private fun LocalDate.plusDays(days: Int): LocalDate =
-        civilFromEpochDay(toEpochDays().toLong() + days)
+        civilFromEpochDay(toEpochDays() + days)
 
     /** 「距 1970 的分钟数」（commonMain 的 `LocalDateTime` 没有不带时区的 `toEpochSeconds`）。 */
     private fun LocalDateTime.minutesFromEpoch(): Long =
-        date.toEpochDays().toLong() * 24L * 60L + hour * 60L + minute
+        date.toEpochDays() * 24L * 60L + hour * 60L + minute
 }

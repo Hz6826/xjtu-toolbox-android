@@ -235,13 +235,7 @@ object HomeStatsRefresher {
             }
         },
 
-        // 校园卡：30 分钟一次。
-        //
-        // 收编进来之前，校园卡走的是 MainActivity 里一条完全独立的路：只在 ON_RESUME、
-        // 且 `getSiteOrNull("campus_card")?.hasLogin == true` 时才刷——**从不主动登录**。
-        // 后果是只要用户没手动进过校园卡页，余额缓存永远是空的，
-        // 首页余额位常年空白，屁岱那条"余额不足"提醒也永远触发不了（balance 恒为 null）。
-        // 收进来后自动获得串行、间隔、失败退避、冷启动重试这一整套。
+        // 校园卡：30 分钟一次。会主动登录，余额缓存才不会因没进过校园卡页而一直为空。
         Source(AppRoute.CampusCard, 30 * 60 * 1000L, LoginType.CAMPUS_CARD) { ctx, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) {

@@ -81,7 +81,7 @@ fun openReplayFile(context: Context, task: DownloadTask) {
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     },
                     "选择播放器",
-                )
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
         } catch (_: Exception) {
             try {
@@ -98,7 +98,7 @@ fun openReplayFile(context: Context, task: DownloadTask) {
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         },
                         "打开文件",
-                    )
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 )
             } catch (_: Exception) {
                 android.widget.Toast.makeText(
