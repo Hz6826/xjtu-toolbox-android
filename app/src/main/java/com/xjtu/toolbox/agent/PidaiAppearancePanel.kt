@@ -150,21 +150,26 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
             // 三选一，不给用户填分钟数——普通人不会去算冷却时长该设多少。
             ProactiveLevelRow(
                 title = "关",
-                summary = "屁岱不会冒泡，点它也不说话",
+                summary = "屁岱不会冒泡，点它也不说话，也不发简报和定时任务",
                 selected = proactiveLevel == ProactiveLevel.OFF,
                 onClick = { ProactiveRules.setProactiveLevel(context, ProactiveLevel.OFF) },
             )
             ProactiveLevelRow(
                 title = "少",
-                summary = "只提醒考试、上课、余额这类正事，不闲聊",
+                summary = "只提醒考试、上课、余额这类正事，不闲聊；每天早上一份简报",
                 selected = proactiveLevel == ProactiveLevel.LOW,
                 onClick = { ProactiveRules.setProactiveLevel(context, ProactiveLevel.LOW) },
             )
             ProactiveLevelRow(
                 title = "标准",
-                summary = "偶尔也会闲聊几句",
+                summary = "偶尔也会闲聊几句；早上简报、晚上明日预告",
                 selected = proactiveLevel == ProactiveLevel.STANDARD,
                 onClick = { ProactiveRules.setProactiveLevel(context, ProactiveLevel.STANDARD) },
+            )
+            Text(
+                "简报和你在对话里交代的定时任务在后台跑，用你的 API Key，每天最多 ${PidaiJobWorker.DAILY_BUDGET} 次；后台不登录学校系统，只读本机缓存。",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
         }
     }

@@ -56,6 +56,32 @@ object SeatComfort {
         return valid.associate { s -> s.seatId to comfortOf(s, valid, unit) }
     }
 
+    /** 一片座位（一张桌子、一个小区块）的外框和上座率（暂离算半个）。 */
+    data class Zone(val left: Float, val top: Float, val right: Float, val bottom: Float, val ratio: Float)
+
+    /**
+     * 按约四个座位边长的网格把座位分成一片片，算每片的上座率。座位密时逐座画红晕会糊成一团，
+     * 按片铺底色才看得出哪里满、哪里空。少于两个座位的格子不算。
+     */
+    fun zones(seats: List<PlanSeat>): List<Zone> {
+        val valid = seats.filter { it.width > 0f && it.height > 0f }
+        if (valid.isEmpty()) return emptyList()
+        val unit = valid.map { minOf(it.width, it.height) }.sorted()[valid.size / 2]
+        val cell = unit * 4
+        val pad = unit * 0.25f
+        return valid.groupBy { ((it.left + it.width / 2) / cell).toInt() to ((it.top + it.height / 2) / cell).toInt() }
+            .values.filter { it.size >= 2 }
+            .map { group ->
+                Zone(
+                    left = group.minOf { it.left } - pad,
+                    top = group.minOf { it.top } - pad,
+                    right = group.maxOf { it.right } + pad,
+                    bottom = group.maxOf { it.bottom } + pad,
+                    ratio = group.sumOf { occupiedWeight(it.status).toDouble() }.toFloat() / group.size,
+                )
+            }
+    }
+
     /** 分数最高的几个空座，同分取靠前的。 */
     fun best(seats: List<PlanSeat>, comfort: Map<String, Comfort>, count: Int = 3): List<PlanSeat> =
         seats.filter { it.available && it.seatId in comfort }

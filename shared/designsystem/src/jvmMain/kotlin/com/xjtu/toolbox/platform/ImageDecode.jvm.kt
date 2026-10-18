@@ -48,3 +48,23 @@ actual fun decodeImageDownToWidth(
 
 /** JVM 侧：拿不到进程可用内存 ⇒ 固定 32MB。 */
 actual fun imageMemoryCacheBudgetBytes(): Int = 32 * 1024 * 1024
+
+actual fun cropImageToJpegDataUri(bytes: ByteArray, left: Int, top: Int, right: Int, bottom: Int, maxDim: Int): String? =
+    runCatching {
+        val src = javax.imageio.ImageIO.read(java.io.ByteArrayInputStream(bytes)) ?: return null
+        val l = left.coerceIn(0, src.width)
+        val t = top.coerceIn(0, src.height)
+        val w = right.coerceIn(0, src.width) - l
+        val h = bottom.coerceIn(0, src.height) - t
+        if (w <= 0 || h <= 0) return null
+        val k = minOf(1f, maxDim.toFloat() / maxOf(w, h))
+        val out = java.awt.image.BufferedImage((w * k).toInt().coerceAtLeast(1), (h * k).toInt().coerceAtLeast(1), java.awt.image.BufferedImage.TYPE_INT_RGB)
+        out.createGraphics().apply {
+            setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+            drawImage(src, 0, 0, out.width, out.height, l, t, l + w, t + h, null)
+            dispose()
+        }
+        val buf = java.io.ByteArrayOutputStream()
+        javax.imageio.ImageIO.write(out, "jpg", buf)
+        "data:image/jpeg;base64," + java.util.Base64.getEncoder().encodeToString(buf.toByteArray())
+    }.getOrNull()

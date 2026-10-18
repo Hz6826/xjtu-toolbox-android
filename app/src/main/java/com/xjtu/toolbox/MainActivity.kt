@@ -68,6 +68,7 @@ class MainActivity : ComponentActivity() {
         installSplashScreen().setKeepOnScreenCondition { !isAppReady }
         super.onCreate(savedInstanceState)
         applyOrientationPolicy(resources.configuration)
+        com.xjtu.toolbox.agent.AgentLocation.register(this)
         consumeLaunchIntent(intent)
         // 导航条全透明：默认样式在 API 29–34 上会加一层半透明 scrim，三键导航由系统自己保证对比度
         enableEdgeToEdge(

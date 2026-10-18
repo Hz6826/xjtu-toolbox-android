@@ -108,10 +108,10 @@ class AgentMemoryTest {
         val memory = AgentMemory(storeOf = { store })
         assertEquals("", memory.promptBlock())
         memory.remember("校区", "兴庆")
-        assertEquals(
-            "# 用户偏好\n- 校区：兴庆\n偏好只影响表达方式和查询顺序，不影响查不查。",
-            memory.promptBlock().removePrefix("\n"),
-        )
+        val block = memory.promptBlock().removePrefix("\n")
+        assertTrue(block.startsWith("# 用户让你记住的\n- 校区：兴庆\n"), block)
+        // 用户自己说的压过学校系统里的画像（校区搬迁、转专业学校常常没更新）
+        assertTrue(block.contains("以这里为准"), block)
     }
 
     @Test

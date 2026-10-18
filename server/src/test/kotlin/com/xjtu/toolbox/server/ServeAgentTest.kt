@@ -50,7 +50,7 @@ class ServeAgentTest {
     private fun withAgentServer(
         config: AgentConfig? = null,
         memory: List<Pair<String, String>> = emptyList(),
-        toolTable: (String) -> AgentTools = { FixtureAgentTools() },
+        toolTable: (AgentConfig) -> AgentTools = { FixtureAgentTools() },
         transport: AgentTransport = FixtureTransport(
             listOf(Step(deltas = AgentFixture.DELTAS, totalTokens = AgentFixture.TOTAL_TOKENS)),
         ),
@@ -152,7 +152,7 @@ class ServeAgentTest {
             assertEquals("deepseek-flash", data.optString("effectiveModel"))
             assertEquals("", data.optString("baseUrl"))
             assertEquals(AgentConfig.DEFAULT_ASSISTANT_NAME, data.optString("assistantName"))
-            assertEquals(AgentConfig.SEARCH_AUTO, data.optString("searchEngine"))
+            assertEquals(AgentConfig.SEARCH_DEEPSEEK, data.optString("searchEngine"))
             assertEquals(true, data.optBoolean("thinkingEnabled"))
             assertEquals(AgentConfig.REASONING_AUTO, data.optString("reasoningEffort"))
             assertEquals(true, data.optBoolean("showReasoning"))
@@ -195,7 +195,7 @@ class ServeAgentTest {
             assertEquals(
                 setOf(
                     "provider", "model", "effectiveModel", "baseUrl", "assistantName", "searchEngine",
-                    "thinkingEnabled", "reasoningEffort", "showReasoning", "keyConfigured",
+                    "thinkingEnabled", "reasoningEffort", "showReasoning", "keyConfigured", "searchKeyConfigured",
                     "toolAllowlist", "honored", "canEditKey",
                 ),
                 data.keys,
@@ -218,7 +218,7 @@ class ServeAgentTest {
             val rest = """"model":"","baseUrl":"","assistantName":"屁岱","thinkingEnabled":true,""" +
                 """"showReasoning":true"""
 
-            val badProvider = h.postJson(AGENT_CONFIG_PATH, """{"provider":"nope","searchEngine":"auto","reasoningEffort":"auto",$rest}""")
+            val badProvider = h.postJson(AGENT_CONFIG_PATH, """{"provider":"nope","searchEngine":"deepseek","reasoningEffort":"auto",$rest}""")
             assertEquals(400, badProvider.statusCode())
             assertTrue(envelopeMessage(badProvider)!!.contains("provider 认不出来"))
 
@@ -226,13 +226,13 @@ class ServeAgentTest {
             assertEquals(400, badEngine.statusCode())
             assertTrue(envelopeMessage(badEngine)!!.contains("searchEngine 认不出来"))
 
-            val badEffort = h.postJson(AGENT_CONFIG_PATH, """{"provider":"deepseek","searchEngine":"auto","reasoningEffort":"最聪明",$rest}""")
+            val badEffort = h.postJson(AGENT_CONFIG_PATH, """{"provider":"deepseek","searchEngine":"deepseek","reasoningEffort":"最聪明",$rest}""")
             assertEquals(400, badEffort.statusCode())
             assertTrue(envelopeMessage(badEffort)!!.contains("reasoningEffort 认不出来"))
 
             val missing = h.postJson(
                 AGENT_CONFIG_PATH,
-                """{"provider":"deepseek","searchEngine":"auto","reasoningEffort":"auto","baseUrl":"",""" +
+                """{"provider":"deepseek","searchEngine":"deepseek","reasoningEffort":"auto","baseUrl":"",""" +
                     """"assistantName":"屁岱","thinkingEnabled":true,"showReasoning":true}""",
             )
             assertEquals(400, missing.statusCode())
@@ -243,12 +243,12 @@ class ServeAgentTest {
             assertEquals(false, envelopeData(h.get(AGENT_CONFIG_PATH)).optBoolean("keyConfigured"))
 
             val ok = """{"provider":"deepseek","model":"m1","baseUrl":"","assistantName":"屁岱",""" +
-                """"searchEngine":"auto","thinkingEnabled":true,"reasoningEffort":"auto","showReasoning":true"""
+                """"searchEngine":"deepseek","thinkingEnabled":true,"reasoningEffort":"auto","showReasoning":true"""
             // 先写一把 key，再写一次**不带 apiKey** 的 ⇒ 那把 key 留着
             h.postJson(AGENT_CONFIG_PATH, """$ok,"apiKey":"${AgentFixture.FAKE_API_KEY}"}""")
             assertEquals(true, envelopeData(h.get(AGENT_CONFIG_PATH)).optBoolean("keyConfigured"))
             h.postJson(AGENT_CONFIG_PATH, """{"provider":"deepseek","model":"m2","baseUrl":"","assistantName":"屁岱",""" +
-                """"searchEngine":"auto","thinkingEnabled":true,"reasoningEffort":"auto","showReasoning":true}""")
+                """"searchEngine":"deepseek","thinkingEnabled":true,"reasoningEffort":"auto","showReasoning":true}""")
             val kept = envelopeData(h.get(AGENT_CONFIG_PATH))
             assertEquals("m2", kept.optString("model"))
             assertEquals(true, kept.optBoolean("keyConfigured"))
@@ -814,9 +814,9 @@ class ServeAgentTest {
             assertEquals(
                 listOf(
                     "get_calendar", "get_schedule", "get_exam_schedule", "get_empty_rooms",
-                    "search_yellow_page", "preference", "find_faculty", "app_guide", "calculate",
+                    "search_yellow_page", "preference", "find_faculty", "app_guide", "calculate", "campus_map",
                 ),
-                agent.toolAllowlist(AgentConfig.SEARCH_AUTO),
+                agent.toolAllowlist(AgentConfig()),
             )
             assertEquals(false, agent.keyConfigured())
 

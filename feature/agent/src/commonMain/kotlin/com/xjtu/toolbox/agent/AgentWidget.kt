@@ -83,6 +83,29 @@ fun AgentWidgetView(
         is GradeWidget      -> GradeWidgetView(widget, modifier)
         is CardWidget       -> CardWidgetView(widget, modifier)
         is ZyxfWidget       -> ZyxfWidgetView(widget, host, modifier, onAsk)
+        is CampusMapWidget  -> CampusMapWidgetView(widget, modifier)
+    }
+}
+
+/** 校区简图卡：按名字回查打包的地图数据，找不到的地点不画。 */
+@Composable
+private fun CampusMapWidgetView(w: CampusMapWidget, modifier: Modifier) {
+    val map = remember(w.campus) { com.xjtu.toolbox.campusmap.CampusMaps.of(w.campus) } ?: return
+    val marks = remember(w) {
+        val here = w.here?.takeIf { it.size == 2 }?.let {
+            com.xjtu.toolbox.ui.components.MapMark(
+                com.xjtu.toolbox.campusmap.CampusPlace("你在这", com.xjtu.toolbox.campusmap.PlaceKind.OTHER, it[0], it[1]), "你在这",
+            )
+        }
+        val placeMarks = w.places.mapNotNull { name -> map.places.firstOrNull { it.name == name } }
+            .mapIndexed { i, p -> com.xjtu.toolbox.ui.components.MapMark(p, p.name, order = if (w.route) i + 1 else null) }
+        listOfNotNull(here) + placeMarks
+    }
+    androidx.compose.foundation.layout.Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        com.xjtu.toolbox.ui.components.CampusMapView(map, marks, route = w.route, height = 230.dp)
+        if (w.caption.isNotBlank()) {
+            Text(w.caption, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        }
     }
 }
 

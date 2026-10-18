@@ -39,8 +39,9 @@ internal fun Route.agentRoutes(agent: ServeAgent) {
                         showReasoning = config.showReasoning,
                         // 唯一允许投影的「key 相关」信息：一个 bool（不是掩码，不是前四位）
                         keyConfigured = config.apiKey.isNotBlank(),
+                        searchKeyConfigured = config.searchApiKey.isNotBlank(),
                         // 真给模型的那批工具名（从工具定义里读，见 ServeAgent.toolAllowlist）
-                        toolAllowlist = agent.toolAllowlist(config.searchEngine),
+                        toolAllowlist = agent.toolAllowlist(config),
                         // 端能力：浏览器与 serve 都**没有**闹钟 / 应用设置 / 自建日程 / 相册 / 存下载
                         honored = AGENT_HONORED,
                         canEditKey = true,
@@ -94,6 +95,7 @@ internal fun Route.agentRoutes(agent: ServeAgent) {
                     reasoningEffort = normalizeReasoningEffort(effort),
                     showReasoning = body.showReasoning ?: current.showReasoning,
                     apiKey = body.apiKey ?: current.apiKey,
+                    searchApiKey = body.searchApiKey ?: current.searchApiKey,
                 ),
             )
             call.respond(ApiEnvelope.ok(AgentOkData(message = "配置已保存")))
@@ -297,6 +299,7 @@ internal data class AgentConfigData(
     val reasoningEffort: String,
     val showReasoning: Boolean,
     val keyConfigured: Boolean,
+    val searchKeyConfigured: Boolean = false,
     val toolAllowlist: List<String>,
     val honored: List<String>,
     val canEditKey: Boolean,
@@ -366,7 +369,7 @@ internal data class AgentStatusData(val running: Boolean, val sessionId: String?
 
 // ── 请求体 ────────────────────────────────────────────────────────────────
 
-/** `POST /api/agent/config` 的请求体：**整份覆盖**，只有 `apiKey` 可以不给（= 不动那一格）。 */
+/** `POST /api/agent/config` 的请求体：**整份覆盖**，只有 `apiKey` / `searchApiKey` 可以不给（= 不动那一格）。 */
 @kotlinx.serialization.Serializable
 internal data class AgentConfigBody(
     val provider: String? = null,
@@ -378,6 +381,7 @@ internal data class AgentConfigBody(
     val reasoningEffort: String? = null,
     val showReasoning: Boolean? = null,
     val apiKey: String? = null,
+    val searchApiKey: String? = null,
 )
 
 /** `POST /api/agent/models` 的请求体（`baseUrl` 缺省 = 用存下来的那一格）。 */
@@ -427,7 +431,8 @@ private val AGENT_REASONING_EFFORTS: Set<String> =
 
 private const val AGENT_CONFIG_BODY_MESSAGE =
     "请求体需要 JSON：{\"provider\":\"…\",\"model\":\"…\",\"baseUrl\":\"…\",\"assistantName\":\"…\"," +
-        "\"searchEngine\":\"…\",\"thinkingEnabled\":true,\"reasoningEffort\":\"auto\",\"showReasoning\":true,\"apiKey\":\"…\"}"
+        "\"searchEngine\":\"deepseek\",\"thinkingEnabled\":true,\"reasoningEffort\":\"auto\",\"showReasoning\":true," +
+        "\"apiKey\":\"…\",\"searchApiKey\":\"…\"}"
 
 private const val AGENT_MODELS_BODY_MESSAGE =
     "请求体需要 JSON：{\"provider\":\"deepseek\",\"baseUrl\":\"…\"}"

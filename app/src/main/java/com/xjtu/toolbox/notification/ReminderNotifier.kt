@@ -66,6 +66,19 @@ internal object ReminderNotifier {
         route = AppRoute.Inbox,
     )
 
+    /** 屁岱的简报或定时任务结果。[key] 区分是哪一份（早报 / 晚报 / 某个任务），同一份覆盖不堆叠。 */
+    fun notifyPidai(context: Context, key: String, title: String, text: String): Boolean = post(
+        context = context,
+        id = ("pidai:$key").hashCode(),
+        requestCode = RequestCodes.REMINDER_PIDAI,
+        channel = AppNotificationChannels.CHANNEL_APP,
+        icon = R.drawable.ic_notification_notice,
+        title = title,
+        text = text,
+        route = AppRoute.Inbox,
+        style = androidx.core.app.NotificationCompat.BigTextStyle().bigText(text),
+    )
+
     fun notifyExam(context: Context, courseName: String, label: String, detail: String): Boolean = post(
         context = context,
         id = ID_EXAM,

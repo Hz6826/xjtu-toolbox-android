@@ -64,25 +64,31 @@ class AgentConfigTest {
     fun `标签表与档位清单与搬迁前一致`() {
         assertEquals(listOf("deepseek", "openai", "custom"), AgentConfig.PROVIDERS)
         assertEquals(listOf("auto", "low", "high", "max"), AgentConfig.REASONING_EFFORTS)
-        assertEquals(listOf("auto", "baidu", "so360", "wechat", "wiki"), AgentConfig.SEARCH_ENGINES)
+        assertEquals(listOf("deepseek", "off"), AgentConfig.SEARCH_ENGINES)
         assertEquals("DeepSeek（推荐）", AgentConfig.providerLabel(AgentConfig.PROVIDER_DEEPSEEK))
         assertEquals("OpenAI", AgentConfig.providerLabel(AgentConfig.PROVIDER_OPENAI))
         assertEquals("自定义", AgentConfig.providerLabel(AgentConfig.PROVIDER_CUSTOM))
         assertEquals("自动", AgentConfig.reasoningEffortLabel(AgentConfig.REASONING_AUTO))
         assertEquals("低", AgentConfig.reasoningEffortLabel(AgentConfig.REASONING_LOW))
         assertEquals("最大", AgentConfig.reasoningEffortLabel(AgentConfig.REASONING_MAX))
-        assertEquals("维基百科", AgentConfig.searchEngineLabel(AgentConfig.SEARCH_WIKI))
-        // 认不出的服务商名原样显示、认不出的搜索源按自动显示
+        assertEquals("关闭", AgentConfig.searchEngineLabel(AgentConfig.SEARCH_OFF))
+        // 认不出的服务商名原样显示、认不出的搜索源按 DeepSeek 显示
         assertEquals("别的服务商", AgentConfig.providerLabel("别的服务商"))
-        assertEquals("自动", AgentConfig.searchEngineLabel("sogou"))
+        assertEquals("DeepSeek", AgentConfig.searchEngineLabel("baidu"))
     }
 
     @Test
-    fun `已下线的搜索源留在清单外，但名字仍然认得出`() {
-        AgentConfig.RETIRED_SEARCH_ENGINES.forEach {
-            assertFalse(it in AgentConfig.SEARCH_ENGINES, "$it 不该出现在可选清单里")
-        }
-        assertTrue("bing" in AgentConfig.RETIRED_SEARCH_ENGINES)
+    fun `搜索 Key：聊天走 DeepSeek 时复用聊天 Key，否则用单独那一格，关掉搜索就为空`() {
+        assertEquals("sk-chat", AgentConfig(apiKey = "sk-chat", searchApiKey = "sk-search").webSearchKey)
+        assertEquals(
+            "sk-search",
+            AgentConfig(provider = AgentConfig.PROVIDER_OPENAI, apiKey = "sk-chat", searchApiKey = " sk-search ").webSearchKey,
+        )
+        assertEquals("", AgentConfig(provider = AgentConfig.PROVIDER_CUSTOM, apiKey = "sk-chat").webSearchKey)
+        assertEquals("", AgentConfig(apiKey = "sk-chat", searchEngine = AgentConfig.SEARCH_OFF).webSearchKey)
+        assertEquals(AgentConfig.SEARCH_OFF, normalizeSearchEngine(" OFF "))
+        assertEquals(AgentConfig.SEARCH_DEEPSEEK, normalizeSearchEngine("wiki"))
+        assertEquals(AgentConfig.SEARCH_DEEPSEEK, normalizeSearchEngine(null))
     }
 
     /** 浏览器那一端的「配好了没」：key 在 serve 上，这一端一个字都拿不到 ⇒ 靠 `keyConfigured` 这一格。 */

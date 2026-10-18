@@ -120,6 +120,22 @@ fun LibraryScreen(
     var menuOpen by remember { mutableStateOf(false) }
     val campus = vm.campus
     val selectedArea = vm.floorAreas[vm.selectedAreaCode] ?: source.areaNameOf(vm.selectedAreaCode)
+    // 屁岱荐座：候选按本地热力挑，图在真调模型时才裁
+    var seatPrefs by remember { mutableStateOf(SeatPickPrefs.load()) }
+    val seatPicksData = remember(vm.planLayout, vm.planImages, selectedArea, seatPrefs) {
+        val layout = vm.planLayout
+        val images = vm.planImages
+        if (layout == null || images == null) null else {
+            val comfort = SeatComfort.of(layout.seats)
+            val candidates = seatCandidates(layout, comfort)
+            if (candidates.isEmpty()) null
+            else Triple(seatPicksInput(selectedArea, layout, candidates, comfort, seatPrefs), images, candidates)
+        }
+    }
+    val seatPicksSpec = remember(seatPicksData) {
+        seatPicksSpec { seatPicksData?.let { seatPicksImages(it.second, it.third) }.orEmpty() }
+    }
+    val seatPicks = com.xjtu.toolbox.ui.components.rememberInsight(seatPicksSpec, seatPicksData?.first, auto = false)
     val floors = remember(campus) { campus.floorCodes.map { campus.floorLabel(it) } }
     // 只滤掉明确关闭（有统计且 total=0）的区域；统计没到或学校没给的照常列出
     val areaCodes = remember(vm.floorAreas, vm.areaStatsMap) {
@@ -649,7 +665,20 @@ fun LibraryScreen(
                         }
                     }
 
-                    planMode -> fullSpan("plan") {
+                    planMode -> {
+                      if (seatPicksData != null && com.xjtu.toolbox.agent.AgentInsightHub.insights.available) {
+                        fullSpan("seat_picks") {
+                            LibrarySeatPicksCard(
+                                state = seatPicks,
+                                areaName = selectedArea,
+                                prefs = seatPrefs,
+                                onPrefsChange = { seatPrefs = it; SeatPickPrefs.save(it) },
+                                onPick = { bookSeat(it) },
+                                modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 4.dp),
+                            )
+                        }
+                      }
+                      fullSpan("plan") {
                         // 手机上卡片高约一屏：把头部卡片往上滚走，图正好铺满；平板在右栏占满。
                         val planHeight = (viewportHeight - (if (wideLibrary) glassTop + 22.dp else 16.dp))
                             .coerceAtLeast(320.dp)
@@ -676,8 +705,10 @@ fun LibraryScreen(
                             canBook = source.canBook,
                             landscapeLock = landscapeLock,
                             fullscreenDialogProperties = fullscreenDialogProperties,
+                            agentPicks = seatPickIds(seatPicks),
                             modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 4.dp),
                         )
+                      }
                     }
 
                     seats.isEmpty() -> fullSpan("empty") {

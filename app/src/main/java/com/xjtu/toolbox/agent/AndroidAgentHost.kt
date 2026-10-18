@@ -51,18 +51,26 @@ internal class AndroidAgentHost(
 
     // ── 端装配 ────────────────────────────────────────────────────────────────
 
-    override fun tools(searchEngine: String): AgentTools = com.xjtu.toolbox.agent.CompositeAgentTools(
-        primary = AgentToolRegistry(
-            loginState = loginState,
-            // DataCache 构造时绑账号：换账号必须重建，否则工具读写的是旧账号缓存（见 AgentViewModel）。
-            dataCache = DataCache(context, AccountContext.activeAccountId),
-            context = context,
-            host = this,
-            defaultSearchEngine = searchEngine,
-        ),
-        // 各 feature 自带的工具（只实现 :shared:model 的 AgentTools），在入口这里并进来
-        extras = listOf(com.xjtu.toolbox.inbox.SelfTodoAgentTools),
-    )
+    override fun tools(config: AgentConfig): AgentTools {
+        val wechat = WeChatSearchTools()
+        return CompositeAgentTools(
+            primary = AgentToolRegistry(
+                loginState = loginState,
+                // DataCache 构造时绑账号：换账号必须重建，否则工具读写的是旧账号缓存（见 AgentViewModel）。
+                dataCache = DataCache(context, AccountContext.activeAccountId),
+                context = context,
+                host = this,
+            ),
+            // 各 feature 自带的工具（只实现 :shared:model 的 AgentTools），在入口这里并进来
+            extras = listOfNotNull(
+                com.xjtu.toolbox.inbox.SelfTodoAgentTools,
+                com.xjtu.toolbox.campusmap.CampusMapAgentTools(locate = { AgentLocation.current(context) }),
+                PidaiTaskAgentTools,
+                config.webSearchKey.takeIf { it.isNotEmpty() }?.let { DeepSeekWebTools(it, localFetch = wechat::readArticle) },
+                wechat,
+            ),
+        )
+    }
 
     override fun transport(): AgentTransport = SseAgentTransport()
 

@@ -105,7 +105,8 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
 
     // AgentToolRegistry 保持在 ViewModel 级别，使 loginFailedAt 冷却状态跨消息保留
     private var tools: AgentTools? = null
-    private var toolsSearchEngine: String? = null
+    /** 搜索 Key 变了（含开关搜索）就重建：web_search / web_fetch 是否进工具表看它。 */
+    private var toolsSearchKey: String? = null
     /** 工具注册表里的 DataCache 构造时绑定账号，换账号必须重建，否则工具读写的是旧账号缓存。 */
     private var toolsAccountId: String? = null
 
@@ -375,15 +376,15 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
             try {
                 // 首次调用时初始化，此后复用（loginFailedAt 冷却状态得以保留）
                 val accountNow = com.xjtu.toolbox.account.AccountContext.activeAccountId
-                if (toolsSearchEngine != config.searchEngine || toolsAccountId != accountNow) {
+                if (toolsSearchKey != config.webSearchKey || toolsAccountId != accountNow) {
                     tools = null
-                    toolsSearchEngine = config.searchEngine
+                    toolsSearchKey = config.webSearchKey
                     toolsAccountId = accountNow
                 }
                 // 工具层与传输层都是**端装配**（见 `:core` 的 [AgentHost]）：`:app` 交取数那些
                 // `*Api` + Android 能力，桌面交它能取到的那部分。没接的端 `honored` 为空，
                 // 那几档就不会画给模型（见 `AgentCapability`）。
-                val registry = tools ?: host.tools(config.searchEngine).also { tools = it }
+                val registry = tools ?: host.tools(config).also { tools = it }
                 registry.drainWidgets()   // 丢弃上一轮残留，确保本轮控件干净
                 val runner = AgentRunner(registry, host.transport())
 
@@ -427,8 +428,8 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                     append(nowTag(config.effectiveModel))
                     append('\n')
                     if (!llmAnnex.isNullOrBlank()) {
-                        append("[本地提醒快照]\n")
-                        append("用户从 App 提醒点进来。快照只说明点的是哪件事，不是完整数据。")
+                        append("[App 快照]\n")
+                        append("用户从 App 里的提醒或屁岱卡片点进来，快照是他当时在看的东西，接着它聊。")
                         append("缺的字段不要编；要完整、最新或清单仍调工具。\n")
                         append(llmAnnex.trim())
                         append("\n\n")

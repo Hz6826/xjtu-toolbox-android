@@ -53,7 +53,8 @@ class AgentConfigStoreJvmTest {
             model = "my-model",
             baseUrl = "https://example.invalid/v1",
             assistantName = "小氪",
-            searchEngine = AgentConfig.SEARCH_WIKI,
+            searchEngine = AgentConfig.SEARCH_DEEPSEEK,
+            searchApiKey = "sk-fake-search-001",
             thinkingEnabled = false,
             reasoningEffort = AgentConfig.REASONING_MAX,
             showReasoning = false,
@@ -85,12 +86,14 @@ class AgentConfigStoreJvmTest {
 
     @Test
     fun `密钥只落在密文那半，明文那份里没有 api_key 这个键`() {
-        store().save(AgentConfig(apiKey = "sk-fake-config-002", searchEngine = AgentConfig.SEARCH_BAIDU))
+        store().save(AgentConfig(apiKey = "sk-fake-config-002", searchEngine = AgentConfig.SEARCH_OFF, searchApiKey = "sk-fake-search-002"))
 
         assertEquals("sk-fake-config-002", secureStore().getString("api_key"))
+        assertEquals("sk-fake-search-002", secureStore().getString("search_api_key"))
         assertNull(plainStore().getString("api_key"), "API Key 不许出现在明文存储里")
+        assertNull(plainStore().getString("search_api_key"), "搜索 Key 不许出现在明文存储里")
         // 非敏感那半还在老键名上
-        assertEquals(AgentConfig.SEARCH_BAIDU, plainStore().getString("search_engine"))
+        assertEquals(AgentConfig.SEARCH_OFF, plainStore().getString("search_engine"))
         assertEquals(AgentConfig.PROVIDER_DEEPSEEK, plainStore().getString("provider"))
     }
 
@@ -112,19 +115,14 @@ class AgentConfigStoreJvmTest {
     }
 
     @Test
-    fun `老配置里的搜索源按老判据收敛：已下线与认不出的都回自动`() {
+    fun `老配置里的自建搜索源一律迁到 DeepSeek，关闭保留`() {
         val plain = plainStore()
-        plain.putString("search_engine", "sogou")
-        assertEquals(AgentConfig.SEARCH_AUTO, store().load().searchEngine)
-
-        plain.putString("search_engine", "bing")
-        assertEquals(AgentConfig.SEARCH_AUTO, store().load().searchEngine)
-
-        plain.putString("search_engine", "百度")
-        assertEquals(AgentConfig.SEARCH_AUTO, store().load().searchEngine, "中文名不在名单里，按认不出处理")
-
-        plain.putString("search_engine", AgentConfig.SEARCH_WECHAT)
-        assertEquals(AgentConfig.SEARCH_WECHAT, store().load().searchEngine)
+        listOf("auto", "baidu", "so360", "wechat", "wiki", "bing", "百度").forEach {
+            plain.putString("search_engine", it)
+            assertEquals(AgentConfig.SEARCH_DEEPSEEK, store().load().searchEngine, it)
+        }
+        plain.putString("search_engine", AgentConfig.SEARCH_OFF)
+        assertEquals(AgentConfig.SEARCH_OFF, store().load().searchEngine)
     }
 
     @Test

@@ -148,6 +148,16 @@ internal fun CourseListPage(
                         spacing = 0.dp,
                         horizontalSpacing = 0.dp,
                     ) {
+                        if (com.xjtu.toolbox.agent.AgentInsightHub.insights.available) {
+                            fullLineItem(key = "pidai_todos") {
+                                LmsTodoCard(
+                                    source = source,
+                                    courses = courses,
+                                    onOpenCourse = onCourseSelected,
+                                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+                                )
+                            }
+                        }
                         fullLineItem(key = "count") {
                             Text(
                                 (selectedSemester ?: "全部学期") + " · 共 ${filtered.size} 门课程",

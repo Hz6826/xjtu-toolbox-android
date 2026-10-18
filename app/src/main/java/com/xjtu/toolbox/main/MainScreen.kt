@@ -58,6 +58,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.xjtu.toolbox.account.AccountManager
+import com.xjtu.toolbox.agent.AgentInsightEngine
+import com.xjtu.toolbox.agent.AgentInsightHub
 import com.xjtu.toolbox.agent.AgentPendingPrompt
 import com.xjtu.toolbox.agent.AndroidAgentHost
 import com.xjtu.toolbox.agent.AndroidPidaiHero
@@ -143,6 +145,14 @@ internal fun MainScreen(
     val navBarStyle by appearance.navBarStyle.collectAsStateWithLifecycle()
     val homeTheme by appearance.homeTheme.collectAsStateWithLifecycle()
     val showQuickActions by appearance.showQuickActions.collectAsStateWithLifecycle()
+
+    // 各页的屁岱卡（通知精选、荐座……）都走这一个入口；「接着问屁岱」切到屁岱 tab
+    remember(loginState) {
+        AgentInsightHub.insights = AgentInsightEngine(AndroidAgentHost(context.applicationContext, loginState)) { prompt, snapshot ->
+            AgentPendingPrompt.set(prompt, snapshot)
+            router.selectTab(BottomTab.PIDAI)
+        }
+    }
 
     val selectedTab = tabs.selected
     val navAccountCount = remember(loginState.accountId) { accountManager.accountList().size }

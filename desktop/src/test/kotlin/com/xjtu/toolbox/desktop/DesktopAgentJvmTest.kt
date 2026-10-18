@@ -128,11 +128,12 @@ class DesktopAgentJvmTest {
     @Test
     fun `工具表只画接得上的那五件，没接的一档都不画`() {
         val host = newHost()
-        val tools = host.tools(AgentConfig.SEARCH_AUTO)
+        val tools = host.tools(AgentConfig())
 
         val names = (AppJson.parseToJsonElement(tools.toolDefinitions) as JsonArray)
             .map { it.jsonObject.getValue("function").jsonObject.getValue("name").jsonPrimitive.content }
-        assertEquals(DESKTOP_AGENT_TOOLS, names, "工具表与「这一端接得上的那几件」对不上")
+        // 末尾是各端共用的校园地图；没配搜索 Key 时不带联网搜索
+        assertEquals(DESKTOP_AGENT_TOOLS + "campus_map", names, "工具表与「这一端接得上的那几件」对不上")
 
         // 没接的档一个字都不画（画了就得能用）——调过来只会回 not_found
         for (missing in listOf("get_schedule", "get_grades", "get_empty_rooms", "web_search", "web_fetch", "set_alarm", "app_setting", "add_schedule_event")) {
@@ -150,7 +151,7 @@ class DesktopAgentJvmTest {
 
     @Test
     fun `纯逻辑那三件真能跑：算术・功能引导・偏好落盘`() {
-        val tools = newHost().tools(AgentConfig.SEARCH_AUTO)
+        val tools = newHost().tools(AgentConfig())
 
         runBlocking {
             assertEquals("2*3+4 = 10", tools.execute("calculate", """{"expression":"2*3+4"}"""))
@@ -171,8 +172,8 @@ class DesktopAgentJvmTest {
         }
 
         // 记忆是**真落盘**的：另一份工具层（新一份 `AgentMemory`）读得回来
-        runBlocking { newHost().tools(AgentConfig.SEARCH_AUTO).execute("preference", """{"key":"校区","value":"兴庆"}""") }
-        val reopened = newHost().tools(AgentConfig.SEARCH_AUTO)
+        runBlocking { newHost().tools(AgentConfig()).execute("preference", """{"key":"校区","value":"兴庆"}""") }
+        val reopened = newHost().tools(AgentConfig())
         assertTrue(reopened.memoryBlock().contains("- 校区：兴庆"), "偏好没落在数据根目录里：${reopened.memoryBlock()}")
         val memoryFile = File(root, "${AgentMemory.STORE}${AccountContext.safeSuffix()}.properties")
         assertTrue(memoryFile.isFile, "偏好存储文件不在：${memoryFile.absolutePath}")

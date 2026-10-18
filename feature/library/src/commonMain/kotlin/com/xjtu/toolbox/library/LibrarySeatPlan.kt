@@ -63,7 +63,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -95,10 +97,12 @@ class PlanImages(
     val origHeight: Int,
     /** 状态码 → 该状态的整图；缺了的状态退回纯色半透明覆盖。 */
     val tiles: Map<Int, ImageBitmap>,
+    /** 底图原始字节：屁岱荐座要按原分辨率裁图给视觉模型看（[base] 是降采样过的）。 */
+    val baseBytes: ByteArray? = null,
 ) {
     /** 补上状态图（底图不重新解码）。 */
     fun withTiles(bytes: Map<Int, ByteArray>): PlanImages =
-        PlanImages(base, origWidth, origHeight, tiles + decodeTiles(bytes, origWidth, origHeight))
+        PlanImages(base, origWidth, origHeight, tiles + decodeTiles(bytes, origWidth, origHeight), baseBytes)
 }
 
 private const val BASE_MAX_DIM = 2048
@@ -116,7 +120,7 @@ private const val TILE_MAX_DIM = 1024
 fun decodePlanImages(base: ByteArray, tiles: Map<Int, ByteArray>): PlanImages? {
     val size = decodeImageSize(base) ?: return null
     val baseBmp = decodeImage(base, size, BASE_MAX_DIM) ?: return null
-    return PlanImages(baseBmp, size.width, size.height, decodeTiles(tiles, size.width, size.height))
+    return PlanImages(baseBmp, size.width, size.height, decodeTiles(tiles, size.width, size.height), base)
 }
 
 private fun decodeTiles(tiles: Map<Int, ByteArray>, origW: Int, origH: Int): Map<Int, ImageBitmap> =
@@ -311,6 +315,7 @@ private fun SeatPlanView(
     val favColor = MiuixTheme.colorScheme.primaryVariant
     val density = LocalDensity.current
     val dim = rememberPlanDim()
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
     val t = remember { PlanTransform() }
     // 换区域或视口变了：重新框住整张图
     LaunchedEffect(images, t.viewport) {
@@ -386,37 +391,40 @@ private fun SeatPlanView(
                 }
             }
             if (heat != null) {
-                for (seat in layout.seats) {
-                    val weight = when (seat.status) {
-                        PlanSeat.BOOKED, PlanSeat.INSIDE -> 1f
-                        PlanSeat.LEAVE -> 0.5f
-                        else -> continue
-                    }
-                    val c = Offset(seat.left + seat.width / 2, seat.top + seat.height / 2)
-                    val r = max(seat.width, seat.height) * 2.6f
-                    drawCircle(
-                        androidx.compose.ui.graphics.Brush.radialGradient(
-                            listOf(HEAT_WARM.copy(alpha = 0.34f * weight), Color.Transparent), center = c, radius = r,
-                        ),
-                        radius = r, center = c,
+                // 底层：按片铺上座率（越满越红），座位再密也看得出哪片空
+                val radius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx() / s)
+                heat.zones.forEach { z ->
+                    val color = androidx.compose.ui.graphics.lerp(HEAT_GOOD, HEAT_WARM, z.ratio)
+                    drawRoundRect(
+                        color.copy(alpha = 0.10f + 0.16f * z.ratio),
+                        Offset(z.left, z.top), Size(z.right - z.left, z.bottom - z.top), radius,
                     )
                 }
+                // 上层只标空座：描边颜色是好坐程度，不填底，座位号不被盖住
+                val edge = 1.6.dp.toPx() / s
                 for (seat in layout.seats) {
                     if (!seat.available) continue
                     val score = heat.comfort[seat.seatId]?.score ?: continue
-                    drawRect(
-                        androidx.compose.ui.graphics.lerp(HEAT_POOR, HEAT_GOOD, score).copy(alpha = 0.8f),
-                        Offset(seat.left, seat.top), Size(seat.width, seat.height),
-                    )
+                    val color = androidx.compose.ui.graphics.lerp(HEAT_POOR, HEAT_GOOD, score)
+                    drawRect(color, Offset(seat.left, seat.top), Size(seat.width, seat.height), style = Stroke(edge))
                 }
-                val pad = 1.5.dp.toPx() / s
-                heat.picks.forEach { seat ->
+                // 推荐座位：主色粗框 + 序号角标
+                val pad = 3.dp.toPx() / s
+                val badge = 8.dp.toPx() / s
+                heat.picks.forEachIndexed { i, seat ->
                     drawRect(
-                        HEAT_GOOD,
+                        primary,
                         Offset(seat.left - pad, seat.top - pad),
                         Size(seat.width + pad * 2, seat.height + pad * 2),
-                        style = Stroke(2.dp.toPx() / s),
+                        style = Stroke(3.dp.toPx() / s),
                     )
+                    val c = Offset(seat.right + pad, seat.top - pad)
+                    drawCircle(Color.White, badge + 1.5.dp.toPx() / s, c)
+                    drawCircle(primary, badge, c)
+                    val label = measurer.measure("${i + 1}", androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold))
+                    withTransform({ scale(1f / s, 1f / s, pivot = c) }) {
+                        drawText(label, topLeft = Offset(c.x - label.size.width / 2f, c.y - label.size.height / 2f))
+                    }
                 }
             }
             layout.seats.firstOrNull { it.seatId == selectedSeatId }?.let { seat ->
@@ -433,7 +441,11 @@ private fun SeatPlanView(
 }
 
 /** 热力模式要的数据：每个座位好不好坐，和最值得坐的几个空座。 */
-class SeatHeat(val comfort: Map<String, SeatComfort.Comfort>, val picks: List<PlanSeat>)
+class SeatHeat(
+    val comfort: Map<String, SeatComfort.Comfort>,
+    val picks: List<PlanSeat>,
+    val zones: List<SeatComfort.Zone> = emptyList(),
+)
 
 private val HEAT_WARM = Color(0xFFE5534B)
 private val HEAT_POOR = Color(0xFFE3A33B)
@@ -489,16 +501,19 @@ fun SeatPlanPanel(
     canBook: Boolean = true,
     landscapeLock: (@Composable (Boolean) -> Unit)? = null,
     fullscreenDialogProperties: DialogProperties = DialogProperties(usePlatformDefaultWidth = false),
+    /** 屁岱挑的座位：非空时直接打开热力图，描边换成这几个。 */
+    agentPicks: List<String> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     // 按区域记选中：刷新座位状态后选中不丢，状态按新数据重新取
     var selected by remember(selectedArea) { mutableStateOf<String?>(null) }
     val selectedSeat = layout?.seats?.firstOrNull { it.seatId == selected }
-    var heatOn by remember { mutableStateOf(false) }
-    val heat = remember(layout, heatOn) {
+    var heatOn by remember(agentPicks) { mutableStateOf(agentPicks.isNotEmpty()) }
+    val heat = remember(layout, heatOn, agentPicks) {
         layout?.takeIf { heatOn }?.seats?.let { seats ->
             val comfort = SeatComfort.of(seats)
-            SeatHeat(comfort, SeatComfort.best(seats, comfort))
+            val agent = agentPicks.mapNotNull { id -> seats.firstOrNull { it.seatId == id && it.available } }
+            SeatHeat(comfort, agent.ifEmpty { SeatComfort.best(seats, comfort) }, SeatComfort.zones(seats))
         }
     }
     val floorBounds = remember(floor) { floor?.first?.seats?.takeIf { it.isNotEmpty() }?.let(::paddedBounds) }
@@ -807,7 +822,7 @@ private fun PlanInfoBar(
                     modifier = Modifier.clickable { onPick(top.seatId) },
                 )
                 Text(
-                    heat?.comfort?.get(top.seatId)?.label.orEmpty() + " · 越绿越好坐，红晕是有人",
+                    heat?.comfort?.get(top.seatId)?.label.orEmpty() + " · 绿框好坐，底色越红那片越满",
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     maxLines = 1,

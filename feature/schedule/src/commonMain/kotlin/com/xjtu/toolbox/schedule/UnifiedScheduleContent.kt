@@ -142,7 +142,38 @@ fun TodayTimeline(
         (fromCourses + fromExams + fromHomework).sortedBy { it.startMinute }
     }
 
+    // 屁岱排今天：本地已有的课、考试、截止直接交给它
+    val showPlan = com.xjtu.toolbox.agent.AgentInsightHub.insights.available
+    val planSnapshot = remember(entries, upcoming, today) {
+        dayPlanSnapshot(
+            today,
+            entries.map { e ->
+                val time = formatTwoDigits(e.startMinute / 60) + ":" + formatTwoDigits(e.startMinute % 60) +
+                    (if (e.endMinute > 0) "–" + formatTwoDigits(e.endMinute / 60) + ":" + formatTwoDigits(e.endMinute % 60) else "")
+                val what = when (e.kind) {
+                    EntryKind.COURSE -> "上课 ${e.title}"
+                    EntryKind.EXAM -> "考试 ${e.title}"
+                    EntryKind.HOMEWORK -> "作业截止 ${e.title}"
+                }
+                "$time｜$what｜${e.place}"
+            },
+            upcoming,
+        )
+    }
+
     // 两边都没内容才是真的空——只要「接下来」有东西，就不该用一整页空状态盖住它。
+    if (entries.isEmpty() && upcoming.isEmpty() && showPlan) {
+        // 有屁岱卡时整页可滚：卡片展开后（时间线 + 地图）比一屏高
+        LazyColumn(
+            Modifier.fillMaxSize().overScrollVertical(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 12.dp + bottomPadding),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item(key = "day_plan") { DayPlanCard(planSnapshot, today) }
+            item(key = "empty") { Box(Modifier.enterOnce(0)) { NoCourseTodayCard() } }
+        }
+        return
+    }
     if (entries.isEmpty() && upcoming.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(top = topPadding, bottom = bottomPadding), Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -175,6 +206,7 @@ fun TodayTimeline(
         ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        if (showPlan) item(key = "day_plan") { DayPlanCard(planSnapshot, today) }
         if (entries.isEmpty()) {
             // 今天没课也没考试没作业，但「接下来」有内容——给个小卡片交代一下，
             // 别让页面看着像没加载出来。

@@ -59,3 +59,24 @@ actual fun decodeImageDownToWidth(
 
 actual fun imageMemoryCacheBudgetBytes(): Int =
     (Runtime.getRuntime().maxMemory() / 8).coerceAtMost(64L * 1024 * 1024).toInt()
+
+actual fun cropImageToJpegDataUri(bytes: ByteArray, left: Int, top: Int, right: Int, bottom: Int, maxDim: Int): String? =
+    runCatching {
+        @Suppress("DEPRECATION")
+        val decoder = android.graphics.BitmapRegionDecoder.newInstance(bytes, 0, bytes.size, false) ?: return null
+        val rect = android.graphics.Rect(
+            left.coerceIn(0, decoder.width), top.coerceIn(0, decoder.height),
+            right.coerceIn(0, decoder.width), bottom.coerceIn(0, decoder.height),
+        )
+        if (rect.width() <= 0 || rect.height() <= 0) return null
+        var region = decoder.decodeRegion(rect, BitmapFactory.Options()) ?: return null
+        decoder.recycle()
+        val longSide = max(region.width, region.height)
+        if (longSide > maxDim) {
+            val k = maxDim.toFloat() / longSide
+            region = Bitmap.createScaledBitmap(region, (region.width * k).toInt(), (region.height * k).toInt(), true)
+        }
+        val out = java.io.ByteArrayOutputStream()
+        region.compress(Bitmap.CompressFormat.JPEG, 88, out)
+        "data:image/jpeg;base64," + android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+    }.getOrNull()

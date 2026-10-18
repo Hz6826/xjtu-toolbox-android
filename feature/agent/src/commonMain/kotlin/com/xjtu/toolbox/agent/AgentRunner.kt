@@ -125,7 +125,7 @@ class AgentRunner(
 
         while (true) {
             // 保险丝烧了，这一轮不带 tools，逼模型直接作答
-            val allowTools = toolCallCount < TOOL_CALL_FUSE
+            val allowTools = toolCallCount < TOOL_CALL_FUSE && toolDefs.isNotEmpty()
             val reqBody = buildJsonObject {
                 put("model", config.effectiveModel)
                 put("messages", messagesForProvider(messages, config))
@@ -250,8 +250,29 @@ class AgentRunner(
                 val last = toolResults.lastOrNull() ?: return@let
                 toolResults[toolResults.lastIndex] = JsonObject(last + ("content" to JsonPrimitive(last["content"].stringValue + hint)))
             }
+            // 工具读到的图（PDF 页面等）只能放在 user 消息里交给模型；模型不认图就在结果里说一声
+            val images = tools.drainImages()
+            val canSee = images.isNotEmpty() && AgentVision.supportsVision(config)
+            if (images.isNotEmpty() && !canSee) {
+                val last = toolResults.last()
+                toolResults[toolResults.lastIndex] = JsonObject(
+                    last + ("content" to JsonPrimitive(last["content"].stringValue + "\n（当前模型不能看图，这些页面没交给你）")),
+                )
+            }
             messages.add(assistantMsg)
             toolResults.forEach { messages.add(it) }
+            if (canSee) messages.add(buildJsonObject {
+                put("role", "user")
+                put("content", buildJsonArray {
+                    add(buildJsonObject { put("type", "text"); put("text", "（系统）上面工具读到的文档页面图：") })
+                    images.forEach { uri ->
+                        add(buildJsonObject {
+                            put("type", "image_url")
+                            put("image_url", buildJsonObject { put("url", uri) })
+                        })
+                    }
+                })
+            })
         }
     }
 

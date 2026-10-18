@@ -13,6 +13,8 @@ import com.xjtu.toolbox.agent.AgentSessionStore
 import com.xjtu.toolbox.agent.AgentTitleGen
 import com.xjtu.toolbox.agent.AgentTools
 import com.xjtu.toolbox.agent.AgentTransport
+import com.xjtu.toolbox.agent.CompositeAgentTools
+import com.xjtu.toolbox.agent.DeepSeekWebTools
 import com.xjtu.toolbox.agent.SseAgentTransport
 import com.xjtu.toolbox.faculty.FacultyApi
 import com.xjtu.toolbox.platform.SecretProtector
@@ -38,12 +40,18 @@ internal class DesktopAgentHost(
 
     // ── 端装配 ────────────────────────────────────────────────────────────────
 
-    override fun tools(searchEngine: String): AgentTools = DesktopAgentTools(
-        honored = honored,
-        // 每次调用重建一份：`AgentMemory` 自己按当前账号后缀解析存储（切账号即切文件）。
-        memory = agentMemory(),
-        yellowPage = YellowPageApi(yellowPageClient),
-        faculty = FacultyApi(),
+    override fun tools(config: AgentConfig): AgentTools = CompositeAgentTools(
+        primary = DesktopAgentTools(
+            honored = honored,
+            // 每次调用重建一份：`AgentMemory` 自己按当前账号后缀解析存储（切账号即切文件）。
+            memory = agentMemory(),
+            yellowPage = YellowPageApi(yellowPageClient),
+            faculty = FacultyApi(),
+        ),
+        extras = listOfNotNull(
+            com.xjtu.toolbox.campusmap.CampusMapAgentTools(),
+            config.webSearchKey.takeIf { it.isNotEmpty() }?.let { DeepSeekWebTools(it) },
+        ),
     )
 
     override fun transport(): AgentTransport = SseAgentTransport()

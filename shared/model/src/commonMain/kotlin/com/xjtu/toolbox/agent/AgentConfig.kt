@@ -14,19 +14,27 @@ fun normalizeReasoningEffort(raw: String?): String = when (raw?.trim()?.lowercas
     else -> AgentConfig.REASONING_AUTO
 }
 
-/** 屁岱的配置：服务商、密钥、模型、助手名、联网搜索源、思考开关。 */
+/** 存下来的搜索源收敛到 [AgentConfig.SEARCH_ENGINES]；百度、360 等已下线的自建源一律迁到 DeepSeek。 */
+fun normalizeSearchEngine(raw: String?): String =
+    if (raw?.trim()?.lowercase() == AgentConfig.SEARCH_OFF) AgentConfig.SEARCH_OFF else AgentConfig.SEARCH_DEEPSEEK
+
+/** 屁岱的配置：服务商、密钥、模型、助手名、联网搜索、思考开关。 */
 data class AgentConfig(
     val provider: String = PROVIDER_DEEPSEEK,
     val apiKey: String = "",
     val model: String = "",
     val baseUrl: String = "",
     val assistantName: String = DEFAULT_ASSISTANT_NAME,
-    val searchEngine: String = SEARCH_AUTO,
+    val searchEngine: String = SEARCH_DEEPSEEK,
+    /** 服务商不是 DeepSeek 时，联网搜索单独用的 DeepSeek Key。 */
+    val searchApiKey: String = "",
     val thinkingEnabled: Boolean = true,
     val reasoningEffort: String = REASONING_AUTO,
     val showReasoning: Boolean = true,
     /** 「这一端知道 key 配好了，但 key 不在我手上」这一格。 */
-    val keyConfigured: Boolean = false
+    val keyConfigured: Boolean = false,
+    /** 同上，指 [searchApiKey]。 */
+    val searchKeyConfigured: Boolean = false,
 ) {
     val effectiveName: String get() = sanitizeAgentTitle(assistantName, DEFAULT_ASSISTANT_NAME)
 
@@ -34,8 +42,16 @@ data class AgentConfig(
         get() = when {
             provider == PROVIDER_CUSTOM && baseUrl.isNotBlank() -> baseUrl.trimEnd('/')
             provider == PROVIDER_OPENAI -> "https://api.openai.com/v1"
-            else -> "https://api.deepseek.com"
+            else -> DEEPSEEK_BASE_URL
         }
+
+    /** 联网搜索、读网页用的 DeepSeek Key：聊天就走 DeepSeek 时复用它。空串 = 不给这两件工具。 */
+    val webSearchKey: String
+        get() = when {
+            searchEngine == SEARCH_OFF -> ""
+            provider == PROVIDER_DEEPSEEK -> apiKey
+            else -> searchApiKey
+        }.trim()
 
     val effectiveModel: String
         get() = model.ifBlank {
@@ -54,30 +70,17 @@ data class AgentConfig(
         const val PROVIDER_DEEPSEEK = "deepseek"
         const val PROVIDER_OPENAI = "openai"
         const val PROVIDER_CUSTOM = "custom"
+        const val DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+        const val DEEPSEEK_KEYS_URL = "https://platform.deepseek.com/api_keys"
         /** 不下发 `reasoning_effort`，由服务端按模型默认档跑。不是 DeepSeek 的合法取值。 */
         const val REASONING_AUTO = "auto"
         const val REASONING_LOW = "low"
         const val REASONING_HIGH = "high"
         const val REASONING_MAX = "max"
-        const val SEARCH_AUTO = "auto"
-        const val SEARCH_BAIDU = "baidu"
-        const val SEARCH_WECHAT = "wechat"
-        const val SEARCH_SO360 = "so360"
-        const val SEARCH_WIKI = "wiki"
-
-        /**
-         * 已下线的搜索源。实测（国内网络 / 校园网，中文查询 + 连发）：
-         * - jina：`s.jina.ai` 匿名访问返回 401，要 API Key，调用必然失败。
-         * - brave：429 + 验证码页，拿不到结果。
-         * - sogou：`/web` 直接 302 到 `sogou.com/antispider`，一条都取不到。
-         * - duckduckgo（2026-09）：html / lite 两版都回 202 +「证明你是人类」挑战页，
-         *   国内每次白等两秒多，一条结果都没有。
-         * - bing（2026-09）：不带会话时中文查询被截成首字（「西交 创新港 校车」搜的是「西」），
-         *   RSS 和网页版都一样，结果与查询基本无关。
-         *
-         * 留着它们只会白占一轮超时。保留名字是为了老配置和模型点名时能识别并迁回自动。
-         */
-        val RETIRED_SEARCH_ENGINES = setOf("jina", "brave", "sogou", "duckduckgo", "ddg", "bing")
+        /** DeepSeek 官方 Search / Fetch API。 */
+        const val SEARCH_DEEPSEEK = "deepseek"
+        const val SEARCH_OFF = "off"
+        val SEARCH_ENGINES = listOf(SEARCH_DEEPSEEK, SEARCH_OFF)
 
         val PROVIDERS = listOf(PROVIDER_DEEPSEEK, PROVIDER_OPENAI, PROVIDER_CUSTOM)
         /**
@@ -93,11 +96,6 @@ data class AgentConfig(
             REASONING_MAX -> "最大"
             else -> "自动"
         }
-        // 顺序即推荐度，实测中文相关性从高到低。自动 = 百度与 360 并发、合并去重。
-        val SEARCH_ENGINES = listOf(
-            SEARCH_AUTO, SEARCH_BAIDU, SEARCH_SO360, SEARCH_WECHAT, SEARCH_WIKI
-        )
-
         fun providerLabel(p: String) = when (p) {
             PROVIDER_DEEPSEEK -> "DeepSeek（推荐）"
             PROVIDER_OPENAI -> "OpenAI"
@@ -106,12 +104,8 @@ data class AgentConfig(
         }
 
         fun searchEngineLabel(engine: String) = when (engine) {
-            SEARCH_AUTO -> "自动"
-            SEARCH_BAIDU -> "百度"
-            SEARCH_SO360 -> "360 搜索"
-            SEARCH_WECHAT -> "搜狗微信"
-            SEARCH_WIKI -> "维基百科"
-            else -> "自动"
+            SEARCH_OFF -> "关闭"
+            else -> "DeepSeek"
         }
     }
 }

@@ -56,6 +56,9 @@ interface AgentTools {
     /** 执行一次工具调用，返回给模型看的文本。失败就抛，由循环决定怎么记。 */
     suspend fun execute(name: String, argsJson: String): String
 
+    /** 取走这一轮工具读到的图（PDF 页面、图片附件，`data:image/…`）：循环随后作为一条 user 消息交给模型看。 */
+    fun drainImages(): List<String> = emptyList()
+
     // ── 屏那几件（不是循环要的，是 `AgentViewModel` 要的）────────────────────
 
     /** 取走这一轮生成的卡片（课表、成绩、空教室、图书馆座位……）并清空。 */

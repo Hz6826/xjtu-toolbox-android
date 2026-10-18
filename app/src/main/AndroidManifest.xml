@@ -17,6 +17,10 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <!-- 屁岱的 my_location：用户问「附近」时定位一次，换算成最近的楼；不在后台跟踪。 -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <!-- 棋类联机：只走 BLE GATT（校园网 AP 隔离，局域网直连实测不通，已下线）。只在用户点
          「创建 / 加入房间」时才申请这三个蓝牙权限（见 game/net/OnlinePermissions.kt），

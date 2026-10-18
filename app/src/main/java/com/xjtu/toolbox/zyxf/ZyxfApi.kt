@@ -330,4 +330,19 @@ object ZyxfApi {
             }
         }.onFailure { Log.w(TAG, "readText failed: ${entry.name}", it) }.getOrNull()
     }
+
+    /** 整个文件的字节（屁岱读 PDF / Office 用），超过 [maxBytes] 返回 null。 */
+    fun readBytes(fileId: Int, maxBytes: Long = 40L * 1024 * 1024): Pair<String, ByteArray>? {
+        val link = runCatching { fileLink(fileId) }.getOrNull() ?: return null
+        if (link.sizeBytes > maxBytes) return null
+        val req = Request.Builder().url(link.url).get().build()
+        return runCatching {
+            client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return null
+                val body = resp.body ?: return null
+                if (body.contentLength() > maxBytes) return null
+                link.name to body.bytes()
+            }
+        }.onFailure { Log.w(TAG, "readBytes failed: $fileId", it) }.getOrNull()
+    }
 }

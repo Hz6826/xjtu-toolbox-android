@@ -149,11 +149,15 @@ object ProactiveRules {
         proactiveLevel = readProactiveLevel(ctx)
     }
 
-    /** 选择之后立即落盘 + 更新缓存。 */
+    /** 选择之后立即落盘 + 更新缓存；后台简报跟着这一档开关（见 [PidaiJobScheduler]）。 */
     fun setProactiveLevel(ctx: Context, level: ProactiveLevel) {
         proactiveLevel = level
         prefs(ctx).edit().putString(LEVEL_KEY, level.name).apply()
+        PidaiJobScheduler.apply(ctx)
     }
+
+    /** 直接读盘（后台任务用，不依赖界面里的缓存）。 */
+    fun currentLevel(ctx: Context): ProactiveLevel = readProactiveLevel(ctx)
 
     private fun readProactiveLevel(ctx: Context): ProactiveLevel =
         prefs(ctx).getString(LEVEL_KEY, null)

@@ -215,7 +215,7 @@ class WebAgentSessionTest {
             json(
                 """
                 {"provider":"deepseek","model":"deepseek-flash","effectiveModel":"deepseek-flash",
-                 "baseUrl":"","assistantName":"屁岱","searchEngine":"auto","thinkingEnabled":true,
+                 "baseUrl":"","assistantName":"屁岱","searchEngine":"deepseek","thinkingEnabled":true,
                  "reasoningEffort":"minimal","showReasoning":true,"keyConfigured":true,
                  "apiKey":"sk-fake-agent-key-should-never-be-read",
                  "toolAllowlist":["calculate","get_schedule"],"honored":[],"canEditKey":true}

@@ -36,59 +36,6 @@ class AgentWebTest {
         assertFalse(AgentWeb.isPublicHttpUrl("http://192.168.1.1/"))
     }
 
-    /** 360 的真实地址在 data-mdurl，href 是 so.com/link 跳转链——以前整条被当站内链接丢掉。 */
-    @Test
-    fun parseSo360Html_usesMdurlAndKeepsJumpLinks() {
-        val html = """
-            <li class="res-list">
-              <h3 class="res-title"><a href="https://www.so.com/link?m=abc" data-mdurl="http://gs.xjtu.edu.cn/info/1145/6378.htm">创新港班车运行时间表</a></h3>
-              <p class="res-desc">研究生院通知</p>
-            </li>
-            <li class="res-list">
-              <h3 class="res-title"><a href="https://www.so.com/link?m=def">只有跳转链的结果</a></h3>
-            </li>
-            <li class="res-list">
-              <h3 class="res-title"><a href="https://baike.so.com/doc/1.html">360 百科</a></h3>
-            </li>
-            <li class="res-list">
-              <h3 class="res-title"><a href="https://www.so.com/link?m=v" data-mdurl="https://tv.360kan.com/s?q=西交 创新港 校车&amp;src=x">短视频聚合</a></h3>
-            </li>
-        """.trimIndent()
-        val rows = AgentWeb.parseSo360Html(html, 5)
-        assertEquals(2, rows.size)
-        assertEquals("http://gs.xjtu.edu.cn/info/1145/6378.htm", rows[0].second)
-        assertEquals("研究生院通知", rows[0].third)
-        assertTrue(rows[1].second.contains("so.com/link?"))
-    }
-
-    /** 百度：mu 是真实地址就用它；阿拉丁卡片的占位 mu 退回标题跳转链。 */
-    @Test
-    fun parseBaiduHtml_prefersRealMu() {
-        val html = """
-            <div id="content_left">
-              <div class="result c-container" mu="http://oa.xjtu.edu.cn/notice.jsp?id=1">
-                <h3 class="t"><a href="https://www.baidu.com/link?url=aaa">班车时刻调整通知</a></h3>
-                <div class="c-abstract">节后调整各校区班车运行时刻</div>
-              </div>
-              <div class="result-op c-container" mu="http://nourl.ubs.baidu.com/279">
-                <h3 class="t"><a href="https://www.baidu.com/link?url=bbb">阿拉丁卡片</a></h3>
-              </div>
-            </div>
-        """.trimIndent()
-        val rows = AgentWeb.parseBaiduHtml(html, 5)
-        assertEquals(2, rows.size)
-        assertEquals("http://oa.xjtu.edu.cn/notice.jsp?id=1", rows[0].second)
-        assertTrue(rows[0].third.contains("班车"))
-        assertTrue(rows[1].second.startsWith("https://www.baidu.com/link?url="))
-    }
-
-    @Test
-    fun baiduBlock_detectsCaptchaRedirect() {
-        assertTrue(AgentWeb.looksLikeBaiduBlock("", "https://wappass.baidu.com/static/captcha/tuxing_v2.html"))
-        assertTrue(AgentWeb.looksLikeBaiduBlock("<title>百度安全验证</title>", "https://www.baidu.com/s"))
-        assertFalse(AgentWeb.looksLikeBaiduBlock("<div id=\"content_left\"></div>", "https://www.baidu.com/s?wd=x"))
-    }
-
     @Test
     fun looksLikeCaptcha_challengePage() {
         assertTrue(AgentWeb.looksLikeCaptcha("<html>请完成验证 geetest</html>"))
@@ -122,18 +69,6 @@ class AgentWebTest {
     }
 
     @Test
-    fun jinaReaderUrl_prefixesOnce() {
-        assertEquals(
-            "https://r.jina.ai/https://mp.weixin.qq.com/s/a",
-            AgentWeb.jinaReaderUrl("https://mp.weixin.qq.com/s/a"),
-        )
-        assertEquals(
-            "https://r.jina.ai/https://example.com",
-            AgentWeb.jinaReaderUrl("https://r.jina.ai/https://example.com"),
-        )
-    }
-
-    @Test
     fun wechatBlock_emptyJsContent() {
         assertTrue(AgentWeb.looksLikeWeChatBlock("<html>环境异常</html>"))
         assertTrue(
@@ -149,16 +84,6 @@ class AgentWebTest {
         val cut = AgentWeb.truncateMarkdown("abcd", 2)
         assertTrue(cut.startsWith("ab"))
         assertTrue(cut.contains("truncated"))
-    }
-
-    @Test
-    fun parseWikiOpenSearch_jsonArray() {
-        val body = """["交大",["西安交通大学"],["中国高校"],["https://zh.wikipedia.org/wiki/西安交通大学"]]"""
-        val rows = AgentWeb.parseWikiOpenSearch(body, 5)
-        assertEquals(1, rows.size)
-        assertEquals("西安交通大学", rows[0].first)
-        assertTrue(rows[0].second.contains("wikipedia.org"))
-        assertTrue(rows[0].third.contains("高校"))
     }
 
     @Test

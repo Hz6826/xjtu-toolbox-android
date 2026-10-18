@@ -30,5 +30,11 @@ expect fun decodeImageDownToWidth(
     halveSample: Boolean,
 ): ImageBitmap?
 
+/**
+ * 按原始像素裁出 [left, top, right, bottom) 这一块，长边超过 [maxDim] 才缩，编码成 `data:image/jpeg;base64,…`
+ * 给视觉模型看（小字、座位号要原分辨率才看得清）。不支持的端返回 null。
+ */
+expect fun cropImageToJpegDataUri(bytes: ByteArray, left: Int, top: Int, right: Int, bottom: Int, maxDim: Int): String?
+
 /** 平台能力：解码后位图缓存的内存预算（字节）。 */
 expect fun imageMemoryCacheBudgetBytes(): Int

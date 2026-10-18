@@ -17,8 +17,11 @@ interface AgentHost {
 
     // ── 1. 端装配 ─────────────────────────────────────────────────────────────
 
-    /** 这一端的工具层：`:app` 交 `AgentToolRegistry`（取数走 `:data` 的 `*Api`，那三档端能力回指 [honored] 与下面那几个成员）。 */
-    fun tools(searchEngine: String): AgentTools = AgentTools.None
+    /**
+     * 这一端的工具层：`:app` 交 `AgentToolRegistry`（取数走 `:data` 的 `*Api`，那三档端能力回指 [honored] 与下面那几个成员）。
+     * [AgentConfig.webSearchKey] 非空时各端再并上 `:data` 的 `DeepSeekWebTools`。
+     */
+    fun tools(config: AgentConfig): AgentTools = AgentTools.None
 
     /** 这一端的「发一次请求」：`:app` 与桌面都交 `:data` 的 `SseAgentTransport`。 */
     fun transport(): AgentTransport = AgentTransport.None
@@ -62,7 +65,7 @@ interface AgentHost {
     /** 存配置（即改即存，见配置面板）。 */
     fun saveConfig(config: AgentConfig) {}
 
-    /** 拉模型列表（`:data` 的 `AgentModelFetcher`）。 */
+    /** 拉模型列表（`:data` 的 `AgentModelFetcher`）。[config] 的服务商、Key、Base URL 是面板上还没存的那一份。 */
     suspend fun fetchModels(config: AgentConfig): List<String> = emptyList()
 
     /** 把首轮对话总结成标题（`:data` 的 `AgentTitleGen`）。返回 null = 不自动改名。 */

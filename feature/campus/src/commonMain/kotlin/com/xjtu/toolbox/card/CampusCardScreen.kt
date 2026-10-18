@@ -325,7 +325,7 @@ fun CampusCardScreen(
                                     OverviewTab(
                                         cardInfo, stats.monthly, emptyList(), todaySummary, stats.dailyRate,
                                         stats.activeDays, rangeDates.first, rangeDates.second, topInset, onOpenCoupon,
-                                        couponStat,
+                                        couponStat, allTransactions = vm.transactions,
                                     )
                                 }
                                 Box(Modifier.weight(0.58f).fillMaxHeight()) {
@@ -362,7 +362,7 @@ fun CampusCardScreen(
                                 0 -> OverviewTab(
                                     cardInfo, stats.monthly, transactions.take(5), todaySummary, stats.dailyRate,
                                     stats.activeDays, rangeDates.first, rangeDates.second, topContentPadding, onOpenCoupon,
-                                    couponStat,
+                                    couponStat, allTransactions = vm.transactions,
                                 )
                                 1 -> TransactionTab(
                                     transactions, transactions.size, vm.isLoadingMore, searchQuery,
@@ -402,6 +402,8 @@ private fun OverviewTab(
     onOpenCoupon: () -> Unit = {},
     /** 见 [CampusCardScreen] 的 [couponStat]：加餐券入口的状态，null = 本端没有这份摘要，不画。 */
     couponStat: (suspend () -> CouponEntryStat?)? = null,
+    /** 全部已加载流水，「今天吃啥」按它算就餐习惯。 */
+    allTransactions: List<Transaction> = emptyList(),
 ) {
     LazyColumn(
         // 左右留白放在 contentPadding 里而不是列表外面：余额卡有投影，
@@ -438,6 +440,9 @@ private fun OverviewTab(
             }
         }
         item { Box(Modifier.enterOnce(1)) { TodayMealsCard(today) } }
+        if (allTransactions.isNotEmpty() && com.xjtu.toolbox.agent.AgentInsightHub.insights.available) {
+            item { Box(Modifier.enterOnce(1)) { MealPicksCard(allTransactions, cardInfo?.balance, dailyRate) } }
+        }
         item {
             Box(Modifier.enterOnce(2)) {
                 RangeSpendCard(CampusCardAnalysis.summarizeRange(monthlyStats, rangeStart, rangeEnd), activeCampusDays)

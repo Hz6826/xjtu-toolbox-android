@@ -18,12 +18,12 @@ class AgentToolCatalogTest {
         (AppJson.parseToJsonElement(agentToolDefinitions(honored)) as JsonArray)
             .map { it.jsonObject["function"]!!.jsonObject["name"]!!.jsonPrimitive.content }
 
-    /** 所有端都画的那 24 档（纯逻辑 + 取数）。 */
+    /** 所有端都画的那 23 档（纯逻辑 + 取数）。 */
     private val alwaysDrawn = listOf(
         "get_calendar", "get_schedule", "get_exam_schedule", "search_school_courses",
         "get_empty_rooms", "get_attendance", "get_grades", "get_card_info", "get_notifications",
-        "search_yellow_page", "preference", "find_faculty", "web_search", "web_fetch",
-        "get_library", "list_zyxf", "read_zyxf_file", "get_textbooks", "get_coupons",
+        "search_yellow_page", "preference", "find_faculty",
+        "get_library", "list_zyxf", "read_zyxf_file", "save_file", "get_textbooks", "get_coupons",
         "get_lms", "get_lms_activity", "get_fitness_score", "app_guide", "calculate",
     )
 
@@ -39,15 +39,15 @@ class AgentToolCatalogTest {
     }
 
     @Test
-    fun `全 honored 的端画全 27 档`() {
+    fun `全 honored 的端画全 26 档`() {
         val drawn = tools(AgentCapability.entries.toSet())
-        assertEquals(27, drawn.size)
+        assertEquals(26, drawn.size)
         assertEquals((alwaysDrawn + gated).sorted(), drawn.sorted())
         assertEquals(drawn.size, drawn.distinct().size, "工具名不能重复")
     }
 
     @Test
-    fun `什么都不接的端只画那 24 档`() {
+    fun `什么都不接的端只画那 23 档`() {
         val drawn = tools(emptySet())
         assertEquals(alwaysDrawn.size, drawn.size)
         assertEquals(alwaysDrawn.sorted(), drawn.sorted())
@@ -68,7 +68,7 @@ class AgentToolCatalogTest {
         assertEquals(AgentCapability.ALARM, AgentCapability.ofTool("set_alarm"))
         assertEquals(AgentCapability.APP_SETTINGS, AgentCapability.ofTool("app_setting"))
         assertEquals(AgentCapability.SCHEDULE_EVENT_WRITE, AgentCapability.ofTool("add_schedule_event"))
-        // 纯逻辑与取数那 24 档都不在清单里（= 任何端都放行）
+        // 纯逻辑与取数那 23 档都不在清单里（= 任何端都放行）
         alwaysDrawn.forEach { assertNull(AgentCapability.ofTool(it), "$it 不该被当成端能力") }
         assertNull(AgentCapability.ofTool("不存在的工具"))
     }

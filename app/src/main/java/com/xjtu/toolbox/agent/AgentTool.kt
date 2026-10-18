@@ -1,13 +1,8 @@
 package com.xjtu.toolbox.agent
 
-import com.xjtu.toolbox.util.toJavaTime
-import com.xjtu.toolbox.util.toKx
-import kotlin.coroutines.resume
-import com.xjtu.toolbox.network.APP_UA
 import kotlinx.serialization.json.jsonObject
 import com.xjtu.toolbox.util.AppJson
 import kotlinx.serialization.json.add
-import com.xjtu.toolbox.network.HttpClients
 import android.content.Context
 import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.AppLoginState
@@ -42,8 +37,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.sync.withLock
 import com.xjtu.toolbox.util.CampusZoneId
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -76,7 +69,6 @@ class AgentToolRegistry(
     private val loginState: AppLoginState,
     private val dataCache: DataCache,
     private val context: Context,
-    private val defaultSearchEngine: String = AgentConfig.SEARCH_AUTO,
     /** 记住的用户偏好（[AgentMemory]）：宿主可以换一份落盘实现，见那个类的 KDoc。 */
     private val memory: AgentMemory = AgentMemory(),
     /** 端上的能力槽位（见 `:core` 的 [AgentHost]）：闹钟、应用设置那几档由它接。 */
@@ -106,11 +98,10 @@ class AgentToolRegistry(
         "get_card_info" to "card",
         "get_notifications" to "notifications",
         "search_yellow_page" to "yellow_page",
-        "web_search" to "web",
-        "web_fetch" to "web",
         "get_library" to "library",
         "list_zyxf" to "zyxf",
         "read_zyxf_file" to "zyxf",
+        "save_file" to "files",
         "get_textbooks" to "textbook",
         "get_coupons" to "coupon",
         "get_lms" to "lms",
@@ -424,12 +415,6 @@ class AgentToolRegistry(
                 college = args.argStr("college"),
                 limit = args.argInt("limit") ?: 3
             )
-            "web_search" -> webSearch(
-                query = args.argStr("query") ?: "",
-                limit = args.argInt("limit") ?: 8,
-                engine = args.argStr("engine")
-            )
-            "web_fetch" -> webFetch(args.argStr("url") ?: "")
             "set_alarm" -> host.setAlarm(
                 hour = args.argInt("hour"),
                 minute = args.argInt("minute"),
@@ -452,7 +437,11 @@ class AgentToolRegistry(
                 if (keyword.isNotBlank()) searchZyxf(keyword)
                 else browseZyxf(args.argInt("folder_id") ?: 0)
             }
-            "read_zyxf_file" -> readZyxfFile(args.argInt("file_id") ?: 0)
+            "read_zyxf_file" -> readZyxfFile(args.argInt("file_id") ?: 0, args.argStr("pages"))
+            "save_file" -> saveFile(
+                args.argStr("source"), args.argInt("file_id"),
+                args.argStr("course"), args.argStr("activity"), args.argStr("file"),
+            )
             // 我的预约和区域空座一次给全
             "get_library" -> getLibraryBooking() + "\n\n" +
                 getLibrarySeats(args.argStr("campus"), args.argStr("area"))
@@ -468,7 +457,7 @@ class AgentToolRegistry(
             }
             "get_lms_activity" -> {
                 val file = (args.argStr("file")).orEmpty()
-                if (file.isNotBlank()) readLmsAttachment(args.argStr("course"), args.argStr("activity"), file)
+                if (file.isNotBlank()) readLmsAttachment(args.argStr("course"), args.argStr("activity"), file, args.argStr("pages"))
                 else getLmsActivityDetail(args.argStr("course"), args.argStr("activity"))
             }
             "get_fitness_score" -> getFitnessScore(args.argStr("year"))
@@ -1259,351 +1248,6 @@ class AgentToolRegistry(
         }
     }
 
-    // ── 联网搜索/网页阅读（无需登录） ─────────────────────────────────────
-
-    /** 联网搜索 / 网页阅读的匿名 cookie：只在内存里，不和学校站点的登录态混在一起。 */
-    private val webCookies = com.xjtu.toolbox.network.InMemoryCookieJar()
-
-    private val webClient by lazy {
-        AgentWeb.applyPublicNetworkPolicy(HttpClients.base.newBuilder())
-            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-            .followRedirects(true)
-            .followSslRedirects(true)
-            .cookieJar(webCookies)
-            .addInterceptor { chain ->
-                val request = chain.request()
-                AgentWeb.requirePublicHttpUrl(request.url.toString())
-                val host = request.url.host.lowercase()
-                val b = request.newBuilder()
-                if (request.header("User-Agent").isNullOrBlank()) b.header("User-Agent", searchUa)
-                if (request.header("Accept-Language").isNullOrBlank()) {
-                    b.header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.6")
-                }
-                if (request.header("Referer").isNullOrBlank()) {
-                    when {
-                        host.contains("sogou.com") -> b.header("Referer", "https://weixin.sogou.com/")
-                        host.contains("mp.weixin.qq.com") -> b.header("Referer", "https://weixin.sogou.com/")
-                        host.contains("so.com") -> b.header("Referer", "https://www.so.com/")
-                        // 百度首页是「地址栏直接打开」，不能带 Referer（和 Sec-Fetch-Site: none 自相矛盾）
-                        host.contains("baidu.com") && request.url.encodedPath != "/" ->
-                            b.header("Referer", "https://www.baidu.com/")
-                    }
-                }
-                val response = chain.proceed(b.build())
-                AgentWeb.requirePublicHttpUrl(response.request.url.toString())
-                response
-            }
-            .build()
-    }
-    private val wechatUa =
-        "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.50.2701(0x2800323B) NetType/WIFI Language/zh_CN"
-
-    private val searchUa =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-
-    /**
-     * 搜索要快失败。callTimeout 是整次调用（含跳转、读完正文）的硬上限，OkHttp 到点直接取消。
-     * 以前只靠外面包一层 withTimeoutOrNull，而里面是阻塞的 execute()，协程超时根本打断不了它，
-     * 各个源的连接 + 读取超时会一路叠加。
-     */
-    private val searchClient by lazy {
-        webClient.newBuilder()
-            .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-            .callTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
-            .build()
-    }
-
-    /**
-     * 百度专用的内存 cookie，每次搜索前清空、重新从首页拿一份。
-     *
-     * 2026-09 实测（校园网，连发中文查询）：
-     * - 只带 UA/Referer 的精简请求头：几乎每次都跳 wappass 验证码；
-     * - 补齐浏览器导航请求头（Accept、Sec-Fetch-*、sec-ch-ua）：多数能过，但同一份 cookie
-     *   连用第二次起常被拦；
-     * - 每次搜索前换一份新 cookie：8/8 一次通过，只多一次首页请求（约 0.3 秒）。
-     * 所以不再「一个会话热身一次」，而是每次都新拿；万一还是被拦，换 cookie 再试一次。
-     */
-    private val baiduJar = com.xjtu.toolbox.network.InMemoryCookieJar()
-    private val baiduClient by lazy { searchClient.newBuilder().cookieJar(baiduJar).build() }
-    /** 换 cookie 这件事不能并发：两次搜索同时清空、同时热身会互相踩掉。 */
-    private val baiduMutex = kotlinx.coroutines.sync.Mutex()
-
-    /** 浏览器从地址栏 / 页内跳转打开网页时带的那一套请求头，缺了百度就当成脚本。 */
-    private val baiduNavHeaders = mapOf(
-        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Upgrade-Insecure-Requests" to "1",
-        "sec-ch-ua" to "\"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"",
-        "sec-ch-ua-mobile" to "?0",
-        "sec-ch-ua-platform" to "\"Windows\"",
-        "Sec-Fetch-Dest" to "document",
-        "Sec-Fetch-Mode" to "navigate",
-        "Sec-Fetch-User" to "?1",
-    )
-
-    private fun normalizeSearchLink(href: String, baseUrl: String): String {
-        val raw = href.trim()
-        if (raw.isBlank() || raw.startsWith("javascript:", ignoreCase = true)) return ""
-        return runCatching {
-            when {
-                raw.startsWith("//") -> "https:$raw"
-                raw.startsWith("http://", true) || raw.startsWith("https://", true) -> raw
-                else -> java.net.URL(java.net.URL(baseUrl), raw).toString()
-            }
-        }.getOrDefault(raw)
-    }
-
-    /**
-     * 搜狗网页搜索与微信搜索共用。
-     * 微信结果必须选到 `li`，不能选外层 `.news-box`（全页只有一个）。
-     */
-    private fun parseSogouResults(body: String, limit: Int, baseUrl: String): List<Triple<String, String, String>> {
-        val doc = org.jsoup.Jsoup.parse(body, baseUrl)
-        return doc.select(
-            ".results .vrwrap, .results .rb, .vrwrap, .rb, .wx-rb, " +
-                "ul.news-list > li, li[id^=sogou_vr_]"
-        ).asSequence()
-            .mapNotNull { el ->
-                // 必须**逐个**选择器按优先级试，不能写成逗号列表：
-                // Jsoup 的 selectFirst("a, b") 返回的是**文档顺序**里第一个命中的元素，
-                // 与选择器的书写顺序无关。而微信结果 li 的结构是
-                // `.img-box > a`（缩略图，在前）→ `.txt-box > h3 > a`（标题，在后），
-                // 用逗号列表必然选中缩略图那个 a —— 标题空、链接指向图片。
-                val a = TITLE_SELECTORS.firstNotNullOfOrNull { el.selectFirst(it) }
-                    ?: return@mapNotNull null
-                val title = a.text().ifBlank { return@mapNotNull null }
-                val link = normalizeSearchLink(a.attr("href"), baseUrl)
-                val snippet = el.selectFirst(".txt-info, .str_info, .ft, .text-layout, .s-p")?.text().orEmpty()
-                Triple(title, link, snippet)
-            }
-            .filter { (_, link, snippet) -> isUsefulSogouResult(link, snippet) }
-            .distinctBy { (_, link, _) -> link }
-            .take(limit.coerceIn(1, MAX_SEARCH_RESULTS))
-            .toList()
-    }
-
-    /** 标题链接候选，按优先级排列，逐个尝试（原因见调用处注释）。 */
-    private val TITLE_SELECTORS = listOf(".txt-box h3 a", "h3 a", ".vrTitle a", "a[target=_blank]")
-
-    private companion object {
-        const val MAX_SEARCH_RESULTS = 22
-        /** 搜狗/微信翻页极易撞验证码，自动链路只取首页。 */
-        const val MAX_SEARCH_PAGES = 1
-        /** 自动档百度返回后，360 最多再等多久才合并；实测 360 通常比百度早到，这点余量足够。 */
-        const val AUTO_GRACE_MS = 400L
-    }
-
-    /**
-     * 剔除搜狗结果页里的非自然结果。实测一次「西安交通大学」，16 个命中元素里只有 7 条是真结果，
-     * 其余是广告、搜狗自家垂直卡片和站内相关搜索——不过滤的话模型拿到的就是一堆噪声。
-     *
-     * 判据：
-     * - `www.sogou.com/link?url=…` 是自然结果的跳转链接，一律保留（web_fetch 会自动跟随重定向）；
-     * - 其余 sogou.com 域名都是站内货（pic.sogou 图片、m.sogou 视频、www.sogou.com/sogou 相关搜索），丢弃；
-     * - 带 `fromcoop=` / `channel=sgtp` 的是推广位，丢弃；
-     * - 剩下的外链要求**必须有摘要**——腾讯地图之类的垂直卡片没有摘要，自然结果都有。
-     */
-    private fun isUsefulSogouResult(link: String, snippet: String): Boolean {
-        if (!link.startsWith("http")) return false
-        val lower = link.lowercase()
-        if (lower.contains("fromcoop=") || lower.contains("channel=sgtp")) return false
-        val isNaturalRedirect = lower.contains("sogou.com/link?url=")
-        if (isNaturalRedirect) return true
-        if (Regex("""https?://[^/]*\bsogou\.com""").containsMatchIn(lower)) return false
-        return snippet.isNotBlank()
-    }
-
-    private suspend fun webSearch(query: String, limit: Int, engine: String?): String {
-        if (query.isBlank()) return ToolReply.missing("query")
-        return try {
-            val encoded = java.net.URLEncoder.encode(query, "UTF-8")
-            val requested = engine?.trim()?.lowercase()
-            val selectedEngine = when {
-                // 模型可能沿用旧提示词点名已下线的源，一律当成没指定。
-                requested in AgentConfig.RETIRED_SEARCH_ENGINES -> AgentConfig.SEARCH_AUTO
-                else -> when (requested) {
-                    AgentConfig.SEARCH_WECHAT, "weixin", "wx" -> AgentConfig.SEARCH_WECHAT
-                    AgentConfig.SEARCH_BAIDU, "百度" -> AgentConfig.SEARCH_BAIDU
-                    AgentConfig.SEARCH_SO360, "360", "so" -> AgentConfig.SEARCH_SO360
-                    AgentConfig.SEARCH_WIKI, "wikipedia", "wiki" -> AgentConfig.SEARCH_WIKI
-                    AgentConfig.SEARCH_AUTO, "auto", null, "" ->
-                        if (engine.isNullOrBlank()) defaultSearchEngine else AgentConfig.SEARCH_AUTO
-                    else -> defaultSearchEngine
-                }
-            }
-            // 异步 + 可取消：协程一取消（自动档不再等某一家时）就 call.cancel() 立刻断开，
-            // 不会像阻塞的 execute() 那样非要跑到超时，把整个 coroutineScope 一起拖住。
-            suspend fun fetch(
-                url: String,
-                extra: Map<String, String> = emptyMap(),
-                client: okhttp3.OkHttpClient = searchClient,
-            ): Pair<String, String>? =
-                kotlinx.coroutines.suspendCancellableCoroutine { cont ->
-                    val req = okhttp3.Request.Builder()
-                        .url(url)
-                        .header("User-Agent", searchUa)
-                        .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.6")
-                    extra.forEach { (k, v) -> req.header(k, v) }
-                    val call = try {
-                        client.newCall(req.get().build())
-                    } catch (_: Exception) {
-                        cont.resume(null)
-                        return@suspendCancellableCoroutine
-                    }
-                    cont.invokeOnCancellation { call.cancel() }
-                    call.enqueue(object : okhttp3.Callback {
-                        override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
-                            cont.resume(null)
-                        }
-                        override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
-                            val result = runCatching {
-                                response.use { resp ->
-                                    if (!resp.isSuccessful) null
-                                    else resp.body.string() to resp.request.url.toString()
-                                }
-                            }.getOrNull()
-                            cont.resume(result)
-                        }
-                    })
-                }
-
-            val want = limit.coerceIn(1, MAX_SEARCH_RESULTS)
-
-            fun parseOrEmpty(which: String, body: String, finalUrl: String): List<Triple<String, String, String>> {
-                // 百度正常结果页很大、脚本里什么词都有，只认它自己的拦截特征，不走通用关键词
-                if (which == AgentConfig.SEARCH_BAIDU) {
-                    return if (AgentWeb.looksLikeBaiduBlock(body, finalUrl)) emptyList()
-                    else AgentWeb.parseBaiduHtml(body, want)
-                }
-                if (AgentWeb.looksLikeCaptcha(body)) return emptyList()
-                return when (which) {
-                    AgentConfig.SEARCH_WECHAT -> parseSogouResults(body, want, finalUrl)
-                    else -> AgentWeb.parseSo360Html(body, want)
-                }
-            }
-
-            suspend fun fetchPage(which: String, page: Int): List<Triple<String, String, String>> = when (which) {
-                AgentConfig.SEARCH_WECHAT -> {
-                    if (page == 1) fetch("https://weixin.sogou.com/")
-                    val pc = fetch(
-                        "https://weixin.sogou.com/weixin?type=2&ie=utf8&s_from=input&query=$encoded&page=$page",
-                        mapOf("Referer" to "https://weixin.sogou.com/"),
-                    )?.let { (body, finalUrl) -> parseOrEmpty(which, body, finalUrl) }.orEmpty()
-                    if (pc.isNotEmpty() || page > 1) pc
-                    else fetch(
-                        "https://weixin.sogou.com/weixinwap?type=2&query=$encoded",
-                        mapOf("Referer" to "https://weixin.sogou.com/"),
-                    )?.let { (body, finalUrl) -> parseOrEmpty(which, body, finalUrl) }.orEmpty()
-                }
-                AgentConfig.SEARCH_BAIDU -> {
-                    if (page > 1) emptyList()
-                    else baiduMutex.withLock {
-                        var rows = emptyList<Triple<String, String, String>>()
-                        // 换一份新 cookie 再搜；被拦就再换一次（原因见 baiduJar 注释）
-                        for (attempt in 1..2) {
-                            baiduJar.clear()
-                            fetch("https://www.baidu.com/", baiduNavHeaders + ("Sec-Fetch-Site" to "none"), baiduClient)
-                            val got = fetch(
-                                "https://www.baidu.com/s?ie=utf-8&tn=baidu&wd=$encoded&rn=${want.coerceIn(10, 20)}",
-                                baiduNavHeaders + ("Sec-Fetch-Site" to "same-origin"),
-                                baiduClient,
-                            ) ?: break
-                            val (body, finalUrl) = got
-                            if (AgentWeb.looksLikeBaiduBlock(body, finalUrl)) continue
-                            rows = AgentWeb.parseBaiduHtml(body, want)
-                            break
-                        }
-                        rows
-                    }
-                }
-                AgentConfig.SEARCH_SO360 ->
-                    if (page > 1) emptyList()
-                    else fetch(
-                        "https://www.so.com/s?q=$encoded",
-                        mapOf("Referer" to "https://www.so.com/"),
-                    )?.let { (body, finalUrl) -> parseOrEmpty(which, body, finalUrl) }.orEmpty()
-                AgentConfig.SEARCH_WIKI ->
-                    if (page > 1) emptyList()
-                    else fetch(
-                        "https://zh.wikipedia.org/w/api.php?action=opensearch&search=$encoded&limit=$want&namespace=0&format=json",
-                        mapOf("Accept" to "application/json"),
-                    )?.let { (body, _) -> AgentWeb.parseWikiOpenSearch(body, want) }.orEmpty()
-                else -> emptyList()
-            }
-
-            suspend fun searchOnce(which: String): List<Triple<String, String, String>> {
-                val acc = LinkedHashMap<String, Triple<String, String, String>>()
-                val pages = if (which == AgentConfig.SEARCH_WECHAT) MAX_SEARCH_PAGES else 1
-                for (page in 1..pages) {
-                    val before = acc.size
-                    fetchPage(which, page).forEach { r -> acc.putIfAbsent(r.second, r) }
-                    if (acc.size >= want || acc.size == before) break
-                }
-                return acc.values.take(want)
-            }
-
-            // 自动：百度为主、360 陪跑。2026-09 校园网实测，六条中文查询：
-            //   百度  1.0~1.6s  每条 8~10 个结果，大量直达 xjtu.edu.cn 校内页面，连发不弹验证码
-            //   360   0.5~1.2s  每条 4~7 个结果，相关；此前因解析 bug 一直返回 0 条
-            // 两家同时发出。百度一回来就出结果，360 只再多等 [AUTO_GRACE_MS]：赶上了合并补充，
-            // 赶不上就取消（fetch 可取消，立刻断开），不让较慢的一家拖住整体。
-            // 百度挂了（拦截 / 超时 / 空）才完整等 360。每个请求另有 callTimeout 6 秒兜底。
-            suspend fun searchAuto(skip: String?): Pair<String, List<Triple<String, String, String>>> =
-                kotlinx.coroutines.coroutineScope {
-                    fun run(which: String) = async(Dispatchers.IO) {
-                        if (which == skip) emptyList() else runCatching { searchOnce(which) }.getOrDefault(emptyList())
-                    }
-                    val baiduJob = run(AgentConfig.SEARCH_BAIDU)
-                    val so360Job = run(AgentConfig.SEARCH_SO360)
-                    val baidu = baiduJob.await()
-                    val so360 = if (baidu.isEmpty()) so360Job.await()
-                    else withTimeoutOrNull(AUTO_GRACE_MS) { so360Job.await() } ?: emptyList<Triple<String, String, String>>().also { so360Job.cancel() }
-
-                    // 合并去重：同一地址或同一标题只留一条，百度在前
-                    val merged = LinkedHashMap<String, Triple<String, String, String>>()
-                    val titles = HashSet<String>()
-                    for (r in baidu + so360) {
-                        val key = r.second.substringAfter("://").trimEnd('/').lowercase()
-                        if (key in merged || !titles.add(r.first)) continue
-                        merged[key] = r
-                    }
-                    val label = listOfNotNull(
-                        AgentConfig.searchEngineLabel(AgentConfig.SEARCH_BAIDU).takeIf { baidu.isNotEmpty() },
-                        AgentConfig.searchEngineLabel(AgentConfig.SEARCH_SO360).takeIf { so360.isNotEmpty() },
-                    ).joinToString(" + ")
-                    label to merged.values.take(want)
-                }
-
-            var usedLabel = AgentConfig.searchEngineLabel(selectedEngine)
-            var results = emptyList<Triple<String, String, String>>()
-            val primary = selectedEngine.takeUnless { it == AgentConfig.SEARCH_AUTO }
-            if (primary != null) {
-                results = runCatching { searchOnce(primary) }.getOrDefault(emptyList())
-            }
-            if (results.isEmpty()) {
-                val (label, rows) = searchAuto(skip = primary)
-                if (rows.isNotEmpty()) {
-                    usedLabel = label
-                    results = rows
-                }
-            }
-            if (results.isEmpty()) return ToolReply.empty("query: $query")
-            buildString {
-                append("「$query」｜$usedLabel｜${results.size} 条\n")
-                // 一条一行、带编号，模型转述时能写「据 [2]」，再用 web_fetch 读原文
-                results.forEachIndexed { i, (t, l, s) ->
-                    append("[${i + 1}] $t｜$l")
-                    if (s.isNotBlank()) append("｜${s.take(240)}")
-                    append("\n")
-                }
-                append(ToolReply.EXTERNAL_DATA)
-            }
-        } catch (e: Exception) {
-            ToolReply.failed("web_search", e.message)
-        }
-    }
-
     private suspend fun getLibraryBooking(): String {
         val site = ensureSite(LoginType.LIBRARY)
             ?: return loginHint(LoginType.LIBRARY)
@@ -1695,35 +1339,56 @@ class AgentToolRegistry(
         }
     }
 
-    private suspend fun readZyxfFile(fileId: Int): String = withContext(Dispatchers.IO) {
+    /** 这一轮工具读到的图（PDF 页面等），调度循环取走后交给模型看。 */
+    private val pendingImages = mutableListOf<String>()
+
+    override fun drainImages(): List<String> = pendingImages.toList().also { pendingImages.clear() }
+
+    /** 读一份文档：转成文字或页面图（见 [AgentDocReader]），图先攒着等循环来取。 */
+    private fun readDoc(name: String, bytes: ByteArray, pages: String?): String {
+        val doc = AgentDocReader.read(context, name, bytes, pages)
+        pendingImages += doc.images
+        return doc.text
+    }
+
+    private suspend fun readZyxfFile(fileId: Int, pages: String?): String = withContext(Dispatchers.IO) {
         if (fileId <= 0) return@withContext ToolReply.missing("file_id")
         try {
             val link = com.xjtu.toolbox.zyxf.ZyxfApi.fileLink(fileId)
-            val ext = link.ext.lowercase().removePrefix(".")
-            val entry = com.xjtu.toolbox.zyxf.ZyxfApi.Entry(
-                id = fileId, name = link.name, isFolder = false,
-                sizeBytes = link.sizeBytes, ext = ext,
-            )
-            // 二进制文档不在 App 里解析：PDF/Office 的文本抽取要拖进一整套解析库，
-            // 而资料站服务端本来就有 WebOffice 预览。这里给链接，让用户去看。
-            if (!entry.readable) {
-                return@withContext buildString {
-                    append("result: not_parsed; file: ${link.name}; type: ${ext.uppercase().ifBlank { "binary" }}")
-                    entry.sizeText.takeIf { it.isNotBlank() }?.let { append("; size: $it") }
-                    append("; url: ${link.url}; url_ttl: 30min")
-                }
+            if (!AgentDocReader.canRead(link.name)) {
+                return@withContext "result: unsupported_type; file: ${link.name}; url: ${link.url}; url_ttl: 30min"
             }
-            val text = com.xjtu.toolbox.zyxf.ZyxfApi.readText(entry)
-                ?: return@withContext ToolReply.failed("read_zyxf_file", "empty_body; file: ${link.name}")
-            buildString {
-                append("「${link.name}」内容：\n")
-                append(text.take(4000))
-                if (text.length > 4000) append("\n…（已截断，只给了开头 4000 字）")
-            }
+            val (name, bytes) = com.xjtu.toolbox.zyxf.ZyxfApi.readBytes(fileId)
+                ?: return@withContext ToolReply.failed("read_zyxf_file", "download_or_too_large; file: ${link.name}")
+            readDoc(name, bytes, pages)
         } catch (e: Exception) {
             ToolReply.failed("read_zyxf_file", e.message)
         }
     }
+
+    /** 学辅资料或思源附件存进「下载」，并记进下载管理。 */
+    private suspend fun saveFile(source: String?, fileId: Int?, course: String?, activity: String?, file: String?): String =
+        withContext(Dispatchers.IO) {
+            when (source) {
+                "zyxf" -> {
+                    val id = fileId?.takeIf { it > 0 } ?: return@withContext ToolReply.missing("file_id")
+                    val saved = runCatching { com.xjtu.toolbox.zyxf.ZyxfApi.download(context, id) }.getOrNull()
+                    if (saved != null) "ok: saved; file: $saved; where: 我的 → 下载管理" else ToolReply.failed("save_file", "download")
+                }
+                "lms" -> {
+                    val (name, bytes) = when (val r = lmsAttachmentBytes(course, activity, file)) {
+                        is LmsFile.Ok -> r.name to r.bytes
+                        is LmsFile.Error -> return@withContext r.reply
+                    }
+                    val mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(AgentDocReader.ext(name)).orEmpty()
+                    val uri = com.xjtu.toolbox.lms.LmsDownloadStore.saveBytes(
+                        context, name, mime, bytes, com.xjtu.toolbox.lms.LmsDownloadStore.CATEGORY_LMS,
+                    )
+                    if (uri != null) "ok: saved; file: $name; where: 我的 → 下载管理" else ToolReply.failed("save_file", "write")
+                }
+                else -> ToolReply.badValue("source", "zyxf/lms")
+            }
+        }
 
     private suspend fun getLibrarySeats(campusArg: String?, area: String?): String {
         val site = ensureSite(LoginType.LIBRARY)
@@ -2055,33 +1720,40 @@ class AgentToolRegistry(
         }
     }
 
-    private suspend fun readLmsAttachment(course: String?, activity: String?, file: String?): String {
-        val site = ensureSite(LoginType.LMS)
-            ?: return loginHint(LoginType.LMS)
-        return try {
-            val api = com.xjtu.toolbox.lms.LmsApi(site)
-            val c = findLmsCourse(api, course) ?: return ToolReply.notFound("course", course.orEmpty())
-            val brief = findLmsActivity(api, c.id, activity)
-                ?: return ToolReply.notFound("activity", "${c.name} / ${activity.orEmpty()}")
-            val detail = api.getActivityDetail(brief.id, brief)
-            val uploads = detail.uploads + detail.submissionList?.list.orEmpty().flatMap { it.uploads }
-            val key = file?.trim().orEmpty()
-            val upload = uploads.firstOrNull { key.isBlank() || it.name.contains(key, ignoreCase = true) }
-                ?: return ToolReply.notFound("file", key)
-            val url = upload.downloadUrl.ifBlank { upload.attachmentUrl.ifBlank { upload.previewUrl } }
-            if (url.isBlank()) return ToolReply.failed("get_lms_activity.file","no_download_url; file: ${upload.name}")
-            val ext = upload.name.substringAfterLast('.', "").lowercase()
-            if (ext in listOf("pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "zip", "rar", "7z")) {
-                return "result: not_parsed; file: ${upload.name}; type: ${ext.uppercase()}; url: $url"
-            }
-            val bytes = api.downloadBytes(url) ?: return ToolReply.failed("get_lms_activity.file","download")
-            val text = bytes.toString(Charsets.UTF_8)
-            "附件「${upload.name}」内容：\n" + text.take(4000) + if (text.length > 4000) "\n…（已截断）" else ""
-        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
-            throw e
-        } catch (e: Exception) {
-            ToolReply.failed("get_lms_activity.file",e.message)
+    private sealed interface LmsFile {
+        class Ok(val name: String, val bytes: ByteArray) : LmsFile
+        class Error(val reply: String) : LmsFile
+    }
+
+    /** 找到思源某个活动里的附件并下载字节。 */
+    private suspend fun lmsAttachmentBytes(course: String?, activity: String?, file: String?): LmsFile {
+        val site = ensureSite(LoginType.LMS) ?: return LmsFile.Error(loginHint(LoginType.LMS))
+        val api = com.xjtu.toolbox.lms.LmsApi(site)
+        val c = findLmsCourse(api, course) ?: return LmsFile.Error(ToolReply.notFound("course", course.orEmpty()))
+        val brief = findLmsActivity(api, c.id, activity)
+            ?: return LmsFile.Error(ToolReply.notFound("activity", "${c.name} / ${activity.orEmpty()}"))
+        val detail = api.getActivityDetail(brief.id, brief)
+        val uploads = detail.uploads + detail.submissionList?.list.orEmpty().flatMap { it.uploads }
+        val key = file?.trim().orEmpty()
+        val upload = uploads.firstOrNull { key.isBlank() || it.name.contains(key, ignoreCase = true) }
+            ?: return LmsFile.Error(ToolReply.notFound("file", key, uploads.map { it.name }))
+        val url = upload.downloadUrl.ifBlank { upload.attachmentUrl.ifBlank { upload.previewUrl } }
+        if (url.isBlank()) return LmsFile.Error(ToolReply.failed("get_lms_activity.file", "no_download_url; file: ${upload.name}"))
+        val bytes = api.downloadBytes(url) ?: return LmsFile.Error(ToolReply.failed("get_lms_activity.file", "download"))
+        return LmsFile.Ok(upload.name, bytes)
+    }
+
+    private suspend fun readLmsAttachment(course: String?, activity: String?, file: String?, pages: String?): String = try {
+        when (val r = lmsAttachmentBytes(course, activity, file)) {
+            is LmsFile.Error -> r.reply
+            is LmsFile.Ok ->
+                if (AgentDocReader.canRead(r.name)) withContext(Dispatchers.IO) { readDoc(r.name, r.bytes, pages) }
+                else "result: unsupported_type; file: ${r.name}; 可以用 save_file 存进下载"
         }
+    } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+        throw e
+    } catch (e: Exception) {
+        ToolReply.failed("get_lms_activity.file", e.message)
     }
 
     private suspend fun getFitnessScore(year: String?): String {
@@ -2213,148 +1885,6 @@ class AgentToolRegistry(
                 (if (conflicts.isNotEmpty()) "; overlaps_kept: ${conflicts.joinToString("；")}" else "")
         } catch (e: Exception) {
             ToolReply.failed("add_schedule_event", e.message)
-        }
-    }
-    private data class FetchedPage(
-        val finalUrl: String,
-        val html: String,
-        val truncated: Boolean,
-        val via: String = "direct",
-    )
-
-    private fun getUrl(
-        url: String,
-        userAgent: String,
-        extra: Map<String, String> = emptyMap(),
-        accept: String = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    ): FetchedPage? {
-        AgentWeb.requirePublicHttpUrl(url)
-        return try {
-            val req = okhttp3.Request.Builder()
-                .url(url)
-                .header("User-Agent", userAgent)
-                .header("Accept", accept)
-                .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.6")
-            extra.forEach { (k, v) -> req.header(k, v) }
-            webClient.newCall(req.get().build()).execute().use { resp ->
-                if (!resp.isSuccessful) return@use null
-                val finalUrl = resp.request.url.toString()
-                val body = resp.body
-                if (AgentWeb.isBinaryContentType(resp.header("Content-Type") ?: body.contentType()?.toString())) {
-                    return@use null
-                }
-                val source = body.source()
-                val buffer = okio.Buffer()
-                var totalRead = 0L
-                val maxBytes = AgentWeb.HTML_READ_BYTES
-                while (totalRead < maxBytes) {
-                    val read = source.read(buffer, maxBytes - totalRead)
-                    if (read == -1L) break
-                    totalRead += read
-                }
-                val truncated = source.request(1L)
-                val bytes = buffer.readByteArray()
-                if (bytes.isEmpty()) return@use null
-                FetchedPage(finalUrl, String(bytes, Charsets.UTF_8), truncated)
-            }
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun fetchReadablePage(startUrl: String): FetchedPage? {
-        var url = startUrl
-        if (AgentWeb.isSogouJumpUrl(url)) url = AgentWeb.withSogouClickParams(url)
-        val firstUa = if (AgentWeb.isWeChatUrl(url) || AgentWeb.isSogouJumpUrl(url)) wechatUa else APP_UA
-        var page = getUrl(url, firstUa)
-        val html = page?.html.orEmpty()
-        val blocked = html.isNotEmpty() && (
-            AgentWeb.looksLikeCaptcha(html) ||
-                (AgentWeb.isWeChatUrl(page?.finalUrl ?: url) && AgentWeb.looksLikeWeChatBlock(html))
-            )
-        if ((page == null || blocked) && AgentWeb.isSogouJumpUrl(startUrl)) {
-            page = getUrl(AgentWeb.withSogouClickParams(startUrl, extraOffset = 28), wechatUa)
-                ?: getUrl(startUrl, searchUa)
-        }
-        val after = page
-        val afterHtml = after?.html.orEmpty()
-        val stillThin = after == null ||
-            AgentWeb.looksLikeCaptcha(afterHtml) ||
-            AgentWeb.looksLikeWeChatBlock(afterHtml) ||
-            (AgentWeb.isWeChatUrl(after.finalUrl) && afterHtml.length < 400)
-        if (stillThin && !startUrl.contains("r.jina.ai")) {
-            val reader = getUrl(
-                AgentWeb.jinaReaderUrl(after?.finalUrl ?: startUrl),
-                searchUa,
-                extra = mapOf("Accept" to "text/plain"),
-                accept = "text/plain, text/markdown, */*;q=0.8",
-            )
-            if (reader != null && reader.html.isNotBlank() &&
-                !AgentWeb.looksLikeCaptcha(reader.html) &&
-                !AgentWeb.looksLikeWeChatBlock(reader.html)
-            ) {
-                return reader.copy(via = "jina")
-            }
-        }
-        return after
-    }
-
-    private fun webFetch(rawUrl: String): String {
-        val url = rawUrl.trim()
-        if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true)) {
-            return ToolReply.badFormat("url", "http(s)://…")
-        }
-        return try {
-            AgentWeb.requirePublicHttpUrl(url)
-            val page = fetchReadablePage(url)
-                ?: return ToolReply.failed("web_fetch", "refused_or_empty")
-            val html = page.html
-            if (AgentWeb.looksLikeCaptcha(html) && !AgentWeb.looksLikeJinaMarkdown(html)) {
-                return ToolReply.failed("web_fetch", "captcha_page")
-            }
-            if (AgentWeb.looksLikeJinaMarkdown(html)) {
-                return buildString {
-                    append("最终URL：${page.finalUrl}\n")
-                    if (page.via == "jina") append("（经公开读页服务提取）\n")
-                    append("\n正文：\n")
-                    append(AgentWeb.truncateMarkdown(html))
-                    append("\n\n" + ToolReply.EXTERNAL_DATA)
-                }
-            }
-            val doc = org.jsoup.Jsoup.parse(html, page.finalUrl)
-            val title = doc.title().ifBlank { page.finalUrl }
-            val markdown = AgentWeb.truncateMarkdown(AgentWeb.htmlToMarkdown(doc.html(), page.finalUrl))
-            val links = doc.select("a[href]").asSequence()
-                .mapNotNull { a ->
-                    val href = normalizeSearchLink(a.attr("href"), page.finalUrl)
-                    val label = a.text().replace(Regex("\\s+"), " ").trim().take(80)
-                    if (href.startsWith("http") && label.isNotBlank()) label to href else null
-                }
-                .distinctBy { it.second }
-                .take(12)
-                .toList()
-            buildString {
-                append("标题：$title\n")
-                append("最终URL：${page.finalUrl}\n")
-                if (page.via == "jina") append("（经公开读页服务提取）\n")
-                if (page.truncated) append("（页面较大，已从开头提取正文）\n")
-                if (links.isNotEmpty()) {
-                    append("页面链接：\n")
-                    links.forEachIndexed { i, (label, href) ->
-                        append("${i + 1}. [$label]($href)\n")
-                    }
-                }
-                append("\n正文：\n")
-                append(markdown.ifBlank { "页面无可提取正文。" })
-                append("\n\n" + ToolReply.EXTERNAL_DATA)
-            }
-        } catch (e: Exception) {
-            val msg = e.message.orEmpty()
-            if (e is java.net.UnknownServiceException || msg.contains("CLEARTEXT", ignoreCase = true)) {
-                ToolReply.failed("web_fetch", "cleartext_http_blocked")
-            } else {
-                ToolReply.failed("web_fetch", msg)
-            }
         }
     }
 }

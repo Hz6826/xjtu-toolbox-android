@@ -76,9 +76,10 @@ class AgentMemory(
         val items = all()
         if (items.isEmpty()) return ""
         return buildString {
-            append("\n# 用户偏好\n")
+            append("\n# 用户让你记住的\n")
             items.forEach { (k, v) -> append("- $k：$v\n") }
-            append("偏好只影响表达方式和查询顺序，不影响查不查。\n")
+            append("和上面的用户画像冲突时（校区、学院、专业、年级、书院等）以这里为准：学校系统常常没更新（校区搬迁、转专业）。")
+            append("选通知来源、找教室食堂、排日程都按这里的说法来。\n")
         }.trimEnd()
     }
 

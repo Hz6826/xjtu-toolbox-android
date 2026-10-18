@@ -9,7 +9,7 @@ object AgentFixture {
     /** 服务商 / 型号 / 搜索源：与 `AgentConfig` 的取值同一个字母表（`deepseek` 等），但型号是编的。 */
     const val PROVIDER = "deepseek"
     const val MODEL = "fixture-model-v1"
-    const val SEARCH_ENGINE = "auto"
+    const val SEARCH_ENGINE = "deepseek"
     const val ASSISTANT_NAME = "夹具屁岱"
 
     /** 服务商给回来的模型列表（`POST /api/agent/models` 的夹具那一枪）。 */

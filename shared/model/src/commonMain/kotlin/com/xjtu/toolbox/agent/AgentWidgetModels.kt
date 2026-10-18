@@ -83,6 +83,18 @@ data class LibraryWidget(
     val seats: List<com.xjtu.toolbox.library.PlanSeat> = emptyList(),
 ) : AgentWidget
 
+/** 校区简图：标出几个地点（按名字回查打包的地图数据），[route] 为 true 时按顺序连成路线。 */
+@Serializable
+data class CampusMapWidget(
+    val campus: String = "",
+    val places: List<String> = emptyList(),
+    val route: Boolean = false,
+    /** 路线的一句话（「步行约 6 分钟」），画在图下。 */
+    val caption: String = "",
+    /** 用户当前位置 [lat, lon]，有就标一个「你在这」。 */
+    val here: List<Double>? = null,
+) : AgentWidget
+
 /** 类型名是存盘格式的一部分（沿用旧版的类名），不要改。 */
 fun AgentWidget.toStored(): StoredWidget = when (this) {
     is ScheduleWidget -> StoredWidget("ScheduleWidget", AppJson.encodeToString(this))
@@ -94,6 +106,7 @@ fun AgentWidget.toStored(): StoredWidget = when (this) {
     is CardWidget -> StoredWidget("CardWidget", AppJson.encodeToString(this))
     is ZyxfWidget -> StoredWidget("ZyxfWidget", AppJson.encodeToString(this))
     is LibraryWidget -> StoredWidget("LibraryWidget", AppJson.encodeToString(this))
+    is CampusMapWidget -> StoredWidget("CampusMapWidget", AppJson.encodeToString(this))
 }
 
 /** 读不回来（旧版半截写入、未知类型）就丢掉这张卡片，不影响整段会话。 */
@@ -108,6 +121,7 @@ fun storedToWidget(stored: StoredWidget): AgentWidget? = runCatching {
         "CardWidget" -> AppJson.decodeFromString<CardWidget>(stored.json)
         "ZyxfWidget" -> AppJson.decodeFromString<ZyxfWidget>(stored.json)
         "LibraryWidget" -> AppJson.decodeFromString<LibraryWidget>(stored.json)
+        "CampusMapWidget" -> AppJson.decodeFromString<CampusMapWidget>(stored.json)
         else -> null
     }
 }.getOrNull()

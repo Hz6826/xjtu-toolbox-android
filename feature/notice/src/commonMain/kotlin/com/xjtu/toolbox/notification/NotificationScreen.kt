@@ -336,6 +336,11 @@ fun NotificationScreen(
                             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + glassTop, bottom = 8.dp),
                             spacing = 8.dp,
                         ) {
+                            if (!searching && com.xjtu.toolbox.agent.AgentInsightHub.insights.available) {
+                                fullLineItem(key = "picks") {
+                                    NoticePicksCard(onOpen = { onNavigate(AppRoute.Browser(it)) })
+                                }
+                            }
                             fullLineItem(key = "search") { searchBar(Modifier) }
                             if (bannerText != null) {
                                 fullLineItem(key = "skipped") { skippedNoticeBanner(Modifier) }

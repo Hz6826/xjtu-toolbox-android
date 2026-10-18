@@ -29,14 +29,8 @@ class AgentConfigStore(
         assistantName = sanitizeAgentTitle(
             plain.getString("assistant_name") ?: AgentConfig.DEFAULT_ASSISTANT_NAME
         ),
-        searchEngine = plain.getString("search_engine")?.let { raw ->
-            when {
-                // 老配置里存着已下线的源，静默迁回自动，别让用户卡在一个必然失败的引擎上。
-                raw in AgentConfig.RETIRED_SEARCH_ENGINES -> AgentConfig.SEARCH_AUTO
-                raw in AgentConfig.SEARCH_ENGINES -> raw
-                else -> AgentConfig.SEARCH_AUTO
-            }
-        } ?: AgentConfig.SEARCH_AUTO,
+        searchEngine = normalizeSearchEngine(plain.getString("search_engine")),
+        searchApiKey = secure.getString("search_api_key").orEmpty(),
         thinkingEnabled = plain.getBoolean("thinking_enabled", true),
         reasoningEffort = normalizeReasoningEffort(plain.getString("reasoning_effort")),
         showReasoning = plain.getBoolean("show_reasoning", true)
@@ -58,6 +52,7 @@ class AgentConfigStore(
         p.putString("reasoning_effort", config.reasoningEffort)
         p.putBoolean("show_reasoning", config.showReasoning)
         secure.putString("api_key", config.apiKey)
+        secure.putString("search_api_key", config.searchApiKey)
     }
 
     companion object {

@@ -1394,8 +1394,8 @@ D9 要的「浏览器上切换账号 = 让 serve 换一套凭据」，落到实�
 
 | # | 端点 | 请求 | 响应 `data`（逐字段） | 错误码 |
 |---|---|---|---|---|
-| 1 | `GET /api/agent/config` | —— | `{provider, model, effectiveModel, baseUrl, assistantName, searchEngine, thinkingEnabled, reasoningEffort, showReasoning, keyConfigured, toolAllowlist:[string], honored:[string], canEditKey}` | `401` 无令牌 |
-| 2 | `POST /api/agent/config` | `{provider, model, baseUrl, assistantName, searchEngine, thinkingEnabled, reasoningEffort, showReasoning, apiKey?}` | `{ok, message}` | `400` 取值认不出 / 缺字段 · `401` |
+| 1 | `GET /api/agent/config` | —— | `{provider, model, effectiveModel, baseUrl, assistantName, searchEngine, thinkingEnabled, reasoningEffort, showReasoning, keyConfigured, searchKeyConfigured, toolAllowlist:[string], honored:[string], canEditKey}`；`searchEngine` 为 `deepseek` / `off` | `401` 无令牌 |
+| 2 | `POST /api/agent/config` | `{provider, model, baseUrl, assistantName, searchEngine, thinkingEnabled, reasoningEffort, showReasoning, apiKey?, searchApiKey?}`；`searchApiKey` 是服务商不是 DeepSeek 时联网搜索单独用的 Key | `{ok, message}` | `400` 取值认不出 / 缺字段 · `401` |
 | 3 | `POST /api/agent/models` | `{provider, baseUrl?}` | `{models:[string]}`（去重升序） | `400` · `401` · `409` 没配 key · `502` 服务商 / 网络 |
 | 4 | `GET /api/agent/sessions` | —— | `{sessions:[{id,title,createdAt,updatedAt,locked}]}`，序 = `updatedAt` 降序 | `401` |
 | 5 | `POST /api/agent/sessions` | `{title?}`（缺省 = `DEFAULT_TITLE`「新对话」） | `{session:{…}}` | `401` |

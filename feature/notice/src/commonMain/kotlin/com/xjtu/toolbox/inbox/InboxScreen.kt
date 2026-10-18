@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
@@ -453,6 +454,7 @@ private fun categoryIcon(category: String): ImageVector = when (category) {
     InboxCategories.ATTENDANCE -> Icons.Default.Warning
     InboxCategories.NOTICE -> Icons.Outlined.Newspaper
     InboxCategories.BULLETIN -> Icons.Default.Campaign
+    InboxCategories.PIDAI -> Icons.Default.AutoAwesome
     else -> Icons.Default.School
 }
 

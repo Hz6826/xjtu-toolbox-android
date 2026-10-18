@@ -12,6 +12,7 @@ import com.xjtu.toolbox.agent.AgentSession
 import com.xjtu.toolbox.agent.AgentSessionPersistence
 import com.xjtu.toolbox.agent.ChatMessage
 import com.xjtu.toolbox.agent.normalizeReasoningEffort
+import com.xjtu.toolbox.agent.normalizeSearchEngine
 import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.arr
 import com.xjtu.toolbox.util.safeBoolean
@@ -397,11 +398,12 @@ internal fun configViewOf(data: JsonObject): AgentConfigView = AgentConfigView(
         model = data["model"].safeString(),
         baseUrl = data["baseUrl"].safeString(),
         assistantName = data["assistantName"].safeString().ifBlank { AgentConfig.DEFAULT_ASSISTANT_NAME },
-        searchEngine = data["searchEngine"].safeString().ifBlank { AgentConfig.SEARCH_AUTO },
+        searchEngine = normalizeSearchEngine(data["searchEngine"].safeString()),
         thinkingEnabled = data["thinkingEnabled"].safeBoolean(true),
         reasoningEffort = normalizeReasoningEffort(data["reasoningEffort"].safeString()),
         showReasoning = data["showReasoning"].safeBoolean(true),
         keyConfigured = data["keyConfigured"].safeBoolean(),
+        searchKeyConfigured = data["searchKeyConfigured"].safeBoolean(),
     ),
     toolAllowlist = data.arr("toolAllowlist").orEmpty().map { it.safeString() }.filter { it.isNotBlank() },
     canEditKey = data["canEditKey"].safeBoolean(),

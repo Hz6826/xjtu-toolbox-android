@@ -126,6 +126,17 @@ fun ZyxfBrowseScreen(
             .background(MiuixTheme.colorScheme.surface),
     ) {
         val header: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
+            // 屁岱「为你找资料」：只在根目录、没在搜的时候出现
+            if (stack.size <= 1 && !searching && com.xjtu.toolbox.agent.AgentInsightHub.insights.available) {
+                item(key = "pidai_picks", contentType = "pidai") {
+                    ZyxfPicksCard(
+                        onPreview = { vm.previewing = it; vm.previewFromSplit = isWide },
+                        onDownload = vm::download,
+                        downloadState = { vm.downloadState[it] },
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+                    )
+                }
+            }
             item(key = "search", contentType = "header") {
                 SearchField(
                     value = vm.query,

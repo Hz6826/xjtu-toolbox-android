@@ -33,3 +33,6 @@ actual fun decodeImageDownToWidth(
 
 /** Web 侧：浏览器不给可用内存 ⇒ 固定 32MB。 */
 actual fun imageMemoryCacheBudgetBytes(): Int = 32 * 1024 * 1024
+
+/** Web 没有屁岱卡（见 `AgentInsightHub`），不裁。 */
+actual fun cropImageToJpegDataUri(bytes: ByteArray, left: Int, top: Int, right: Int, bottom: Int, maxDim: Int): String? = null

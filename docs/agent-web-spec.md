@@ -327,7 +327,7 @@ data class AgentConfig(..., val keyConfigured: Boolean = false) {
 | `list_zyxf` / `read_zyxf_file` | 学辅资料站；`read_zyxf_file` 的「存进下载」在浏览器上没有落点（`FILE_SAVE` 不列）⇒ 一半功能不可达 |
 | `get_textbooks` | 要教务 + 帆软报表 + 学号（虽然学号只进请求）；第二批 |
 | `get_lms` / `get_lms_activity` | 附件地址要站点会话、学堂教师名不投影、作业提交是写路径 ⇒ 第二批（先把「附件读不了」在页面上说清） |
-| `web_search` / `web_fetch` | ① 是 380 行抓取 / 解析（百度 / 360 / 微信 / 百科 + 反爬 + CookieJar），搬进共享层是独立一大块；② 语义会变：**联网的是 serve 那台机器**（用户以为「我的网络」）；③ D12 的搜索 / 抓取边界还没收口。⇒ 不开放，页面如实说「浏览器这一端的屁岱暂不联网搜索网页」 |
+| ~~`web_search` / `web_fetch`~~ | 已开放：改走 DeepSeek 官方 Search / Fetch API（`:data` 的 `DeepSeekWebTools`），serve 配了 DeepSeek Key 就并进工具表；搜狗微信 `wechat_search` 只在 Android |
 
 > 页面上怎么呈现：`toolAllowlist` 是真源。建议屁岱首屏那段「能做什么」的说明按它生成（Android 现在靠工具表 + `app_guide`，浏览器上必须靠自己那一段），并在那里写清**不开的几档为什么不开**（一句话级）。
 

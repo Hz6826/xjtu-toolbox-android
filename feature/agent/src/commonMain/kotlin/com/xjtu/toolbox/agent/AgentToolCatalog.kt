@@ -69,7 +69,8 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             "limit" to agentIntProp("条数，默认 10，上限 20。")
         )))
     arr.add(agentTool("preference",
-        "在本机长期保存或删除一条用户偏好。只存可复用的信息，不存一次性事项。",
+        "在本机长期保存或删除一条用户偏好或个人信息。只存可复用的信息，不存一次性事项。" +
+            "用户纠正校区、学院、专业、年级、书院时用固定键名（校区/学院/专业/年级/书院）记下，会压过学校系统里的旧信息。",
         agentParams(
             "key" to agentStrProp("偏好名，同名覆盖。"),
             "value" to agentStrProp("内容，一句。缺省：删除该偏好。"),
@@ -83,17 +84,7 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             "limit" to agentIntProp("条数，默认 3，上限 8。"),
             required = listOf("name"),
         )))
-    arr.add(agentTool("web_search",
-        "联网搜索，返回标题、URL、摘要。",
-        agentParams(
-            "query" to agentStrProp("关键词。学校政策、办事流程加 site:xjtu.edu.cn 优先查官网。"),
-            "engine" to agentEnumProp("缺省：用户设置。auto=百度与360合并，wechat=公众号，wiki=百科词条。", "auto", "baidu", "so360", "wechat", "wiki"),
-            "limit" to agentIntProp("条数，默认 8，上限 22。"),
-            required = listOf("query"),
-        )))
-    arr.add(agentTool("web_fetch",
-        "抓取网页正文，转 Markdown，约一万字。",
-        agentParams("url" to agentStrProp("http(s) URL。"), required = listOf("url"))))
+    // web_search / web_fetch 在 `:data` 的 DeepSeekWebTools 里，配了 DeepSeek Key 的端由 AgentHost.tools 并进来
     if (AgentCapability.ALARM in honored) {
         arr.add(agentTool("set_alarm",
             "打开系统闹钟设定闹钟。",
@@ -135,10 +126,21 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             "folder_id" to agentIntProp("目录 ID。缺省或 0：根目录。")
         )))
     arr.add(agentTool("read_zyxf_file",
-        "读取仲英学辅资料站文件。文本返回正文；PDF/Office 只返回直链与大小。",
+        "读仲英学辅资料站的文件：PDF 按页给你看页面图（一次最多 6 页，扫描版也行），docx/pptx/xlsx 给正文，图片直接看，文本给原文。老格式 doc/ppt 与压缩包读不了。",
         agentParams(
             "file_id" to agentIntProp("文件 ID，来自 list_zyxf。"),
+            "pages" to agentStrProp("PDF/pptx 的页码范围如 7-12；长文本是段号。缺省：开头。"),
             required = listOf("file_id"),
+        )))
+    arr.add(agentTool("save_file",
+        "把学辅资料或思源附件存进手机「下载」（我的 → 下载管理里能看到）。用户说要下载、要存时用。",
+        agentParams(
+            "source" to agentEnumProp("zyxf=学辅资料站；lms=思源附件。", "zyxf", "lms"),
+            "file_id" to agentIntProp("学辅文件 ID。"),
+            "course" to agentStrProp("思源课程名，模糊。"),
+            "activity" to agentStrProp("思源活动标题，模糊。"),
+            "file" to agentStrProp("思源附件名关键词。"),
+            required = listOf("source"),
         )))
     arr.add(agentTool("get_textbooks",
         "本人课程教材（教务教材报表）。需教务登录。",
@@ -156,11 +158,12 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             "scope" to agentEnumProp("assignments：全部作业汇总。", "assignments")
         )))
     arr.add(agentTool("get_lms_activity",
-        "思源学堂某个活动的详情：说明、截止时间、提交状态、附件名与 URL；给 file 时读取该附件文本（txt/md/html/json/csv；PDF/Office 只返回 URL）。需思源学堂登录。",
+        "思源学堂某个活动的详情：说明、截止时间、提交状态、附件名；给 file 时读该附件（PDF 给页面图，docx/pptx/xlsx 给正文，同 read_zyxf_file）。需思源学堂登录。",
         agentParams(
             "course" to agentStrProp("课程名，模糊。"),
             "activity" to agentStrProp("活动标题，模糊。"),
             "file" to agentStrProp("附件名关键词，模糊。"),
+            "pages" to agentStrProp("读附件时的页码范围，同 read_zyxf_file。"),
             required = listOf("course", "activity"),
         )))
     arr.add(agentTool("get_fitness_score",

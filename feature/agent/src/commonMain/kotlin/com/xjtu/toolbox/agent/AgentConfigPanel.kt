@@ -57,6 +57,7 @@ internal fun ConfigPanel(
     var baseUrl by remember { mutableStateOf(config.baseUrl) }
     var assistantName by remember { mutableStateOf(config.assistantName) }
     var searchEngine by remember { mutableStateOf(config.searchEngine) }
+    var searchApiKey by remember { mutableStateOf(config.searchApiKey) }
     var thinkingEnabled by remember { mutableStateOf(config.thinkingEnabled) }
     var reasoningEffort by remember { mutableStateOf(config.reasoningEffort) }
     var showReasoning by remember { mutableStateOf(config.showReasoning) }
@@ -70,6 +71,7 @@ internal fun ConfigPanel(
             baseUrl = baseUrl.trim(),
             assistantName = sanitizeAgentTitle(assistantName),
             searchEngine = searchEngine,
+            searchApiKey = searchApiKey.trim(),
             thinkingEnabled = thinkingEnabled,
             reasoningEffort = reasoningEffort,
             showReasoning = showReasoning
@@ -92,6 +94,7 @@ internal fun ConfigPanel(
     var fetchingModels by remember { mutableStateOf(false) }
     var fetchError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
 
     /**
      * 防抖保存：每次调用都把挂起的保存任务延后 500ms，
@@ -129,6 +132,10 @@ internal fun ConfigPanel(
                         "推荐用 DeepSeek 官方 API，只选可信来源并保管好 Key。第三方中转能看到你的提问和查询结果；由此产生的密钥泄露、费用或隐私风险需自行承担。",
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    )
+                    TextButton(
+                        text = "去 DeepSeek 开放平台创建 Key",
+                        onClick = { uriHandler.openUri(AgentConfig.DEEPSEEK_KEYS_URL) },
                     )
                 }
             }
@@ -336,16 +343,55 @@ internal fun ConfigPanel(
         }
         item {
             Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
-                OverlaySpinnerPreference(
-                    title = "联网搜索引擎",
-                    summary = AgentConfig.searchEngineLabel(searchEngine),
-                    items = searchEngineItems,
-                    selectedIndex = searchEngineIndex,
-                    onSelectedIndexChange = {
-                        searchEngine = AgentConfig.SEARCH_ENGINES[it]
-                        saveNow()
+                Column(Modifier.padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OverlaySpinnerPreference(
+                        title = "联网搜索",
+                        summary = AgentConfig.searchEngineLabel(searchEngine),
+                        items = searchEngineItems,
+                        selectedIndex = searchEngineIndex,
+                        onSelectedIndexChange = {
+                            searchEngine = AgentConfig.SEARCH_ENGINES[it]
+                            saveNow()
+                        }
+                    )
+                    val needsOwnKey = searchEngine == AgentConfig.SEARCH_DEEPSEEK && provider != AgentConfig.PROVIDER_DEEPSEEK
+                    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // Key 不在这一端（浏览器）时只报状态，跟 API Key 那一行同理
+                        if (needsOwnKey && apiKeySection == null) {
+                            TextField(
+                                value = searchApiKey,
+                                onValueChange = {
+                                    searchApiKey = it
+                                    scheduleSave()
+                                },
+                                label = "DeepSeek API Key（联网搜索用）",
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                visualTransformation = PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Password,
+                                    imeAction = ImeAction.Done
+                                ),
+                                keyboardActions = KeyboardActions(onDone = { saveNow() })
+                            )
+                        }
+                        Text(
+                            when {
+                                searchEngine == AgentConfig.SEARCH_OFF ->
+                                    "不联网搜索、不读网页。"
+                                needsOwnKey && apiKeySection != null ->
+                                    "搜索用的 DeepSeek Key${if (config.searchKeyConfigured) "已配置" else "未配置"}，在运行 serve 的机器上设置。"
+                                needsOwnKey ->
+                                    "聊天没走 DeepSeek，联网搜索要单独一个 DeepSeek Key；留空则不联网搜索。"
+                                else ->
+                                    "用 DeepSeek 官方搜索与读网页接口，和聊天共用 Key。" +
+                                        "按成功次数计费，每千次 0.75 美元（2026 年 11 月 1 日起）。"
+                            },
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        )
                     }
-                )
+                }
             }
         }
         // 形象选择：形状 + 颜色。即时生效、设备级持久化，不参与 AgentConfig 的存取

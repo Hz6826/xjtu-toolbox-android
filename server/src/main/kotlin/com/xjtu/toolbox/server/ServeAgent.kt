@@ -12,6 +12,8 @@ import com.xjtu.toolbox.agent.AgentSessionStore
 import com.xjtu.toolbox.agent.AgentTitleGen
 import com.xjtu.toolbox.agent.AgentTools
 import com.xjtu.toolbox.agent.AgentTransport
+import com.xjtu.toolbox.agent.CompositeAgentTools
+import com.xjtu.toolbox.agent.DeepSeekWebTools
 import com.xjtu.toolbox.agent.SseAgentTransport
 import com.xjtu.toolbox.agent.StoredConversation
 import com.xjtu.toolbox.agent.StoredMessage
@@ -63,7 +65,7 @@ class ServeAgent(
     private val configStore: AgentConfigStore,
     private val store: AgentSessionStore,
     private val memory: AgentMemory,
-    private val toolTable: (String) -> AgentTools,
+    private val toolTable: (AgentConfig) -> AgentTools,
     private val transport: () -> AgentTransport,
     /** 拉模型列表那一枪（`POST /api/agent/models`）。 */
     private val fetchModels: suspend (AgentConfig) -> List<String> = { AgentModelFetcher.fetch(it) },
@@ -110,9 +112,9 @@ class ServeAgent(
     fun deleteSession(id: String) = store.delete(id)
 
     /** 这一份部署真给模型的工具名（`/api/agent/config` 的 `toolAllowlist`）。 */
-    fun toolAllowlist(searchEngine: String): List<String> =
+    fun toolAllowlist(config: AgentConfig): List<String> =
         runCatching {
-            AppJson.parseToJsonElement(toolTable(searchEngine).toolDefinitions).jsonArray
+            AppJson.parseToJsonElement(toolTable(config).toolDefinitions).jsonArray
                 .mapNotNull { it.jsonObject.obj("function")?.get("name")?.stringValue }
         }.getOrDefault(emptyList())
 
@@ -197,7 +199,7 @@ class ServeAgent(
         var exhausted = persisted.contextExhausted
         val ui = persisted.messages.toMutableList()
 
-        val tools = toolTable(config.searchEngine)
+        val tools = toolTable(config)
         tools.drainWidgets()   // 丢弃上一轮残留，确保本轮控件干净
         val runner = AgentRunner(tools, transport())
 
@@ -502,17 +504,22 @@ class ServeAgent(
                 configStore = configStore,
                 store = sessionStore,
                 memory = memory,
-                // 工具表按「这一轮真的会给模型的那些定义」现搭：`searchEngine` 这一端用不上
-                //（白名单里没有联网搜索那一档），但缝留着（与 `AgentViewModel` 同一个形状）。
-                toolTable = {
-                    ServeAgentTools(
-                        session = session,
-                        memory = memory,
-                        dataCache = scheduleCache,
-                        customCourses = customCourses,
-                        calendar = calendar,
-                        yellowPage = yellowPage,
-                        faculty = faculty,
+                // 工具表按「这一轮真的会给模型的那些定义」现搭：配了 DeepSeek 搜索 Key 才带联网搜索那两件
+                toolTable = { config ->
+                    CompositeAgentTools(
+                        primary = ServeAgentTools(
+                            session = session,
+                            memory = memory,
+                            dataCache = scheduleCache,
+                            customCourses = customCourses,
+                            calendar = calendar,
+                            yellowPage = yellowPage,
+                            faculty = faculty,
+                        ),
+                        extras = listOfNotNull(
+                            com.xjtu.toolbox.campusmap.CampusMapAgentTools(),
+                            config.webSearchKey.takeIf { it.isNotEmpty() }?.let { DeepSeekWebTools(it) },
+                        ),
                     )
                 },
                 transport = { SseAgentTransport() },
