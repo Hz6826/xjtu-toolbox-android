@@ -105,35 +105,40 @@ jobs:
         # JDK 24 才支持，所以这边不能升上去。
         shell: pwsh
         run: |
-          choco install wixtoolset --version=3.14.1 -y --no-progress
+          $ErrorActionPreference = 'Stop'
 
-          # 装到哪个路径不硬编码：3.x 的安装器把版本号写进目录名（WiX Toolset v3.14），所以拿 bin\light.exe 反推。
-          $wixRoots = @()
-          foreach ($pattern in @('C:\Program Files (x86)\WiX Toolset*', 'C:\Program Files\WiX Toolset*')) {
-            $wixRoots += Get-ChildItem -Path $pattern -Directory -ErrorAction SilentlyContinue
+          function Find-WixBin {
+            $roots = @()
+            foreach ($pattern in @('C:\Program Files (x86)\WiX Toolset*', 'C:\Program Files\WiX Toolset*')) {
+              $roots += Get-ChildItem -Path $pattern -Directory -ErrorAction SilentlyContinue
+            }
+            # 只留真带 bin\light.exe 的；按目录名倒序 ⇒ 版本最高的在前
+            $cands = $roots |
+              Where-Object { Test-Path (Join-Path $_.FullName 'bin\light.exe') } |
+              Sort-Object -Property Name -Descending
+            foreach ($c in $cands) {
+              $bin = Join-Path $c.FullName 'bin'
+              $ver = (Get-Item (Join-Path $bin 'light.exe')).VersionInfo.FileVersion
+              # 3.14 走 .NET 4.x；3.11 要 .NET 3.5（windows-latest 不带）⇒ 只认 3.14 及以上
+              if ($ver -notmatch '^3\.(1[4-9]|[2-9][0-9])') { continue }
+              return @{ Bin = $bin; Version = $ver }
+            }
+            return $null
           }
-          # 万一镜像里本来就带一份 WiX（比如 v3.11），按目录名倒序取版本最高的那个 —— 优先用我们刚装的 3.14。
-          $root = $wixRoots |
-            Where-Object { Test-Path (Join-Path $_.FullName 'bin\light.exe') } |
-            Sort-Object -Property Name -Descending |
-            Select-Object -First 1
-          if (-not $root) {
-            throw "装完 wixtoolset 也找不到 bin\light.exe（找过 C:\Program Files (x86)\WiX Toolset*）——看上面 choco 那几行的输出"
+
+          $wix = Find-WixBin
+          if (-not $wix) {
+            Write-Host "runner 上没有 ≥3.14 的 WiX，装一份（choco 失败不直接判红，装完再发现一次）"
+            choco install wixtoolset --no-progress -y
+            $wix = Find-WixBin
           }
-          $light = Join-Path $root.FullName 'bin\light.exe'
-          $wixBin = Join-Path $root.FullName 'bin'
-          Write-Host "WiX 目录: $($wixBin)（light.exe FileVersion=$((Get-Item $light).VersionInfo.FileVersion)）"
+          if (-not $wix) {
+            throw "找不到可用的 WiX（要 ≥3.14、且带 bin\light.exe）——choco 也失败了，看上面 choco 的输出"
+          }
 
-          # WiX v3 要 .NET 3.5（上面那条 choco 命令的 dotnet3.5 依赖负责打开）。这里把它钉成响亮失败：
-          # 否则下次还是 jpackage 那句没有任何输出的 311，白跑一轮。
-          $ndp = @(
-            'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v3.5',
-            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\NET Framework Setup\NDP\v3.5'
-          ) | Where-Object { Test-Path $_ }
-          if ($ndp.Count -eq 0) { throw "runner 上 .NET 3.5 没打开（NDP\v3.5 不存在）⇒ WiX v3 的 candle.exe / light.exe 起不来" }
-
-          Write-Host "WIX_PATH=$wixBin"
-          "WIX_PATH=$wixBin" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "WiX 目录: $($wix.Bin)（light.exe FileVersion=$($wix.Version)）"
+          "WIX_PATH=$($wix.Bin)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "WIX_PATH=$($wix.Bin)"
 
       - name: 打 Windows 安装包（.msi 与 .exe）
         # ⚠️ 这一步本机（Linux）跑不了，只能在这里验。WiX 是上面那一步装好、由 WIX_PATH 指过去的。
