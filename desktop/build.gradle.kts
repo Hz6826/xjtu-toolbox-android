@@ -101,7 +101,12 @@ compose.desktop {
             packageName = "xjtu-toolbox"
             // jpackage 只接受 x.y.z 形式的版本号。
             packageVersion = desktopPackageVersion
-            description = "西安交通大学工具箱（桌面预览）"
+            // ⚠️ 只能用 ASCII：jpackage 在 Windows 上固定 `-cultures:en-us` ⇒ MSI 代码页 1252，
+            // 中文会让 WiX 的 light.exe 报 `LGHT0311`（退出码 311，且不打印任何错误）⇒ CI 上随机失败。
+            // 将来若要中文，得绕开 Compose 插件直接给 jpackage 传 `--resource-dir`（塞一份 overrides.wxi
+            // 把 `Product/@Codepage` 设成 936/65001）——那个口子插件目前没暴露。
+            // （Linux 的 .deb / .AppImage 描述读的也是同一个值，会跟着变英文；DSL 没有分平台的 description。）
+            description = "XJTU ToolBox (desktop preview)"
             vendor = "XJTU ToolBox"
             copyright = "Copyright © XJTU ToolBox contributors"
 
