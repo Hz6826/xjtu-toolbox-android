@@ -37,4 +37,22 @@ class TexLiteTest {
         // \in 不能把 \infty 吃成「∈fty」
         assertEquals("x ∈ ∞", TexLite.toUnicode("""x \in \infty"""))
     }
+
+    @Test
+    fun `字母上的记号带不带花括号都认`() {
+        assertEquals("a⃗ · b⃗", TexLite.toUnicode("""\vec{a} \cdot \vec b"""))
+        assertEquals("AB⃗", TexLite.toUnicode("""\overrightarrow{AB}"""))
+        assertEquals("x̂", TexLite.toUnicode("""\hat{x}"""))
+        assertEquals("x̅", TexLite.toUnicode("""\bar x"""))
+        assertEquals("v⃗", TexLite.toUnicode("""\vect{v}"""))
+    }
+
+    @Test
+    fun `函数名、数集、根次、组合数`() {
+        assertEquals("sin x + ln y", TexLite.toUnicode("""\sin x + \ln y"""))
+        assertEquals("x ∈ ℝ", TexLite.toUnicode("""x \in \mathbb{R}"""))
+        assertEquals("³√8", TexLite.toUnicode("""\sqrt[3]{8}"""))
+        assertEquals("C(n,k)", TexLite.toUnicode("""\binom{n}{k}"""))
+        assertEquals("AB ∥ CD", TexLite.toUnicode("""AB \parallel CD"""))
+    }
 }
