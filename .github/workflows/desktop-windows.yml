@@ -4,8 +4,10 @@ name: Desktop Windows Packaging
 # jpackage 不接受交叉构建 —— 出 `.msi` / `.exe` 要调 Windows 自己的 WiX（`candle.exe` / `light.exe`），
 # 在 Linux 上执行那两个任务会直接失败（见 desktop/build.gradle.kts 里那段注释）。
 #
-# WiX 不用手工装：Compose Desktop 自己下载一份 WiX 3.11 到 gradle 用户目录
-# （属性 `compose.desktop.application.downloadWix`，默认开；也可以用 `WIX_PATH` 指一份现成的）。
+# WiX 由本 workflow 自己装：**不用** Compose Desktop 自动下载的那份 3.11 —— WiX v3（3.11 / 3.14 都一样）
+# 的 candle.exe / light.exe 跑在 .NET Framework 3.5 上，而 windows-latest 不带 3.5 ⇒ light.exe 起不来、
+# 不打印任何错误就退出（CI 实测退出码 311）。做法见下面「装 WiX 3.14」那一步；`WIX_PATH` 也可以指任何
+# 现成的 WiX bin 目录（Compose Desktop 的属性 `compose.desktop.application.downloadWix` 只在没有它时才生效）。
 #
 # 与 core-gate.yml 同一种风格：独立触发、按路径过滤、并发去重。这里**不做**发布（不上传 Release）——
 # 桌面产物现在只作为 artifact 留档，要不要发进 Release 由发版流程那一轮定（见 docs/windows-delivery.md）。
@@ -92,9 +94,52 @@ jobs:
           Write-Host "windows.ico: $count 张图，尺寸 $($sizes -join ' / ')"
           if ($sizes -notcontains 256) { throw "$ico 里没有 256×256 那张（MSI 的控制面板图标用它）" }
 
+      - name: 装 WiX 3.14 并把 WIX_PATH 交给 Compose（jpackage 要 candle.exe / light.exe）
+        # 为什么必须有这一步：Compose Desktop 默认**自动下载 WiX 3.11**，而 WiX v3 的工具跑在 .NET Framework 3.5 上
+        # —— windows-latest 只带 4.x、3.5 不是默认组件 ⇒ light.exe 起不来，一个字的错误都不打印就退出（CI 实测退出码
+        # 311：jpackage-*-err.txt 只有一行 IOException、同目录的 out.txt 是空的）。这是 docs/windows-delivery.md
+        # §7 第 4 条留下的预案。装完把 `WIX_PATH` 指到它的 bin 目录：Compose 的 configureWix 见到这个环境变量就
+        # 直接用它、不再走那条 3.11 的自动下载，并把它前置进 jpackage 进程的 PATH。
+        # 为什么是 3.14：Chocolatey 的 `wixtoolset` 包把 `dotnet3.5` 声明成依赖 ⇒ 同一条命令顺带把真正缺的那一环
+        # （.NET 3.5 特性）用 DISM 打开。WiX v4/v5 换了工具（只剩 wix.exe，没有 candle/light），jpackage 要到
+        # JDK 24 才支持，所以这边不能升上去。
+        shell: pwsh
+        run: |
+          choco install wixtoolset --version=3.14.1 -y --no-progress
+
+          # 装到哪个路径不硬编码：3.x 的安装器把版本号写进目录名（WiX Toolset v3.14），所以拿 bin\light.exe 反推。
+          $wixRoots = @()
+          foreach ($pattern in @('C:\Program Files (x86)\WiX Toolset*', 'C:\Program Files\WiX Toolset*')) {
+            $wixRoots += Get-ChildItem -Path $pattern -Directory -ErrorAction SilentlyContinue
+          }
+          # 万一镜像里本来就带一份 WiX（比如 v3.11），按目录名倒序取版本最高的那个 —— 优先用我们刚装的 3.14。
+          $root = $wixRoots |
+            Where-Object { Test-Path (Join-Path $_.FullName 'bin\light.exe') } |
+            Sort-Object -Property Name -Descending |
+            Select-Object -First 1
+          if (-not $root) {
+            throw "装完 wixtoolset 也找不到 bin\light.exe（找过 C:\Program Files (x86)\WiX Toolset*）——看上面 choco 那几行的输出"
+          }
+          $light = Join-Path $root.FullName 'bin\light.exe'
+          $wixBin = Join-Path $root.FullName 'bin'
+          Write-Host "WiX 目录: $($wixBin)（light.exe FileVersion=$((Get-Item $light).VersionInfo.FileVersion)）"
+
+          # WiX v3 要 .NET 3.5（上面那条 choco 命令的 dotnet3.5 依赖负责打开）。这里把它钉成响亮失败：
+          # 否则下次还是 jpackage 那句没有任何输出的 311，白跑一轮。
+          $ndp = @(
+            'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v3.5',
+            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\NET Framework Setup\NDP\v3.5'
+          ) | Where-Object { Test-Path $_ }
+          if ($ndp.Count -eq 0) { throw "runner 上 .NET 3.5 没打开（NDP\v3.5 不存在）⇒ WiX v3 的 candle.exe / light.exe 起不来" }
+
+          Write-Host "WIX_PATH=$wixBin"
+          "WIX_PATH=$wixBin" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       - name: 打 Windows 安装包（.msi 与 .exe）
-        # ⚠️ 这一步本机（Linux）跑不了，只能在这里验。WiX 由 Compose Desktop 自动下载。
-        run: .\gradlew.bat :desktop:packageMsi :desktop:packageExe
+        # ⚠️ 这一步本机（Linux）跑不了，只能在这里验。WiX 是上面那一步装好、由 WIX_PATH 指过去的。
+        # -Pcompose.desktop.verbose=true：把 jpackage 的完整命令行与 WiX 的 stdout/stderr 都打进控制台 ——
+        # 这一步失败时唯一有用的东西（上次那条 311 在控制台只有一行、进到日志文件里 out.txt 还是空的）。
+        run: .\gradlew.bat :desktop:packageMsi :desktop:packageExe -Pcompose.desktop.verbose=true
 
       - name: 列出产物
         shell: pwsh
