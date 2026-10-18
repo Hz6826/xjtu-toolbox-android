@@ -31,6 +31,35 @@ dependencies {
     testImplementation(libs.ktor.client.mock)
 }
 
+// :server 的发行包为什么会撞名：JetBrains 在桌面目标上发布的一组坐标是**空壳模块**（jar 里 0 个 class，
+// 只有 META-INF / License），真类在同名的 androidx artifact 里 —— 两个 group 的 jar **文件名完全相同**，
+// 于是 Gradle 9 的 Copy（installDist / distZip）直接失败：
+//   Entry lib/runtime-desktop-1.12.1.jar is a duplicate but no duplicate handling strategy has been set
+// 名单由 installDist 自己报全（把 duplicatesStrategy 临时设成 WARN 跑一次），共 8 个撞名，**只有**这些；
+// 反例：JB 的 ui-desktop / foundation / material-icons 是真的（1779 / 2074 / 11105 个 class），不在名单里。
+// 这里把空壳换成真身，而**不**设 duplicatesStrategy：WARN 的输出显示空壳 jar 会**覆盖**真身
+// （org.jetbrains.compose.runtime:runtime-desktop … overwriting … androidx.compose.runtime:runtime-desktop），
+// 那样打出来的包会缺 Compose runtime 的类。上游再引入新的空壳时，installDist 会以同样的 duplicate
+// 报错响亮失败 —— 不会静默少类。
+val jetbrainsDesktopShells = mapOf(
+    "org.jetbrains.androidx.lifecycle:lifecycle-common-jvm" to "androidx.lifecycle:lifecycle-common-jvm",
+    "org.jetbrains.androidx.lifecycle:lifecycle-runtime-desktop" to "androidx.lifecycle:lifecycle-runtime-desktop",
+    "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose-desktop" to "androidx.lifecycle:lifecycle-runtime-compose-desktop",
+    "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-desktop" to "androidx.lifecycle:lifecycle-viewmodel-desktop",
+    "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose-desktop" to "androidx.lifecycle:lifecycle-viewmodel-compose-desktop",
+    "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-savedstate-desktop" to "androidx.lifecycle:lifecycle-viewmodel-savedstate-desktop",
+    "org.jetbrains.compose.runtime:runtime-desktop" to "androidx.compose.runtime:runtime-desktop",
+    "org.jetbrains.compose.runtime:runtime-saveable-desktop" to "androidx.compose.runtime:runtime-saveable-desktop",
+)
+
+configurations.configureEach {
+    resolutionStrategy.eachDependency {
+        // 版本跟着被替换的那个请求走 —— 两边版本本来就由 :core 的版本目录对齐。
+        jetbrainsDesktopShells["${requested.group}:${requested.name}"]
+            ?.let { useTarget("$it:${requested.version}") }
+    }
+}
+
 application {
     mainClass.set("com.xjtu.toolbox.server.MainKt")
 }
