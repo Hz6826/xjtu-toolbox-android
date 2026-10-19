@@ -824,12 +824,7 @@ fun SettingsScreen(
         }
         pendingUpdate?.let { update ->
             AutoUpdateDialog(
-                version = update.version,
-                body = update.notes,
-                downloadUrl = update.downloadUrl,
-                releaseUrl = update.releaseUrl,
-                channelLabel = update.channelLabel,
-                isPreview = update.isPreview,
+                update,
                 onDismiss = { pendingUpdate = null }
             )
         }

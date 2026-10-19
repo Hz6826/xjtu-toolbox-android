@@ -258,12 +258,7 @@ fun LaunchNoticeDialogs(notices: LaunchNotices) {
             onSubmitPoll = { notices.submitPoll(bulletin, it) },
         )
         update != null -> AutoUpdateDialog(
-            version = update.version,
-            body = update.notes,
-            downloadUrl = update.downloadUrl,
-            releaseUrl = update.releaseUrl,
-            channelLabel = update.channelLabel,
-            isPreview = update.isPreview,
+            update,
             onDismiss = notices::dismissAutoUpdate,
         )
         notices.checkFinished && notices.showChangelog.value -> UpdateNoticeDialog(
