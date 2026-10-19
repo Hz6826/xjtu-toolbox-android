@@ -263,15 +263,7 @@ fun LaunchNoticeDialogs(notices: LaunchNotices) {
             )
         }
         ShellLaunchLayer.UPDATE -> update?.let { pending ->
-            AutoUpdateDialog(
-                version = pending.version,
-                body = pending.notes,
-                downloadUrl = pending.downloadUrl,
-                releaseUrl = pending.releaseUrl,
-                channelLabel = pending.channelLabel,
-                isPreview = pending.isPreview,
-                onDismiss = notices::dismissAutoUpdate,
-            )
+            AutoUpdateDialog(pending, onDismiss = notices::dismissAutoUpdate)
         }
         ShellLaunchLayer.CHANGELOG -> UpdateNoticeDialog(
             entries = notices.pendingChangelog,
