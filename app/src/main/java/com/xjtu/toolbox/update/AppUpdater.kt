@@ -23,6 +23,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.Request
 import java.io.File
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 data class AppUpdateInfo(
@@ -33,6 +34,7 @@ data class AppUpdateInfo(
     val channel: String = AppUpdater.CHANNEL_GITEE,
     val channelLabel: String = AppUpdater.channelLabel(channel),
     val isPreview: Boolean = false,
+    val sha256: String? = null,  // 小写十六进制，不带前缀
 )
 
 object AppUpdater {
@@ -56,6 +58,8 @@ object AppUpdater {
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
+
+    private val githubDigestCache = ConcurrentHashMap<String, String>()
 
     fun normalizeChannel(channel: String?): String = when (channel?.trim()?.lowercase()) {
         // 兼容旧版本存下的 4 渠道值：稳定版/最新版统一归一化为对应主渠道。
@@ -110,8 +114,16 @@ object AppUpdater {
         if (!primary.hasApkAsset && normalizedChannel == CHANNEL_GITEE) {
             val github = runCatching { fetchRelease(CHANNEL_GITHUB) }.getOrNull()
             if (github?.hasApkAsset == true) {
-                return@withContext primary.info.copy(downloadUrl = github.info.downloadUrl)
+                return@withContext primary.info.copy(
+                    downloadUrl = github.info.downloadUrl,
+                    sha256 = github.info.sha256,
+                )
             }
+        }
+        if (normalizedChannel == CHANNEL_GITEE && primary.info.sha256 == null) {
+            return@withContext primary.info.copy(
+                sha256 = fetchGithubDigestByTag(primary.info.version),
+            )
         }
         primary.info
     }
@@ -175,6 +187,13 @@ object AppUpdater {
                     asset.get("name")?.stringValue?.endsWith(".apk", ignoreCase = true) == true
                 }
             val downloadUrl = apkAsset?.get("browser_download_url")?.stringValue
+            val sha256 = apkAsset
+                ?.get("digest")
+                ?.stringValue
+                ?.removePrefix("sha256:")
+                ?.trim()
+                ?.lowercase()
+                ?.takeIf { it.length == 64 }
 
             val version: String
             if (isPrerelease) {
@@ -208,6 +227,7 @@ object AppUpdater {
                 channel = CHANNEL_GITHUB,
                 channelLabel = channelLabel(CHANNEL_GITHUB),
                 isPreview = isPrerelease,
+                sha256 = sha256,
             )
         }
 
@@ -234,11 +254,25 @@ object AppUpdater {
         return AppJson.parseToJsonElement(body).jsonObject.toParsedRelease(channel)
     }
 
+    private fun sha256Hex(file: File): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(32 * 1024)
+            while (true) {
+                val n = input.read(buffer)
+                if (n < 0) break
+                md.update(buffer, 0, n)
+            }
+        }
+        return md.digest().joinToString("") { "%02x".format(it) }
+    }
+
     suspend fun download(
         context: Context,
         info: AppUpdateInfo,
         onProgress: (Float) -> Unit,
     ): File = withContext(Dispatchers.IO) {
+        android.util.Log.d("AppUpdater", "准备下载，版本: ${info.version}, 期望哈希: ${info.sha256}")
         val updateDir = File(context.cacheDir, "updates").apply { mkdirs() }
         val target = File(updateDir, "xjtu-toolbox-${info.version}.apk")
         val partial = File(updateDir, "${target.name}.part")
@@ -266,8 +300,28 @@ object AppUpdater {
             partial.delete()
             error("下载内容不是有效安装包")
         }
+
+        val expected = info.sha256
+        var toastMsg: String?
+        if (!expected.isNullOrBlank()) {
+            val actual = sha256Hex(partial)
+            if (!actual.equals(expected, ignoreCase = true)) {
+                partial.delete()
+                error("安装包 SHA-256 校验失败")
+            }
+            toastMsg = "安装包 SHA-256 校验通过"
+        } else {
+            toastMsg = "未获取到哈希，已跳过校验"
+        }
+
         if (target.exists()) target.delete()
         if (!partial.renameTo(target)) error("无法保存安装包")
+
+        toastMsg.let { msg ->
+            withContext(Dispatchers.Main) {
+                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
         target
     }
 
@@ -319,6 +373,13 @@ object AppUpdater {
             } else {
                 "https://gitee.com/yeliqin666/xjtu-toolbox-android/releases/download/v$version/app-release.apk"
             }
+        val sha256 = apkAsset
+            ?.get("digest")
+            ?.stringValue
+            ?.removePrefix("sha256:")
+            ?.trim()
+            ?.lowercase()
+            ?.takeIf { it.length == 64 }
         return ParsedRelease(
             info = AppUpdateInfo(
                 version = version,
@@ -327,8 +388,38 @@ object AppUpdater {
                 releaseUrl = get("html_url")?.stringValue.orEmpty(),
                 channel = channel,
                 channelLabel = channelLabel(channel),
+                sha256 = sha256,
             ),
             hasApkAsset = apkAsset != null,
         )
+    }
+
+    private suspend fun fetchGithubDigestByTag(version: String): String? {
+        githubDigestCache[version]?.let { return it }
+        val digest = runCatching {
+            val url = "https://api.github.com/repos/yeliqin666/xjtu-toolbox-android/releases/tags/v$version"
+            val body = client.newCall(
+                Request.Builder()
+                    .url(url)
+                    .header("Accept", "application/json")
+                    .header("User-Agent", "XJTUToolBox/${BuildConfig.VERSION_NAME}")
+                    .build()
+            ).execute().use { response ->
+                if (!response.isSuccessful) return@runCatching null
+                response.body?.string() ?: return@runCatching null
+            }
+            AppJson.parseToJsonElement(body).jsonObject
+                .arr("assets")
+                ?.mapNotNull { it as? JsonObject }
+                ?.firstOrNull { it.get("name")?.stringValue?.endsWith(".apk", true) == true }
+                ?.get("digest")?.stringValue
+                ?.removePrefix("sha256:")?.lowercase()
+                ?.takeIf { it.length == 64 }
+        }.getOrNull()
+
+        if (digest != null) {
+            githubDigestCache[version] = digest
+        }
+        return digest
     }
 }
