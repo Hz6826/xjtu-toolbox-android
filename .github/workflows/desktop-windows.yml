@@ -4,8 +4,7 @@ name: Desktop Windows Packaging
 # jpackage 不接受交叉构建 —— 出 `.msi` / `.exe` 要调 Windows 自己的 WiX（`candle.exe` / `light.exe`），
 # 在 Linux 上执行那两个任务会直接失败（见 desktop/build.gradle.kts 里那段注释）。
 #
-# WiX 不用手工装：Compose Desktop 自己下载一份 WiX 3.11 到 gradle 用户目录
-# （属性 `compose.desktop.application.downloadWix`，默认开；也可以用 `WIX_PATH` 指一份现成的）。
+# WiX v3 工具链在下面显式发现 / 安装，WIX_PATH 交给 Compose Desktop。
 #
 # 与 core-gate.yml 同一种风格：独立触发、按路径过滤、并发去重。这里**不做**发布（不上传 Release）——
 # 桌面产物现在只作为 artifact 留档，要不要发进 Release 由发版流程那一轮定（见 docs/windows-delivery.md）。
@@ -92,8 +91,54 @@ jobs:
           Write-Host "windows.ico: $count 张图，尺寸 $($sizes -join ' / ')"
           if ($sizes -notcontains 256) { throw "$ico 里没有 256×256 那张（MSI 的控制面板图标用它）" }
 
+      - name: 装 WiX 3.14 并把 WIX_PATH 交给 Compose（jpackage 要 candle.exe / light.exe）
+        # JDK 21 的 jpackage 使用 WiX v3 的 candle/light；复用 runner 上的 3.14，缺少时再安装。
+        # WIX_PATH 指向包含工具及扩展 DLL 的 bin 目录，避免 Compose 自动下载旧版 3.11。
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Find-WixBin {
+            $roots = @()
+            foreach ($pattern in @('C:\Program Files (x86)\WiX Toolset*', 'C:\Program Files\WiX Toolset*')) {
+              $roots += Get-ChildItem -Path $pattern -Directory -ErrorAction SilentlyContinue
+            }
+            # 只留真带 bin\light.exe 的；按目录名倒序 ⇒ 版本最高的在前
+            $cands = $roots |
+              Where-Object { Test-Path (Join-Path $_.FullName 'bin\light.exe') } |
+              Sort-Object -Property Name -Descending
+            foreach ($c in $cands) {
+              $bin = Join-Path $c.FullName 'bin'
+              $ver = (Get-Item (Join-Path $bin 'light.exe')).VersionInfo.FileVersion
+              # 3.14 走 .NET 4.x；3.11 要 .NET 3.5（windows-latest 不带）⇒ 只认 3.14 及以上
+              if ($ver -notmatch '^3\.(1[4-9]|[2-9][0-9])') { continue }
+              return @{ Bin = $bin; Version = $ver }
+            }
+            return $null
+          }
+
+          $wix = Find-WixBin
+          if (-not $wix) {
+            Write-Host "runner 上没有 ≥3.14 的 WiX，装一份（choco 失败不直接判红，装完再发现一次）"
+            choco install wixtoolset --no-progress -y
+            $wix = Find-WixBin
+          }
+          if (-not $wix) {
+            throw "找不到可用的 WiX（要 ≥3.14、且带 bin\light.exe）——choco 也失败了，看上面 choco 的输出"
+          }
+
+          Write-Host "WiX 目录: $($wix.Bin)（light.exe FileVersion=$($wix.Version)）"
+          "WIX_PATH=$($wix.Bin)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "WIX_PATH=$($wix.Bin)"
+          # 上面的发现已验证工具存在；不要让可选安装的旧退出码覆盖成功结果。
+          exit 0
+
       - name: 打 Windows 安装包（.msi 与 .exe）
-        # ⚠️ 这一步本机（Linux）跑不了，只能在这里验。WiX 由 Compose Desktop 自动下载。
+        # ⚠️ 这一步本机（Linux）跑不了，只能在这里验。WiX 是上面那一步装好、由 WIX_PATH 指过去的。
+        # 不加 `-Pcompose.desktop.verbose=true`：在 Windows 上这一行会被拆成 `-Pcompose` 与
+        # `.desktop.verbose=true` 两段（Gradle 报 `Task '.desktop.verbose=true' not found`，实测过一轮）。
+        # 这一步失败时需要的 jpackage 完整命令行与 WiX 自己的输出，靠下面的 artifact
+        # （`desktop/build/compose/logs/**`）拿，不靠那个开关。
         run: .\gradlew.bat :desktop:packageMsi :desktop:packageExe
 
       - name: 列出产物
@@ -127,3 +172,16 @@ jobs:
       - name: 更新骨架的单元测试
         # 纯函数那半（挑发布、比版本）与注入假响应的那条 GET：与平台无关，Windows 上也该绿
         run: .\gradlew.bat :desktop:test --tests "com.xjtu.toolbox.desktop.DesktopUpdateJvmTest"
+
+      - name: 失败时保留诊断报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows-failure-reports
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            desktop/build/reports/tests/**
+            desktop/build/test-results/**
+            desktop/build/compose/logs/**
+            desktop/build/compose/tmp/*.args.txt

@@ -631,14 +631,14 @@ fun main(args: Array<String>) {
             onFrame = { frame, scene ->
                 if (frame >= 3) {
                     if (!homeCourseShown) homeCourseShown = hasText(scene, "示例课程（夹具）")
-                    if (!homeWeekShown) homeWeekShown = hasText(scene, "第4周")
+                    if (!homeWeekShown) homeWeekShown = hasText(scene, "第 4 周")
                     if (!homeExamShown) homeExamShown = hasText(scene, "还有 5 天")
                     if (!homeBulletinShown) homeBulletinShown = hasText(scene, homeBulletinTitle)
                 }
             },
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Main), homeBulletinFetch) }
         check(homeCourseShown) { "home.png：屏上没出现夹具那节课 —— 首页没读出课表缓存？" }
-        check(homeWeekShown) { "home.png：屏上没有「第4周」—— 开学日期那一格没算出来？" }
+        check(homeWeekShown) { "home.png：屏上没有「第 4 周」—— 开学日期那一格没算出来？" }
         check(homeExamShown) { "home.png：屏上没有考试倒计时 —— 考试表那一格没读出来？" }
         check(homeBulletinShown) { "home.png：顶部没有夹具那条公告 —— 公告条没接上共享层？" }
 
