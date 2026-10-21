@@ -6,6 +6,9 @@ plugins {
 
 kotlin {
     sourceSets {
+        jvmTest.dependencies {
+            implementation(compose.desktop.currentOs)
+        }
         commonMain.dependencies {
             api(project(":shared:model"))
             api(project(":shared:navigation"))

@@ -4,6 +4,8 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
+import com.xjtu.toolbox.settings.SettingsStore
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.Colors
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -17,9 +19,16 @@ import top.yukonga.miuix.kmp.theme.ThemeController
 fun XJTUToolBoxTheme(
     darkModeOverride: String = "system",
     dynamicColor: Boolean = false,
+    customColorHex: String = "",
+    applySystemBars: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    val mode = if (dynamicColor) {
+    val seed = remember(customColorHex) {
+        SettingsStore.normalizeThemeColor(customColorHex).takeIf { it.isNotEmpty() }
+            ?.removePrefix("#")?.toLong(16)?.let { Color(0xFF000000 or it) }
+    }
+    val monet = dynamicColor || seed != null
+    val mode = if (monet) {
         when (darkModeOverride) {
             "light" -> ColorSchemeMode.MonetLight
             "dark" -> ColorSchemeMode.MonetDark
@@ -32,17 +41,17 @@ fun XJTUToolBoxTheme(
             else -> ColorSchemeMode.System
         }
     }
-    val controller = remember(darkModeOverride, dynamicColor) { ThemeController(mode) }
+    val controller = remember(mode, seed) { ThemeController(colorSchemeMode = mode, keyColor = seed) }
     val systemDark = isSystemInDarkTheme()
     val darkTheme = when (darkModeOverride) {
         "light" -> false
         "dark" -> true
         else -> systemDark
     }
-    PlatformSystemBars(darkTheme)
+    if (applySystemBars) PlatformSystemBars(darkTheme)
     CompositionLocalProvider(LocalIsDarkTheme provides darkTheme) {
         MiuixTheme(controller = controller) {
-            if (!dynamicColor) {
+            if (!monet) {
                 content()
             } else {
                 MiuixTheme(

@@ -7,6 +7,27 @@ import kotlin.test.assertTrue
 
 /** 设置偏好的键名与默认值。 */
 class SettingsStoreTest {
+    @Test
+    fun `自定义颜色规范化并保留旧取色偏好`() {
+        val raw = freshStore()
+        raw.putBoolean("dynamic_color", true)
+        val settings = SettingsStore(raw)
+        assertTrue(settings.dynamicColor)
+        assertTrue(!settings.customColorEnabled)
+        assertEquals("", settings.customColorHex)
+        settings.customColorHex = " #a2f "
+        settings.customColorEnabled = true
+        assertEquals("#AA22FF", SettingsStore(raw).customColorHex)
+        assertTrue(SettingsStore(raw).customColorEnabled)
+        settings.customColorEnabled = false
+        assertEquals("#AA22FF", settings.customColorHex)
+        listOf("#12345678", "+12345", "oops", "#12", "").forEach {
+            settings.customColorHex = it
+            assertEquals("", settings.customColorHex)
+        }
+        settings.customColorHex = "123aBC"
+        assertEquals("#123ABC", settings.customColorHex)
+    }
 
     private fun freshStore() = keyValueStore("settings_store_unit_test").apply { clear() }
 

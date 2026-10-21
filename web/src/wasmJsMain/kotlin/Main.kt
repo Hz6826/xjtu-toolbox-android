@@ -18,6 +18,8 @@ fun main() {
         val settings = remember { SettingsStore() }
         XJTUToolBoxTheme(
             darkModeOverride = remember(appearanceTick) { settings.darkMode },
+            dynamicColor = remember(appearanceTick) { settings.dynamicColor },
+            customColorHex = remember(appearanceTick) { if (settings.customColorEnabled) settings.customColorHex else "" },
             content = { ToolboxWebApp(onAppearanceChanged = { appearanceTick++ }) },
         )
     }

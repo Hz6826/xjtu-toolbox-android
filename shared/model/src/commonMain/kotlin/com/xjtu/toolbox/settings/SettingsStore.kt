@@ -20,6 +20,15 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getBoolean(KEY_DYNAMIC_COLOR, false)
         set(value) = store.putBoolean(KEY_DYNAMIC_COLOR, value)
 
+    /** 自定义主题种子色；空串表示未选择。保持独立，切换取色来源时保留上次选择。 */
+    var customColorHex: String
+        get() = normalizeThemeColor(store.getString("custom_color_hex").orEmpty())
+        set(value) = store.putString("custom_color_hex", normalizeThemeColor(value))
+
+    var customColorEnabled: Boolean
+        get() = store.getBoolean("custom_color_enabled", false)
+        set(value) = store.putBoolean("custom_color_enabled", value)
+
     /** 默认启动 tab。 */
     var defaultTab: String
         get() = store.getString(KEY_DEFAULT_TAB) ?: TAB_COURSES
@@ -53,6 +62,11 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         set(value) = store.putString(KEY_SCHEDULE_SOURCE, value)
 
     companion object {
+        fun normalizeThemeColor(value: String): String {
+            val hex = value.trim().removePrefix("#")
+            if (hex.length !in listOf(3, 6) || !hex.all { it in "0123456789abcdefABCDEF" }) return ""
+            return "#" + (if (hex.length == 3) hex.map { "$it$it" }.joinToString("") else hex).uppercase()
+        }
         /** 非敏感的应用设置（外观、协议、更新……），普通 SharedPreferences。 */
         const val APP_SETTINGS_FILE = "app_settings"
 
