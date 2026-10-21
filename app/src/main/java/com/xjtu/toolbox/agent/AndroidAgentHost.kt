@@ -72,6 +72,12 @@ internal class AndroidAgentHost(
         )
     }
 
+    override val supportsMcp = true
+    override fun mcpTools(config: AgentConfig, confirm: suspend (String, String, String) -> Boolean): AgentTools =
+        com.xjtu.toolbox.agent.McpAgentTools(config, confirm)
+    override suspend fun testMcp(config: AgentConfig): String =
+        com.xjtu.toolbox.agent.McpAgentTools(config, confirm = { _, _, _ -> false }).testConnection()
+
     override fun transport(): AgentTransport = SseAgentTransport()
 
     // ── 登录态 ────────────────────────────────────────────────────────────────

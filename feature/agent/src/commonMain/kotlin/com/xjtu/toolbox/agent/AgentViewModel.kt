@@ -56,6 +56,20 @@ object AgentThinkingHost {
 }
 
 class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSession {
+    override var externalToolRequest: ExternalToolRequest? by mutableStateOf(null)
+        private set
+    private var externalToolAnswer: kotlinx.coroutines.CompletableDeferred<Boolean>? = null
+    override fun answerExternalTool(allow: Boolean) { externalToolAnswer?.complete(allow) }
+
+    private suspend fun confirmExternalTool(endpoint: String, tool: String, arguments: String): Boolean {
+        val answer = kotlinx.coroutines.CompletableDeferred<Boolean>()
+        externalToolAnswer = answer
+        externalToolRequest = ExternalToolRequest(endpoint, tool, arguments)
+        return try { answer.await() } finally {
+            externalToolRequest = null
+            externalToolAnswer = null
+        }
+    }
     companion object {
         /** 流式分片合并写入的间隔：约 3 帧，肉眼仍是连续输出，重组和解析次数降一两个数量级。 */
         private const val STREAM_FLUSH_MS = 50L
@@ -107,6 +121,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
     private var tools: AgentTools? = null
     /** 搜索 Key 变了（含开关搜索）就重建：web_search / web_fetch 是否进工具表看它。 */
     private var toolsSearchKey: String? = null
+    private var toolsMcpConfig: Triple<Boolean, String, String>? = null
     /** 工具注册表里的 DataCache 构造时绑定账号，换账号必须重建，否则工具读写的是旧账号缓存。 */
     private var toolsAccountId: String? = null
 
@@ -376,15 +391,19 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
             try {
                 // 首次调用时初始化，此后复用（loginFailedAt 冷却状态得以保留）
                 val accountNow = com.xjtu.toolbox.account.AccountContext.activeAccountId
-                if (toolsSearchKey != config.webSearchKey || toolsAccountId != accountNow) {
+                val mcpConfig = Triple(config.mcpEnabled, config.mcpEndpoint, config.mcpToken)
+                if (toolsSearchKey != config.webSearchKey || toolsAccountId != accountNow || toolsMcpConfig != mcpConfig) {
                     tools = null
+                    toolsMcpConfig = mcpConfig
                     toolsSearchKey = config.webSearchKey
                     toolsAccountId = accountNow
                 }
                 // 工具层与传输层都是**端装配**（见 `:core` 的 [AgentHost]）：`:app` 交取数那些
                 // `*Api` + Android 能力，桌面交它能取到的那部分。没接的端 `honored` 为空，
                 // 那几档就不会画给模型（见 `AgentCapability`）。
-                val registry = tools ?: host.tools(config).also { tools = it }
+                val registry = tools ?: CompositeAgentTools(host.tools(config),
+                    if (config.mcpEnabled && host.supportsMcp) listOf(host.mcpTools(config, ::confirmExternalTool)) else emptyList()
+                ).also { tools = it }
                 registry.drainWidgets()   // 丢弃上一轮残留，确保本轮控件干净
                 val runner = AgentRunner(registry, host.transport())
 

@@ -23,6 +23,10 @@ interface AgentHost {
      */
     fun tools(config: AgentConfig): AgentTools = AgentTools.None
 
+    val supportsMcp: Boolean get() = false
+    fun mcpTools(config: AgentConfig, confirm: suspend (String, String, String) -> Boolean): AgentTools = AgentTools.None
+    suspend fun testMcp(config: AgentConfig): String = "此端暂不支持 MCP"
+
     /** 这一端的「发一次请求」：`:app` 与桌面都交 `:data` 的 `SseAgentTransport`。 */
     fun transport(): AgentTransport = AgentTransport.None
 

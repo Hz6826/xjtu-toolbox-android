@@ -58,9 +58,14 @@ class AgentConfigStoreJvmTest {
             thinkingEnabled = false,
             reasoningEffort = AgentConfig.REASONING_MAX,
             showReasoning = false,
+            mcpEnabled = true,
+            mcpEndpoint = "https://example.invalid/mcp",
+            mcpToken = "mcp-test-token",
         )
         store().save(config)
         assertEquals(config, store().load())
+        assertNull(plainStore().getString("mcp_token"))
+        assertEquals("mcp-test-token", secureStore().getString("mcp_token"))
     }
 
     @Test

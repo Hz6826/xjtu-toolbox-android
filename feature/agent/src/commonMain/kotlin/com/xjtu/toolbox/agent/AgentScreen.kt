@@ -17,6 +17,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
@@ -83,6 +84,23 @@ fun AgentScreen(
     var showConfig by remember { mutableStateOf(false) }
     // 宿主侧 remember，key 固定即可（切 tab 不丢）。
     val vm: AgentChatSession = session ?: viewModel(key = "agent") { AgentViewModel(host) }
+
+    vm.externalToolRequest?.let { request ->
+        top.yukonga.miuix.kmp.window.WindowDialog(
+            show = true, title = "允许调用远程工具？", summary = "确认后，以下参数将发送至此服务。服务返回的数据也会交给当前 AI 模型。",
+            onDismissRequest = { vm.answerExternalTool(false) },
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.heightIn(max = 280.dp).then(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()))) {
+                    Text("服务：${request.endpoint}\n工具：${request.tool}\n参数：${request.arguments}")
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TextButton(text = "拒绝", onClick = { vm.answerExternalTool(false) }, modifier = Modifier.weight(1f))
+                    TextButton(text = "允许这一次", onClick = { vm.answerExternalTool(true) }, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
 
     // 多会话持久化：加载会话列表并恢复最近会话，换账号时重新加载
     LaunchedEffect(host.accountId) {

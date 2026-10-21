@@ -35,6 +35,9 @@ data class AgentConfig(
     val keyConfigured: Boolean = false,
     /** 同上，指 [searchApiKey]。 */
     val searchKeyConfigured: Boolean = false,
+    val mcpEnabled: Boolean = false,
+    val mcpEndpoint: String = "",
+    val mcpToken: String = "",
 ) {
     val effectiveName: String get() = sanitizeAgentTitle(assistantName, DEFAULT_ASSISTANT_NAME)
 

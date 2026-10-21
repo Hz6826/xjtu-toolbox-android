@@ -33,7 +33,10 @@ class AgentConfigStore(
         searchApiKey = secure.getString("search_api_key").orEmpty(),
         thinkingEnabled = plain.getBoolean("thinking_enabled", true),
         reasoningEffort = normalizeReasoningEffort(plain.getString("reasoning_effort")),
-        showReasoning = plain.getBoolean("show_reasoning", true)
+        showReasoning = plain.getBoolean("show_reasoning", true),
+        mcpEnabled = plain.getBoolean("mcp_enabled", false),
+        mcpEndpoint = plain.getString("mcp_endpoint").orEmpty(),
+        mcpToken = secure.getString("mcp_token").orEmpty(),
     )
 
     fun save(config: AgentConfig) {
@@ -53,6 +56,9 @@ class AgentConfigStore(
         p.putBoolean("show_reasoning", config.showReasoning)
         secure.putString("api_key", config.apiKey)
         secure.putString("search_api_key", config.searchApiKey)
+        p.putBoolean("mcp_enabled", config.mcpEnabled)
+        p.putString("mcp_endpoint", config.mcpEndpoint.trim())
+        secure.putString("mcp_token", config.mcpToken.trim())
     }
 
     companion object {

@@ -4,6 +4,8 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 
 /** 「一屏屁岱对话」这件事的成员面。 */
 interface AgentChatSession {
+    val externalToolRequest: ExternalToolRequest? get() = null
+    fun answerExternalTool(allow: Boolean) {}
 
     /** 屏上的消息。`delta` / `reasoning` / `tool_call` / `tool_result` 都往这里写。 */
     val messages: SnapshotStateList<ChatMessage>
@@ -64,3 +66,5 @@ interface AgentChatSession {
         const val CONTEXT_EXHAUSTED_MESSAGE = AGENT_CONTEXT_EXHAUSTED_MESSAGE
     }
 }
+
+data class ExternalToolRequest(val endpoint: String, val tool: String, val arguments: String)
