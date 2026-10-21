@@ -4,10 +4,7 @@ name: Desktop Windows Packaging
 # jpackage 不接受交叉构建 —— 出 `.msi` / `.exe` 要调 Windows 自己的 WiX（`candle.exe` / `light.exe`），
 # 在 Linux 上执行那两个任务会直接失败（见 desktop/build.gradle.kts 里那段注释）。
 #
-# WiX 由本 workflow 自己装：**不用** Compose Desktop 自动下载的那份 3.11 —— WiX v3（3.11 / 3.14 都一样）
-# 的 candle.exe / light.exe 跑在 .NET Framework 3.5 上，而 windows-latest 不带 3.5 ⇒ light.exe 起不来、
-# 不打印任何错误就退出（CI 实测退出码 311）。做法见下面「装 WiX 3.14」那一步；`WIX_PATH` 也可以指任何
-# 现成的 WiX bin 目录（Compose Desktop 的属性 `compose.desktop.application.downloadWix` 只在没有它时才生效）。
+# WiX v3 工具链在下面显式发现 / 安装，WIX_PATH 交给 Compose Desktop。
 #
 # 与 core-gate.yml 同一种风格：独立触发、按路径过滤、并发去重。这里**不做**发布（不上传 Release）——
 # 桌面产物现在只作为 artifact 留档，要不要发进 Release 由发版流程那一轮定（见 docs/windows-delivery.md）。
@@ -95,14 +92,8 @@ jobs:
           if ($sizes -notcontains 256) { throw "$ico 里没有 256×256 那张（MSI 的控制面板图标用它）" }
 
       - name: 装 WiX 3.14 并把 WIX_PATH 交给 Compose（jpackage 要 candle.exe / light.exe）
-        # 为什么必须有这一步：Compose Desktop 默认**自动下载 WiX 3.11**，而 WiX v3 的工具跑在 .NET Framework 3.5 上
-        # —— windows-latest 只带 4.x、3.5 不是默认组件 ⇒ light.exe 起不来，一个字的错误都不打印就退出（CI 实测退出码
-        # 311：jpackage-*-err.txt 只有一行 IOException、同目录的 out.txt 是空的）。这是 docs/windows-delivery.md
-        # §7 第 4 条留下的预案。装完把 `WIX_PATH` 指到它的 bin 目录：Compose 的 configureWix 见到这个环境变量就
-        # 直接用它、不再走那条 3.11 的自动下载，并把它前置进 jpackage 进程的 PATH。
-        # 为什么是 3.14：Chocolatey 的 `wixtoolset` 包把 `dotnet3.5` 声明成依赖 ⇒ 同一条命令顺带把真正缺的那一环
-        # （.NET 3.5 特性）用 DISM 打开。WiX v4/v5 换了工具（只剩 wix.exe，没有 candle/light），jpackage 要到
-        # JDK 24 才支持，所以这边不能升上去。
+        # JDK 21 的 jpackage 使用 WiX v3 的 candle/light；复用 runner 上的 3.14，缺少时再安装。
+        # WIX_PATH 指向包含工具及扩展 DLL 的 bin 目录，避免 Compose 自动下载旧版 3.11。
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -139,6 +130,8 @@ jobs:
           Write-Host "WiX 目录: $($wix.Bin)（light.exe FileVersion=$($wix.Version)）"
           "WIX_PATH=$($wix.Bin)" | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "WIX_PATH=$($wix.Bin)"
+          # 上面的发现已验证工具存在；不要让可选安装的旧退出码覆盖成功结果。
+          exit 0
 
       - name: 打 Windows 安装包（.msi 与 .exe）
         # ⚠️ 这一步本机（Linux）跑不了，只能在这里验。WiX 是上面那一步装好、由 WIX_PATH 指过去的。
@@ -179,3 +172,16 @@ jobs:
       - name: 更新骨架的单元测试
         # 纯函数那半（挑发布、比版本）与注入假响应的那条 GET：与平台无关，Windows 上也该绿
         run: .\gradlew.bat :desktop:test --tests "com.xjtu.toolbox.desktop.DesktopUpdateJvmTest"
+
+      - name: 失败时保留诊断报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows-failure-reports
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            desktop/build/reports/tests/**
+            desktop/build/test-results/**
+            desktop/build/compose/logs/**
+            desktop/build/compose/tmp/*.args.txt

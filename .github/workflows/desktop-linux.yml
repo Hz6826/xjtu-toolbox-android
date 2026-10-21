@@ -131,8 +131,21 @@ jobs:
           # 它多下 ~145MB，给的只是按语言切分的同一批字形，这条用例用不上。
           # 装完就得查得到：查不到就在这里响亮失败，别让人去猜后面那条 15.0px 的断言
           # （同「确认 Android SDK 在」那一步的用意）。
-          fc-list :lang=zh | grep -q . || { echo "::error::装完 fonts-noto-cjk 仍查不到中文字体"; exit 1; }
-          fc-list :lang=zh | head -3
+          fc-list :lang=zh > "$RUNNER_TEMP/chinese-fonts.txt"
+          test -s "$RUNNER_TEMP/chinese-fonts.txt" || { echo "::error::装完 fonts-noto-cjk 仍查不到中文字体"; exit 1; }
+          head -3 "$RUNNER_TEMP/chinese-fonts.txt"
 
       - name: 桌面端单元测试
         run: ./gradlew :desktop:test
+
+      - name: 失败时保留诊断报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux-failure-reports
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            desktop/build/reports/tests/**
+            desktop/build/test-results/**
+            desktop/build/compose/logs/**
