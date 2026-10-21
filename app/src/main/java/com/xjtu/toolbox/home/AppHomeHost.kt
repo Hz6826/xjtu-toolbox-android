@@ -161,7 +161,9 @@ internal fun rememberAppHome(
     val isLoggedIn = loginState.isLoggedIn
     val showStatusSheet = remember { mutableStateOf(false) }
 
-    // 常用入口：按使用频率取 4 个，放进 Hero 卡底部。它是**额外**的入口，分类里照常保留。
+    // 常用入口：用户置顶过就按置顶的来，否则按使用频率取 4 个。它是**额外**的入口，分类里照常保留。
+    val settings = remember { com.xjtu.toolbox.settings.SettingsStore() }
+    var pinnedQuick by remember { mutableStateOf(settings.pinnedQuickRoutes) }
     val quickCandidateKeys = remember {
         listOf(
             AppRoute.CampusCard,
@@ -175,15 +177,16 @@ internal fun rememberAppHome(
             AppRoute.Agent,
         ).map { it.id }
     }
+    val usageQuick = remember(quickCandidateKeys) {
+        ServiceUsageTracker.topKeys(
+            context,
+            quickCandidateKeys,
+            n = 4,
+            fallback = listOf(AppRoute.CampusCard.id, AppRoute.EmptyRoom.id, AppRoute.Notification.id) + quickCandidateKeys
+        ).filter { it in quickCandidateKeys }.distinct().take(4)
+    }
     val quickRoutes = if (showQuickActions) {
-        remember(quickCandidateKeys) {
-            ServiceUsageTracker.topKeys(
-                context,
-                quickCandidateKeys,
-                n = 4,
-                fallback = listOf(AppRoute.CampusCard.id, AppRoute.EmptyRoom.id, AppRoute.Notification.id) + quickCandidateKeys
-            ).filter { it in quickCandidateKeys }.distinct().take(4)
-        }.mapNotNull { key -> AppServices.homeFor(audience).firstOrNull { it.route.id == key }?.route }
+        (pinnedQuick ?: usageQuick).mapNotNull { key -> AppServices.homeFor(audience).firstOrNull { it.route.id == key }?.route }
     } else {
         emptyList()
     }
@@ -243,6 +246,11 @@ internal fun rememberAppHome(
         override val bulletins: List<Bulletin> get() = bulletinItems
         override val stats: Map<String, HomeStat> get() = homeStats
         override val quickRoutes: List<AppRoute> get() = quickRoutes
+        override val quickEditable = showQuickActions
+        override fun onQuickRoutesChange(routes: List<AppRoute>) {
+            pinnedQuick = routes.map { it.id }
+            settings.pinnedQuickRoutes = pinnedQuick
+        }
 
         override val nextUp: HomeNextUp?
             get() = scheduleReminder ?: when {

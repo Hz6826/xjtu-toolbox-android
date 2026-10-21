@@ -1,7 +1,6 @@
 package com.xjtu.toolbox.home
 
 import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -86,6 +85,7 @@ import com.xjtu.toolbox.ui.theme.EditorialRule
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.theme.legacyColor
 import com.xjtu.toolbox.ui.theme.serviceColor
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
@@ -137,6 +137,19 @@ fun HomeScreen(
     val quickRows = host.quickRoutes.mapNotNull { route ->
         catalog.firstOrNull { it.route == route }?.let { rowOf(it, null) }
     }
+    val quick: (@Composable (iconSize: Dp, solidIcon: Boolean) -> Unit)? =
+        if (HomeCard.QUICK_ACTIONS in honored && (quickRows.isNotEmpty() || host.quickEditable)) {
+            { iconSize, solidIcon ->
+                QuickActionsGrid(
+                    pinned = quickRows,
+                    all = catalog.filter { host.openableRouteIds?.contains(it.route.id) != false }.map { rowOf(it, null) },
+                    editable = host.quickEditable,
+                    onChange = { keys -> host.onQuickRoutesChange(keys.mapNotNull { k -> catalog.firstOrNull { it.route.id == k }?.route }) },
+                    iconSize = iconSize,
+                    solidIcon = solidIcon,
+                )
+            }
+        } else null
     val groups = HomeCards.groups(host.audience, host.stats, host.openableRouteIds)
     val frontInbox = host.inbox.takeIf { !isIconTheme && HomeCard.INBOX in honored }
 
@@ -212,13 +225,14 @@ fun HomeScreen(
                         host = host,
                         dateLabel = host.dateLabel,
                         weekNumber = if (HomeCard.WEEK_NUMBER in honored) host.weekNumber else 0,
-                        quickRows = quickRows,
+                        quick = quick?.let { { it(44.dp, true) } },
                     )
                 } else {
                     EditorialFrontPage(
                         modifier = Modifier.enterOnce(0),
                         host = host,
                         inbox = frontInbox,
+                        quick = quick?.let { { it(40.dp, false) } },
                     )
                 }
             }
@@ -233,7 +247,11 @@ fun HomeScreen(
             if (HomeCard.SERVICE_GRID in honored && groups.isNotEmpty()) {
                 Spacer(Modifier.height(if (isIconTheme) SECTION_GAP else 20.dp))
                 if (isIconTheme) {
-                    CategoryCards(count = groups.size, spacing = SECTION_GAP) { index ->
+                    CategoryCards(
+                        count = groups.size,
+                        spacing = SECTION_GAP,
+                        weight = { 1 + (groups[it].rows.size + 3) / 4 },
+                    ) { index ->
                         val group = groups[index]
                         HomeCategoryCard(
                             title = group.category.title,
@@ -248,6 +266,7 @@ fun HomeScreen(
                             IndexCategorySection(
                                 title = group.category.title,
                                 subtitle = group.category.subtitle,
+                                accent = legacyColor(HomeIcons.accentKey(group.category)),
                                 rows = group.rows.map { indexRow(it.service, it.stat, it.statDetail) },
                             )
                         },
@@ -363,7 +382,7 @@ private fun Modifier.editorialPaper(
         .squircleBorder(0.6.dp, border, radius)
 }
 
-/** 页头只保留两行：问候与操作同高，日期、教学周及连接状态放在下一行。 */
+/** 刊头：印章跨两行；右边上行问候（与操作钮同高），下行日期、教学周与连接状态。 */
 @Composable
 private fun EditorialMasthead(
     greeting: String,
@@ -378,10 +397,10 @@ private fun EditorialMasthead(
 ) {
     val ink = MiuixTheme.colorScheme.onSurface
     val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
-    Column(
+    Row(
         modifier.fillMaxWidth()
             .padding(horizontal = 20.dp)
-            .padding(top = 6.dp, bottom = 16.dp)
+            .padding(top = 8.dp, bottom = 20.dp)
             .graphicsLayer {
                 val p = progress()
                 alpha = (1f - p * 1.35f).coerceIn(0f, 1f)
@@ -389,39 +408,42 @@ private fun EditorialMasthead(
                 scaleY = scaleX
                 transformOrigin = TransformOrigin(0.5f, 0f)
             },
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            Modifier.fillMaxWidth().height(40.dp)
-                .padding(end = if (underBar) 132.dp else 0.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Image(HomeSeal.Square, contentDescription = "岱宗盒子", modifier = Modifier.size(30.dp))
-            Spacer(Modifier.width(10.dp))
-            Text(
-                greeting,
-                style = Editorial.masthead.copy(fontSize = 26.sp, lineHeight = 34.sp),
-                color = ink,
-                maxLines = 1,
-            )
-            if (name.isNotBlank()) {
-                Spacer(Modifier.width(8.dp))
-                Text(name, fontSize = 12.sp, color = muted, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Image(HomeSeal.Square, contentDescription = "岱宗盒子", modifier = Modifier.size(40.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Row(
+                Modifier.fillMaxWidth().height(36.dp)
+                    .padding(end = if (underBar) 132.dp else 0.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    greeting,
+                    style = Editorial.masthead.copy(fontSize = 26.sp, lineHeight = 34.sp),
+                    color = ink,
+                    maxLines = 1,
+                )
+                if (name.isNotBlank()) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(name, fontSize = 13.sp, color = muted, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                }
             }
-        }
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth().height(22.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(dateLabel, fontSize = 12.sp, color = muted, maxLines = 1)
-            if (weekNumber in 1..25) {
-                Text("  ·  ", fontSize = 12.sp, color = muted.copy(alpha = 0.5f))
-                Text("第 $weekNumber 周", fontSize = 12.sp,
-                    color = if (LocalIsDarkTheme.current) lerp(HomeSeal.Red, ink, 0.35f) else HomeSeal.Red,
-                    maxLines = 1)
-            }
-            if (status != null) {
-                Spacer(Modifier.width(14.dp))
-                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-                    HeroStatusLine(status, onStatus, compact = true)
+            Spacer(Modifier.height(6.dp))
+            Row(Modifier.fillMaxWidth().height(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(dateLabel, fontSize = 12.sp, color = muted, maxLines = 1)
+                if (weekNumber in 1..MAX_TEACHING_WEEK) {
+                    Text(" · ", fontSize = 12.sp, color = muted.copy(alpha = 0.5f))
+                    Text("第 $weekNumber 周", fontSize = 12.sp,
+                        color = if (LocalIsDarkTheme.current) lerp(HomeSeal.Red, ink, 0.35f) else HomeSeal.Red,
+                        maxLines = 1)
+                }
+                if (status != null) {
+                    Spacer(Modifier.width(12.dp))
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                        HeroStatusLine(status, onStatus, compact = true)
+                    }
                 }
             }
         }
@@ -434,31 +456,37 @@ private fun EditorialFrontPage(
     modifier: Modifier = Modifier,
     host: HomeHost,
     inbox: HomeInboxSummary?,
+    quick: (@Composable () -> Unit)?,
 ) {
     val nextUp = host.nextUp.takeIf { HomeCard.NEXT_UP in host.honoredCards }
     val exam = host.glances.takeIf { HomeCard.GLANCE in host.honoredCards }
         ?.firstOrNull { it.route == AppRoute.Schedule }
-    if (nextUp == null && inbox == null && exam == null) return
+    if (nextUp == null && inbox == null && exam == null && quick == null) return
 
-    Column(modifier.fillMaxWidth().editorialPaper(radius = 24.dp, tinted = true)) {
+    Column(modifier.fillMaxWidth().editorialPaper(tinted = true)) {
         nextUp?.let {
             EditorialNextUpLead(it) { it.route?.let(host::onRoute) ?: host.onProfile() }
         }
         if (exam != null) {
             if (nextUp != null) EditorialRule(Modifier.padding(horizontal = 18.dp))
             Row(
-                Modifier.fillMaxWidth().clickable { host.onRoute(AppRoute.Schedule) }
+                Modifier.fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = SinkFeedback(),
+                        onClick = { host.onRoute(AppRoute.Schedule) },
+                    )
                     .padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(exam.icon, null, tint = HomeSeal.Red, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(exam.label, fontSize = 11.sp, color = HomeSeal.Red)
+                Text(exam.label, fontSize = 12.sp, color = HomeSeal.Red)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(exam.value, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(exam.value, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     exam.caption?.takeIf { it.isNotBlank() }?.let {
-                        Text(it, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        Text(it, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                 }
@@ -469,6 +497,10 @@ private fun EditorialFrontPage(
         if (inbox != null) {
             if (nextUp != null || exam != null) EditorialRule(Modifier.padding(horizontal = 18.dp))
             InboxBrief(inbox) { host.onRoute(AppRoute.Inbox) }
+        }
+        if (quick != null) {
+            if (nextUp != null || exam != null || inbox != null) EditorialRule(Modifier.padding(horizontal = 18.dp))
+            Box(Modifier.padding(horizontal = 8.dp, vertical = 10.dp)) { quick() }
         }
     }
 }
@@ -506,8 +538,8 @@ private fun EditorialNextUpLead(
             )
             Spacer(Modifier.width(7.dp))
             Text(
-                if (timeLabel != null) "接下来 · NEXT UP" else "我的日程",
-                style = Editorial.kicker.copy(fontSize = 10.sp, letterSpacing = 1.6.sp),
+                if (timeLabel != null) "接下来" else "我的日程",
+                style = Editorial.kicker.copy(fontSize = 11.sp, letterSpacing = 1.6.sp),
                 color = muted,
                 modifier = Modifier.weight(1f),
             )
@@ -653,7 +685,7 @@ private fun InboxBrief(summary: HomeInboxSummary, onClick: () -> Unit) {
     ) {
         Text(
             "待办",
-            style = Editorial.kicker.copy(fontSize = 10.5.sp, letterSpacing = 1.5.sp),
+            style = Editorial.kicker.copy(fontSize = 11.sp, letterSpacing = 1.5.sp),
             color = HomeSeal.Red,
             modifier = Modifier
                 .border(0.6.dp, HomeSeal.Red.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
@@ -697,6 +729,7 @@ private fun InboxBrief(summary: HomeInboxSummary, onClick: () -> Unit) {
 private data class IndexCategorySection(
     val title: String,
     val subtitle: String,
+    val accent: Color,
     val rows: List<HomeServiceRow>,
 )
 
@@ -707,31 +740,19 @@ private fun HomeIndexCard(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, bottom = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("校园服务", fontSize = 19.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.width(9.dp))
-            Text("日常所需，都在这里", fontSize = 11.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            Spacer(Modifier.weight(1f))
-            Text("${sections.sumOf { it.rows.size }} 项", fontSize = 11.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        }
+        Text("校园服务", fontSize = 19.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(start = 4.dp, bottom = 12.dp))
         if (isWideLayout()) {
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                for (col in 0..1) {
+                balancedColumns(sections.size) { 2 + (sections[it].rows.size + 1) / 2 }.forEach { column ->
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        sections.forEachIndexed { index, section ->
-                            if (index % 2 == col) ServiceSection(index, section)
-                        }
+                        column.forEach { ServiceSection(sections[it]) }
                     }
                 }
             }
         } else {
             sections.forEachIndexed { index, section ->
-                ServiceSection(index, section)
+                ServiceSection(section)
                 if (index < sections.lastIndex) Spacer(Modifier.height(14.dp))
             }
         }
@@ -739,14 +760,13 @@ private fun HomeIndexCard(
 }
 
 @Composable
-private fun ServiceSection(index: Int, section: IndexCategorySection) {
-    val accent = if (LocalIsDarkTheme.current) lerp(section.rows.first().color, Color.White, 0.3f)
-        else section.rows.first().color
+private fun ServiceSection(section: IndexCategorySection) {
+    val dark = LocalIsDarkTheme.current
+    val accent = if (dark) lerp(section.accent, Color.White, 0.3f) else section.accent
     val ink = MiuixTheme.colorScheme.onSurface
     val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
-    val dark = LocalIsDarkTheme.current
     Column(
-        Modifier.fillMaxWidth().editorialPaper(radius = 24.dp)
+        Modifier.fillMaxWidth().editorialPaper()
             .drawBehind {
                 drawRect(Brush.radialGradient(
                     listOf(accent.copy(alpha = if (dark) 0.09f else 0.055f), Color.Transparent),
@@ -762,12 +782,9 @@ private fun ServiceSection(index: Int, section: IndexCategorySection) {
                 Text(section.title, fontSize = 17.sp, fontWeight = FontWeight.Bold,
                     fontFamily = Editorial.Serif, color = ink)
                 Spacer(Modifier.height(3.dp))
-                Text(section.subtitle, fontSize = 10.sp, color = muted, maxLines = 1,
+                Text(section.subtitle, fontSize = 11.sp, color = muted, maxLines = 1,
                     overflow = TextOverflow.Ellipsis)
             }
-            Text((index + 1).toString().padStart(2, '0'),
-                style = Editorial.figure.copy(fontSize = 30.sp, fontWeight = FontWeight.Normal),
-                color = accent.copy(alpha = if (dark) 0.32f else 0.19f))
         }
         section.rows.chunked(2).forEachIndexed { lineIndex, line ->
             if (lineIndex > 0) Spacer(Modifier.height(7.dp))
@@ -790,7 +807,7 @@ private fun IndexEntry(row: HomeServiceRow, modifier: Modifier = Modifier) {
     val iconColor = if (dark) lerp(row.color, Color.White, 0.4f) else row.color
     Row(
         modifier.background(tile, RoundedCornerShape(15.dp))
-            .opensRow(row, 15.dp).padding(horizontal = 10.dp, vertical = 13.dp),
+            .opensRow(row, 15.dp).padding(horizontal = 10.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(34.dp).background(row.color.copy(alpha = if (dark) 0.18f else 0.10f),
@@ -799,21 +816,22 @@ private fun IndexEntry(row: HomeServiceRow, modifier: Modifier = Modifier) {
         }
         Spacer(Modifier.width(9.dp))
         Column(Modifier.weight(1f)) {
-            Text(row.title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = ink,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(4.dp))
+            Text(row.title, fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium, color = ink,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(3.dp))
             Text(row.stat ?: row.subtitle,
-                fontSize = 10.sp, lineHeight = 14.sp,
+                fontSize = 11.sp, lineHeight = 15.sp,
                 fontWeight = if (row.stat != null) FontWeight.Medium else FontWeight.Normal,
                 color = when {
-                    row.stat == null -> muted
+                    row.stat == null || row.tone == HomeTone.MUTED -> muted
                     row.tone == HomeTone.ALERT -> MiuixTheme.colorScheme.error
+                    row.tone == HomeTone.ACCENT -> iconColor
                     else -> lerp(row.color, ink, if (dark) 0.55f else 0.25f)
                 },
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             row.statDetail?.takeIf { it.isNotBlank() }?.let {
                 Spacer(Modifier.height(2.dp))
-                Text(it, fontSize = 9.sp, lineHeight = 12.sp, color = muted,
+                Text(it, fontSize = 10.5.sp, lineHeight = 14.sp, color = muted,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
@@ -829,20 +847,19 @@ private fun HomeHeroCard(
     host: HomeHost,
     dateLabel: String,
     weekNumber: Int,
-    quickRows: List<HomeServiceRow>,
+    quick: (@Composable () -> Unit)?,
 ) {
     val honored = host.honoredCards
     val greeting = Greeting.of()
     val headline = if (host.greetingName.isBlank()) greeting else "$greeting，${host.greetingName}"
     val meta = buildString {
         append(dateLabel)
-        if (HomeCard.WEEK_NUMBER in honored && weekNumber in 1..25) append(" · 第${weekNumber}周")
+        if (HomeCard.WEEK_NUMBER in honored && weekNumber in 1..MAX_TEACHING_WEEK) append(" · 第${weekNumber}周")
     }
     val primary = MiuixTheme.colorScheme.primary
     val status = host.statusLine.takeIf { HomeCard.GREETING in honored }
     val nextUp = host.nextUp.takeIf { HomeCard.NEXT_UP in honored }
     val glances = host.glances.takeIf { HomeCard.GLANCE in honored }.orEmpty()
-    val showQuick = HomeCard.QUICK_ACTIONS in honored && quickRows.isNotEmpty()
 
     Box(
         modifier
@@ -921,25 +938,9 @@ private fun HomeHeroCard(
                     }
                 }
             }
-            if (showQuick) {
+            if (quick != null) {
                 Spacer(Modifier.height(12.dp))
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    quickRows.forEach { row ->
-                        HomeQuickAction(
-                            row.icon,
-                            row.title,
-                            row.color,
-                            onClick = row.onClick,
-                            modifier = Modifier.weight(1f),
-                            originKey = row.key,
-                            iconSize = 44.dp,
-                            solidIcon = true,
-                        )
-                    }
-                }
+                quick()
             }
         }
     }
@@ -981,12 +982,13 @@ private fun HeroStatusLine(
         indication = SinkFeedback(),
         onClick = onClick,
     )
+    // 刊头里只给结论，明细点开看
     if (compact) {
         Row(click, verticalAlignment = Alignment.CenterVertically) {
             dot()
             Spacer(Modifier.width(5.dp))
             Text(
-                "${status.label} · ${status.detail}",
+                status.label,
                 style = MiuixTheme.textStyles.footnote2,
                 color = muted,
                 maxLines = 1,
@@ -1221,6 +1223,7 @@ private fun HomeInboxCard(summary: HomeInboxSummary, onClick: () -> Unit) {
 private fun CategoryCards(
     count: Int,
     spacing: Dp,
+    weight: (Int) -> Int,
     card: @Composable (Int) -> Unit,
 ) {
     if (!isWideLayout()) {
@@ -1231,23 +1234,29 @@ private fun CategoryCards(
         return
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(spacing)) {
-        for (col in 0..1) {
-            Column(Modifier.weight(1f)) {
-                var first = true
-                var i = col
-                while (i < count) {
-                    if (!first) Spacer(Modifier.height(spacing))
-                    Box(Modifier.enterOnce(i + 1)) { card(i) }
-                    first = false
-                    i += 2
-                }
+        balancedColumns(count, weight).forEach { column ->
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(spacing)) {
+                column.forEach { i -> Box(Modifier.enterOnce(i + 1)) { card(i) } }
             }
         }
     }
 }
 
+/**
+ * 宽屏两列：分类只有几个，穷举分法取两列高度差最小的；第一块固定在左列，列内保持原顺序。
+ * [weight] 是各块的大致高度（行数）。
+ */
+private fun balancedColumns(count: Int, weight: (Int) -> Int): List<List<Int>> {
+    val w = List(count) { weight(it) }
+    fun inRight(mask: Int, i: Int) = (mask shr i) and 1 == 1
+    val best = (0 until (1 shl count) step 2).minByOrNull { mask ->
+        abs(w.indices.sumOf { if (inRight(mask, it)) w[it] else -w[it] })
+    } ?: 0
+    return w.indices.partition { !inRight(best, it) }.toList()
+}
+
 /** 两个主题共用的服务条目数据。 */
-private data class HomeServiceRow(
+internal data class HomeServiceRow(
     val key: String,
     val icon: ImageVector,
     val title: String,
@@ -1371,42 +1380,6 @@ private fun Modifier.opensRow(row: HomeServiceRow, radius: Dp = 12.dp): Modifier
         )
 }
 
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun HomeQuickAction(
-    icon: ImageVector,
-    label: String,
-    color: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    originKey: String? = null,
-    iconSize: Dp = 54.dp,
-    solidIcon: Boolean = false,
-) {
-    val origin = rememberExpandOriginSource()
-    val density = LocalDensity.current
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier
-            .then(if (originKey != null) Modifier.expandOriginSource(origin) else Modifier)
-            .clip(RoundedCornerShape(18.dp))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = SinkFeedback(),
-                onClick = {
-                    originKey?.let { origin.arm(it, 18.dp, density) }
-                    onClick()
-                }
-            )
-            .padding(horizontal = 4.dp, vertical = 6.dp)
-    ) {
-        if (solidIcon) GradientAppIcon(icon, color, size = iconSize, iconSize = iconSize * 0.5f)
-        else ExpressiveIcon(icon = icon, color = color, size = iconSize, iconSize = iconSize * 0.5f)
-        Spacer(Modifier.height(6.dp))
-        Text(label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
-    }
-}
-
 /** 首页各卡之间统一的间距。 */
 private val SECTION_GAP = 14.dp
 
@@ -1414,7 +1387,10 @@ private val SECTION_GAP = 14.dp
 private val BAR_HEIGHT = 52.dp
 
 /** 杂志版式的卡片圆角。 */
-private val EDITORIAL_RADIUS = 18.dp
+private val EDITORIAL_RADIUS = 24.dp
+
+/** 教学周超过这个数就不显示（假期或学期没对上）。 */
+private const val MAX_TEACHING_WEEK = 25
 
 /** 彩虹主题分类卡圆角。 */
 private val CARD_RADIUS = 26.dp

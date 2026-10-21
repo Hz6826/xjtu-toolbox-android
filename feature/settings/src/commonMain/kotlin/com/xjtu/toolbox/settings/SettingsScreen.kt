@@ -249,7 +249,7 @@ fun SettingsScreen(
                     OverlayDropdownPreference(
                         title = "主题",
                         items = themeOptions,
-                        summary = if (theme == SettingsStore.THEME_CARD) "三段式卡片布局" else "分类宫格彩虹图标",
+                        summary = if (theme == SettingsStore.THEME_CARD) "今日安排与分类面板" else "分类宫格彩虹图标",
                         selectedIndex = themeValues.indexOf(theme).coerceAtLeast(0),
                         startAction = { SettingsIcon(MiuixIcons.Theme, cOrange) },
                         onSelectedIndexChange = { idx ->
@@ -260,9 +260,10 @@ fun SettingsScreen(
                         }
                     )
                 }
-                if (showHomeTheme && showQuickActions && theme == SettingsStore.THEME_CARD) {
+                if (showHomeTheme && showQuickActions) {
                     SwitchPreference(
                         title = "显示常用功能",
+                        summary = "在首页长按常用功能可排序和增删",
                         checked = showQuickActionsOn,
                         startAction = { SettingsIcon(Icons.Default.Star, cTeal) },
                         onCheckedChange = { v ->

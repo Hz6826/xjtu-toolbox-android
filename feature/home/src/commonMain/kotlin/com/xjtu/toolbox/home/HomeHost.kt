@@ -105,6 +105,10 @@ interface HomeHost {
     /** 常用入口（空 = 不画这一排）。 */
     val quickRoutes: List<AppRoute> get() = emptyList()
 
+    /** 常用入口能否在首页上编辑（排序、增删）；能的端在 [onQuickRoutesChange] 里落盘。 */
+    val quickEditable: Boolean get() = false
+    fun onQuickRoutesChange(routes: List<AppRoute>) {}
+
     /** 各功能此刻的状态表（键 = [AppRoute.id]；空表 = 只有入口、没有状态）。 */
     val stats: Map<String, HomeStat> get() = emptyMap()
 

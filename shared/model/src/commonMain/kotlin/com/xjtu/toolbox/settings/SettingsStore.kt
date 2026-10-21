@@ -49,6 +49,11 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getBoolean(KEY_SHOW_QUICK_ACTIONS, true)
         set(value) = store.putBoolean(KEY_SHOW_QUICK_ACTIONS, value)
 
+    /** 用户置顶的常用功能（路由 id，按显示顺序）；null = 没编辑过，按使用频率挑。 */
+    var pinnedQuickRoutes: List<String>?
+        get() = store.getString("pinned_quick_routes")?.split('\n')?.filter { it.isNotBlank() }
+        set(value) = store.putString("pinned_quick_routes", value?.joinToString("\n"))
+
     /** 场馆滑块验证码自动识别开关。 */
     var venueAutoSolveCaptchaEnabled: Boolean
         get() = store.getBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, true)
