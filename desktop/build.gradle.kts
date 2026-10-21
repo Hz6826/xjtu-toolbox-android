@@ -134,6 +134,14 @@ tasks.register<JavaExec>("renderScreens") {
     args = listOf(layout.buildDirectory.dir("screenshots").get().asFile.absolutePath)
 }
 
+tasks.register<JavaExec>("renderHomePreview") {
+    group = "verification"
+    description = "Render the shared home screen with offline fixtures at phone and desktop sizes"
+    mainClass.set("com.xjtu.toolbox.desktop.RenderHomePreviewKt")
+    classpath = sourceSets["test"].runtimeClasspath
+    args = listOf(layout.buildDirectory.dir("home-preview").get().asFile.absolutePath)
+}
+
 /** `./gradlew :desktop:packageTarGz` —— 把 jpackage 的 app-image（免安装目录）打成 `tar.gz`。 */
 tasks.register<org.gradle.api.tasks.bundling.Tar>("packageTarGz") {
     group = "distribution"
