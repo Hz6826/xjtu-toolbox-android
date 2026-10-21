@@ -359,9 +359,9 @@ internal fun MainScreen(
                 courseSubtitle = courseSubtitle,
                 courseActions = courseHeaderActions,
                 courseBottomContent = courseHeaderBottomContent,
-                onScan = { showQrLogin = true },
-                onSearch = { showGlobalSearch = true },
-                onInbox = { router.open(AppRoute.Inbox) },
+                onScan = { ProactiveBubbleHost.clear(); showQrLogin = true },
+                onSearch = { ProactiveBubbleHost.clear(); showGlobalSearch = true },
+                onInbox = { ProactiveBubbleHost.clear(); router.open(AppRoute.Inbox) },
             )
         },
         // 零高度 layout 往上溢出绘制：气泡出现不撑高底栏，页面不跳

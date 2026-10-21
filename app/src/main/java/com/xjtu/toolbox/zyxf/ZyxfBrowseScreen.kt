@@ -41,6 +41,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
@@ -83,11 +84,14 @@ fun ZyxfBrowseScreen(
     val vm: ZyxfBrowseViewModel = viewModel { ZyxfBrowseViewModel(context) }
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    var searchFocused by remember { mutableStateOf(false) }
     val visible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
     LaunchedEffect(visible) {
         if (!visible) {
-            focus.clearFocus(force = true)
-            keyboard?.hide()
+            if (searchFocused) {
+                focus.clearFocus(force = true)
+                keyboard?.hide()
+            }
             vm.cancelPendingSearch()
         } else if (vm.query.isNotBlank()) {
             vm.runSearch()
@@ -155,6 +159,7 @@ fun ZyxfBrowseScreen(
                     onValueChange = vm::updateQuery,
                     onSearch = { vm.runSearch(); focus.clearFocus(force = true); keyboard?.hide() },
                     onClear = vm::clearSearch,
+                    onFocusChanged = { searchFocused = it },
                 )
             }
             if (!searching && stack.size > 1) {
@@ -342,6 +347,7 @@ private fun SearchField(
     onValueChange: (String) -> Unit,
     onSearch: () -> Unit,
     onClear: () -> Unit,
+    onFocusChanged: (Boolean) -> Unit,
 ) {
     Row(
         Modifier
@@ -370,7 +376,7 @@ private fun SearchField(
                 cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().onFocusChanged { onFocusChanged(it.isFocused) },
             )
             if (value.isEmpty()) {
                 Text(
