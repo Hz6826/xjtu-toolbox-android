@@ -23,9 +23,12 @@ class WebRouteCoverageTest {
         starts.mapIndexed { index, match ->
             val name = match.groupValues[1]
             val block = source.substring(match.range.first, starts.getOrNull(index + 1)?.range?.first ?: source.length)
-            val idLine = block.lineSequence().firstOrNull { it.contains("override val id") }
-                ?: error("AppRoute.$name 里找不到 `override val id` —— 这段解析要跟着改：$criterion")
-            DeclaredRoute(name, Regex("\"([^\"]*)\"").findAll(idLine).map { it.groupValues[1] }.toList())
+            require(block.contains("override val id")) { "AppRoute.$name 里找不到 `override val id`：$criterion" }
+            // getter 可以是多行 buildString；不能把声明的首行当成整个 getter。
+            val getter = block.substringAfter("override val id")
+                .substringBefore("override val")
+                .substringBefore("\n    }")
+            DeclaredRoute(name, Regex("\"([^\"]*)\"").findAll(getter).map { it.groupValues[1] }.toList())
         }
     }
 
