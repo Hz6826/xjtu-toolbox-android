@@ -12,24 +12,24 @@ import androidx.compose.ui.unit.dp
  */
 object HomeSeal {
     /** 方印：右列「岱宗」、左列「盒子」，按印章读序从右往左。折叠顶栏用。 */
-    val Square: ImageVector by lazy { seal("SealSquare", 50f, 50f, 9f, 2f, SQUARE_GLYPHS) }
+    val Square: ImageVector by lazy { seal("SealSquare", 50f, 50f, 7f, 2.2f, SQUARE_GLYPHS) }
 
     /** 竖长印：自上而下「岱宗盒子」。展开的刊头用。 */
-    val Tall: ImageVector by lazy { seal("SealTall", 22f, 80f, 5.5f, 1.5f, TALL_GLYPHS) }
+    val Tall: ImageVector by lazy { seal("SealTall", 22f, 80f, 3.6f, 1.4f, TALL_GLYPHS) }
 
-    /** 印泥色。深浅色下同一个：朱红在深底上同样醒目。 */
-    val Red = Color(0xFFB8352A)
+    /** 印泥色。深浅色下同一个：朱砂偏沉，压得住纸面。 */
+    val Red = Color(0xFFB2362B)
 
-    private val Paper = Color(0xFFFBF6EE)
+    private val Paper = Color(0xFFFAF5EC)
 
     private fun seal(name: String, w: Float, h: Float, radius: Float, inset: Float, glyphs: String): ImageVector =
         ImageVector.Builder(name, w.dp, h.dp, w, h)
             .addPath(addPathNodes(roundRect(0f, 0f, w, h, radius)), fill = SolidColor(Red))
             .addPath(
-                addPathNodes(roundRect(inset, inset, w - inset, h - inset, radius - inset)),
+                addPathNodes(roundRect(inset, inset, w - inset, h - inset, (radius - inset).coerceAtLeast(1f))),
                 stroke = SolidColor(Paper),
-                strokeAlpha = 0.9f,
-                strokeLineWidth = 0.7f,
+                strokeAlpha = 0.82f,
+                strokeLineWidth = 0.55f,
             )
             .addPath(addPathNodes(glyphs), fill = SolidColor(Paper))
             .build()

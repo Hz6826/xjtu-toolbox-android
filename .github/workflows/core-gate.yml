@@ -49,6 +49,18 @@ jobs:
           :shared:model:jvmTest :shared:navigation:jvmTest :shared:designsystem:jvmTest :shared:network:jvmTest
           :feature:account:jvmTest :feature:agent:jvmTest :feature:attendance:jvmTest :feature:campus:jvmTest :feature:community:jvmTest :feature:game:jvmTest :feature:home:jvmTest :feature:jiaocai:jvmTest :feature:library:jvmTest :feature:lms:jvmTest :feature:notice:jvmTest :feature:schedule:jvmTest :feature:score:jvmTest :feature:settings:jvmTest :feature:webvpn:jvmTest
 
+      - name: 装中日字体（:desktop:test 里量的是离屏渲染的文字宽度）
+        # ubuntu-latest 镜像没有中日字体 ⇒ 字形缺失、量出来的文字宽度不对，而
+        # DesktopShellRailJvmTest 断言的正是那个宽度（CI 上实测 15.0px）。装完用 fc-list 响亮自检：
+        # 镜像/包一旦变了就在这里红，而不是让人去猜后面那条断言。
+        run: |
+          set -x
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          fc-list :lang=zh > "$RUNNER_TEMP/chinese-fonts.txt"
+          test -s "$RUNNER_TEMP/chinese-fonts.txt" || { echo "::error::装完 fonts-noto-cjk 仍查不到中文字体"; exit 1; }
+          head -3 "$RUNNER_TEMP/chinese-fonts.txt"
+
       - name: 数据层（:data）与桌面端（:desktop）也要能编、能测
         # :data 是同一条判据的第二个消费者：它刻意**只有 jvm + android** 两个目标
         # （okhttp 只发布 jvm/android 变体、jsoup 只有一份 JVM jar，加 wasm 立刻编不过），
@@ -61,3 +73,14 @@ jobs:
         # :testkit 是假的校园上游（图书馆座位系统 + 统一认证）—— 它不在任何交付物里，但上面两条
         # 测试都依赖它，所以要单独编一遍（它一旦编不过，两边的失败信息都很难指向真因）。
         run: ./gradlew :testkit:compileKotlin :shared:data:compileAndroidMain :shared:data:jvmTest :data:compileAndroidMain :data:jvmTest :desktop:compileKotlin :desktop:test
+
+      - name: 失败时保留诊断报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-gate-failure-reports
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            **/build/reports/tests/**
+            **/build/test-results/**

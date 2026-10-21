@@ -118,5 +118,34 @@ jobs:
       # ── 验证步骤刻意放在出包**之后**：万一有用例红了，`.deb` 与 app-image 仍然留得下来给人查。
       #    这里跑的是 :desktop 自己的整套；:core / :data / :testkit 那几道在 core-gate.yml 里
       #    （同一个 ubuntu-latest，不重复一遍）。
+      - name: 装中日字体（用例量的是离屏渲染的文字宽度）
+        # 为什么：`DesktopShellRailJvmTest` 把界面离屏渲染一遍，再量「首页」这类汉字的**文字宽度**；
+        # ubuntu-latest 镜像里没有中日字体 ⇒ 字形缺失、量出来的宽度不对（CI 上报 15.0，本机有
+        # WenQuanYi 就是绿的）。本应用是中文应用，CI 本来就该有中日字体。
+        # 不写 `apt-get upgrade`：又慢又跟本次无关。
+        run: |
+          set -x
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          # 只要这一个包：Noto Sans CJK 一个 .ttc 就覆盖简繁日韩。没要 `-extra` ——
+          # 它多下 ~145MB，给的只是按语言切分的同一批字形，这条用例用不上。
+          # 装完就得查得到：查不到就在这里响亮失败，别让人去猜后面那条 15.0px 的断言
+          # （同「确认 Android SDK 在」那一步的用意）。
+          fc-list :lang=zh > "$RUNNER_TEMP/chinese-fonts.txt"
+          test -s "$RUNNER_TEMP/chinese-fonts.txt" || { echo "::error::装完 fonts-noto-cjk 仍查不到中文字体"; exit 1; }
+          head -3 "$RUNNER_TEMP/chinese-fonts.txt"
+
       - name: 桌面端单元测试
         run: ./gradlew :desktop:test
+
+      - name: 失败时保留诊断报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux-failure-reports
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            desktop/build/reports/tests/**
+            desktop/build/test-results/**
+            desktop/build/compose/logs/**
