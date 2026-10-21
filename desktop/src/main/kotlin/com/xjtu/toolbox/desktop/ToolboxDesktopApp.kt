@@ -656,6 +656,7 @@ private fun DesktopPage(
 
         // 社区：上游是 GitHub，不套 `DesktopSiteGate`；登录态存储名与键不能改。
         AppRoute.Community -> CommunityScreen(
+            imageStorage = remember { com.xjtu.toolbox.community.GithubImageStorage({ SecureGithubSession.get().login.value }) },
             session = remember { SecureGithubSession.get() },
             deviceAuth = remember {
                 GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID)

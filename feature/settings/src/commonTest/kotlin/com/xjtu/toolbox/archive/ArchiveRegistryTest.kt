@@ -12,6 +12,7 @@ class ArchiveRegistryTest {
         val credential = listOf(
             "xjtu_credentials", "xjtu_accounts", "xjtu_cookies", "github_community", "serve",
             "cookies_normal", "cookies_webvpn", "sites_normal", "sites_webvpn", "agent_config_secure",
+            "community_images_alice", "community_images_bob",
         )
         credential.forEach { assertTrue(ArchiveRegistry.isCredential(it), "应为凭据族：$it") }
 
