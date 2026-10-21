@@ -158,10 +158,11 @@ fun ScheduleGrid(
         return rowTops[i] + y * scale
     }
 
-    // 当前时间线位置计算（仅在当前周激活）
+    val campusNow = com.xjtu.toolbox.ui.rememberCampusNow()
+    // 当前时间线位置计算（仅在当前周激活），每分钟及恢复前台时校准。
     val timeLineInfo = if (isCurrentWeek) {
-        val now = nowOnCampus().time
-        val todayDow = todayOnCampus().dayOfWeek.ordinal + 1  // 1=Mon...7=Sun
+        val now = campusNow.time
+        val todayDow = campusNow.date.dayOfWeek.ordinal + 1  // 1=Mon...7=Sun
         Pair(todayDow, layout.positionOf(now.hour * 60 + now.minute, todaySummer))
     } else null
     Column(
@@ -177,7 +178,7 @@ fun ScheduleGrid(
                 Text("", fontSize = 9.sp)
             }
             DAY_HEADERS.forEachIndexed { idx, day ->
-                val todayDow = todayOnCampus().dayOfWeek.ordinal + 1
+                val todayDow = campusNow.date.dayOfWeek.ordinal + 1
                 val isToday = isCurrentWeek && (idx + 1) == todayDow
                 val date = weekDates?.getOrNull(idx)
                 val holidayName = if (date != null) holidayNames[date] else null

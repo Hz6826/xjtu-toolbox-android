@@ -56,41 +56,38 @@ internal object NoticeWatchSync {
 
         val api = NotificationApi()
         val collected = mutableListOf<Notification>()
+        val successfulSources = mutableSetOf<NotificationSource>()
         for (source in selected) {
             val page = withContext(Dispatchers.IO) {
                 runCatching { api.getNotificationPage(source, 1) }
                     .onFailure { Log.w(TAG, "source ${source.displayName}: ${it.message}") }
                     .getOrNull()
             }
-            if (page != null) collected += page.items
+            if (page != null) {
+                collected += page.items
+                successfulSources += source
+            }
         }
 
+        if (successfulSources.isEmpty()) {
+            return@withLock Result(cachedTitles, cachedTitles.firstOrNull(), 0, usedCache = true)
+        }
         val items = collected
             .filter { it.link.isNotBlank() }
             .sortedByDescending { it.date }
 
-        val seen = NoticeWatchStore.seenLinks(app).toMutableList()
-        val seenSet = seen.toHashSet()
-        val baselined = NoticeWatchStore.baselinedSources(app).toMutableSet()
-
-        // 新勾上的来源先记基线，不把人家栏目里本来就有的旧公告当成「新通知」。
-        for (source in selected) {
-            if (source.name in baselined) continue
-            items.filter { it.source == source }.forEach { n ->
-                if (seenSet.add(n.link)) seen.add(n.link)
-            }
-            baselined.add(source.name)
-        }
-
-        val fresh = items.filter { it.link !in seenSet }
-        fresh.forEach { n ->
-            if (seenSet.add(n.link)) seen.add(n.link)
-        }
+        val delta = noticeDelta(
+            items, successfulSources, NoticeWatchStore.seenLinks(app),
+            NoticeWatchStore.baselinedSources(app), NoticeWatchStore.latestDates(app),
+            com.xjtu.toolbox.util.todayOnCampus(),
+        )
+        val fresh = delta.fresh
         com.xjtu.toolbox.inbox.InboxStore.post(fresh.map(com.xjtu.toolbox.inbox.OwnInbox::notice))
-
-        NoticeWatchStore.setSeenLinks(app, seen)
-        NoticeWatchStore.setBaselinedSources(app, baselined)
-        NoticeWatchStore.setLastSyncAt(app, now)
+        NoticeWatchStore.setSeenLinks(app, delta.seen)
+        NoticeWatchStore.setBaselinedSources(app, delta.baselined)
+        NoticeWatchStore.setLatestDates(app, delta.latestDates)
+        // 全部失败时保留原有同步时间，下次进入页面仍能重试。
+        if (successfulSources.isNotEmpty()) NoticeWatchStore.setLastSyncAt(app, now)
 
         val multi = selected.size > 1
         val titles = items.take(3).map { formatTitle(it, multi) }

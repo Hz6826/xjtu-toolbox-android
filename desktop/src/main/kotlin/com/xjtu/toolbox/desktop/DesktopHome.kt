@@ -41,6 +41,7 @@ internal fun DesktopHomeScreen(
     bulletins: DesktopBulletins,
     onNavigate: (DesktopTarget) -> Unit,
 ) {
+    val campusNow = com.xjtu.toolbox.ui.rememberCampusNow()
     val accountId = AccountContext.activeAccountId
     val host = remember(auth) { DesktopScheduleHost(auth) }
     val cache: ScheduleCacheStore = remember(accountId) { host.cache(accountId) }
@@ -48,7 +49,7 @@ internal fun DesktopHomeScreen(
 
     // ── 课表族缓存里那几样（下一项安排 / 教学周 / 各功能此刻的状态）──
     // 只在「进这一屏」「切账号」「课表同步过」时读一次；读的都是本机缓存，一个请求都不发。
-    LaunchedEffect(accountId, DesktopHomeSignals.scheduleVersion) {
+    LaunchedEffect(accountId, DesktopHomeSignals.scheduleVersion, campusNow.date, campusNow.hour, campusNow.minute) {
         val data = withContext(Dispatchers.IO) {
             val today = todayOnCampus()
             val term = ScheduleCache.readCurrentTerm(cache)

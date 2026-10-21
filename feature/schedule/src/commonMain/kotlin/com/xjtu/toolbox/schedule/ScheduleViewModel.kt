@@ -285,6 +285,16 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
 
     private fun readCachedTerms(): List<String> = ScheduleCache.readTermList(cache)
 
+    /** 只重算本地周次，不拉网络，也不把用户手动翻到的周次跳回今天。 */
+    fun refreshClock(today: LocalDate) {
+        val start = startOfTerm ?: return
+        val old = realCurrentWeek
+        val status = TermWeeks.statusOf(start, totalWeeks, TermWeeks.firstTeachWeekOf(courses), today)
+        realCurrentWeek = (status as? TermWeeks.Status.InTerm)?.week ?: 0
+        weekNote = TermWeeks.noteOf(status)
+        if (old > 0 && currentWeek == old) currentWeek = TermWeeks.displayWeekOf(status)
+    }
+
     private fun applyTermStart(startDate: LocalDate) {
         startOfTerm = startDate
         try {

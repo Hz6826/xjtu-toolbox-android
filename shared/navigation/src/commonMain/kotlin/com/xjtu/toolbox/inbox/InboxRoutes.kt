@@ -18,3 +18,12 @@ fun InboxCategories.ofRoute(route: AppRoute): String? = when (route) {
     is AppRoute.Lms -> LMS
     else -> null
 }
+/** 升级前已缓存的作业待办仍可从稳定 ID 恢复活动深链；测试维持原有课程入口。 */
+fun InboxItem.resolvedRouteId(): String? {
+    if (category != InboxCategories.LMS || !id.startsWith("lms:")) return route
+    val keys = id.removePrefix("lms:").split(':')
+    if (keys.size != 2) return route
+    val course = keys[0].toIntOrNull()?.takeIf { it > 0 } ?: return route
+    val activity = keys[1].toIntOrNull()?.takeIf { it > 0 } ?: return route
+    return AppRoute.Lms(course, activity).id
+}

@@ -105,9 +105,13 @@ sealed interface AppRoute : NavKey {
     }
     @Serializable data object DownloadManager : AppRoute { override val id get() = "download_manager" }
 
-    /** 思源学堂；带 courseId 时直接落到那门课（LMS 自己的课程 ID）。 */
-    @Serializable data class Lms(val courseId: Int? = null) : AppRoute {
-        override val id get() = if (courseId == null) "lms" else "lms?courseId=$courseId"
+    /** 思源学堂；课程及活动 ID 可用于从待办直达作业详情。 */
+    @Serializable data class Lms(val courseId: Int? = null, val activityId: Int? = null) : AppRoute {
+        override val id get() = buildString {
+            append("lms")
+            if (courseId != null) append("?courseId=$courseId")
+            if (activityId != null) append(if (courseId == null) "?" else "&").append("activityId=$activityId")
+        }
         override val loginType get() = LoginType.LMS
     }
     @Serializable data object Jiaocai : AppRoute {
@@ -196,7 +200,10 @@ fun appRouteOf(id: String): AppRoute? {
         ?.substringAfter('=', missingDelimiterValue = "")
         ?.let { raw -> decodeUrlComponentOrNull(raw) ?: raw }
     return when {
-        path == "lms" -> AppRoute.Lms(param("courseId")?.toIntOrNull())
+        path == "lms" -> AppRoute.Lms(
+            param("courseId")?.toIntOrNull()?.takeIf { it > 0 },
+            param("activityId")?.toIntOrNull()?.takeIf { it > 0 },
+        )
         path == "browser" -> AppRoute.Browser(param("url").orEmpty(), param("then").orEmpty())
         path.startsWith("jiaocai1_reader/") -> {
             val ssno = path.removePrefix("jiaocai1_reader/")

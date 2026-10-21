@@ -622,6 +622,8 @@ private fun DesktopPage(
             val hintPrefs = remember { keyValueStore("feature_hints") }
             LmsScreen(
                 source = remember(site) { AppLmsSource(site, DesktopLmsSaver) },
+                initialCourseId = route.courseId,
+                initialActivityId = route.activityId,
                 onBack = back,
                 cacheStore = null,
                 showFirstUseHint = !hintPrefs.getBoolean("lms_hint_shown", false),

@@ -66,7 +66,7 @@ class OwnInboxTest {
         )
         val lms = OwnInbox.lmsTodos(listOf(due, due.copy(activityId = 43, submitted = true))).single()
         assertEquals("lms:7:42", lms.id, "已交的那条不进收纳")
-        assertEquals(AppRoute.Lms(7).id, lms.route)
+        assertEquals(AppRoute.Lms(7, 42).id, lms.route)
         assertEquals(due.fetchedAt, lms.time)
         assertTrue(lms.expiresAt > 0, "截止时间是解析出来的毫秒（不是 0）")
         assertEquals(emptyList(), OwnInbox.lmsTodos(listOf(due.copy(deadline = "不是时间"))), "解析不出来的整条丢掉")
