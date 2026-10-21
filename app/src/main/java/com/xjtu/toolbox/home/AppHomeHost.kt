@@ -65,6 +65,8 @@ internal fun rememberAppHome(
     onBulletinDismiss: (Bulletin) -> Unit = {},
 ): AppHome {
     val context = LocalContext.current
+    val campusNow = com.xjtu.toolbox.ui.rememberCampusNow()
+    var reminderAccount by remember { mutableStateOf<String?>(null) }
     // ── 仪表盘数据：下一节日程 + 校园卡余额缓存（供 Hero 重点信息区使用）──
     var scheduleReminder by remember { mutableStateOf<HomeNextUp?>(null) }
     var isScheduleReminderLoaded by remember { mutableStateOf(false) }
@@ -83,13 +85,16 @@ internal fun rememberAppHome(
 
     // key 上 HomeSignals.scheduleVersion：日程页同步/下拉刷新落了新课后会 bump 它，
     // 这里跟着重读课表缓存，Hero 的「下一项安排」不用退出重登才更新。
-    LaunchedEffect(loginState.accountId, HomeSignals.scheduleVersion) {
+    LaunchedEffect(loginState.accountId, HomeSignals.scheduleVersion, campusNow.date, campusNow.hour, campusNow.minute) {
+        if (reminderAccount != loginState.accountId) {
+            reminderAccount = loginState.accountId
+            isScheduleReminderLoaded = false
+            scheduleReminder = null
+            scheduleDataMissing = false
+            currentWeekNumber = 0
+        }
         if (loginState.accountId.isEmpty()) return@LaunchedEffect
         // 账号切换：先清旧账号的提醒与校园卡缓存内存态，再从新账号命名空间重读
-        isScheduleReminderLoaded = false
-        scheduleReminder = null
-        scheduleDataMissing = false
-        currentWeekNumber = 0
         cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
         cachedDailyRate = cardPrefs.getFloat("card_daily_rate_cache", -1f)
         // 返回 Triple(下一项安排, 当前周次, 课表数据是否不可用)。第三位 true 时
@@ -141,6 +146,7 @@ internal fun rememberAppHome(
         loginState.accountId,
         loginState.campusCardCacheVersion,
         HomeSignals.statsVersion,
+        campusNow.date,
     ) {
         val term = withContext(Dispatchers.IO) {
             runCatching { ScheduleCache.readCurrentTerm(DataCache(context)) }.getOrNull()
@@ -202,7 +208,7 @@ internal fun rememberAppHome(
         )
     } else null
 
-    val today = LocalDate.now(com.xjtu.toolbox.util.CampusZoneId)
+    val today = campusNow.date.toJavaTime()
     val weekDay = today.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.CHINESE)
 
     // 杂志版式把待办与消息放进头版；彩虹主题仍只靠顶栏铃铛的角标

@@ -88,9 +88,7 @@ internal fun ExamCard(
                         style = MiuixTheme.textStyles.body1,
                         fontWeight = FontWeight.Bold,
                         color = scheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.weight(1f),
                     )
                     Spacer(Modifier.width(6.dp))
                     Surface(
@@ -109,7 +107,6 @@ internal fun ExamCard(
                 val detail = listOfNotNull(
                     exam.examDate.takeIf { it.isNotBlank() },
                     exam.examTime.takeIf { it.isNotBlank() },
-                    exam.location.takeIf { it.isNotBlank() },
                 ).joinToString("  ")
                 if (detail.isNotBlank()) {
                     Spacer(Modifier.height(3.dp))
@@ -117,9 +114,12 @@ internal fun ExamCard(
                         detail,
                         style = MiuixTheme.textStyles.footnote1,
                         color = scheme.onSurfaceVariantSummary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
+                }
+                if (exam.location.isNotBlank()) {
+                    Spacer(Modifier.height(5.dp))
+                    Text("考场 · ${exam.location}", style = MiuixTheme.textStyles.footnote1,
+                        color = scheme.onSurface, softWrap = true)
                 }
             }
             // 已结束的场次不用再找座位了，隐藏角标。

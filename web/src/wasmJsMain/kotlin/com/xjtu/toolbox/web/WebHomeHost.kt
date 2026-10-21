@@ -41,11 +41,12 @@ internal fun WebHomeScreen(
 ) {
     // 课表族那一份缓存：与日程屏**同一个宿主实现、同一组键**（`schedule_cache` 命名空间）。
     // 首页与日程读的是同一份 localStorage，所以日程同步过之后首页立刻算得出「下一项安排」。
+    val campusNow = com.xjtu.toolbox.ui.rememberCampusNow()
     val scheduleHost = remember(client, mode) { WebScheduleHost(client, mode) }
     val cache = remember(scheduleHost) { scheduleHost.cache(null) }
     val state = remember { WebHomeState() }
 
-    LaunchedEffect(scheduleHost) {
+    LaunchedEffect(scheduleHost, campusNow.date, campusNow.hour, campusNow.minute) {
         // wasm 是单线程、localStorage 是同步的 ⇒ 这一段不需要切线程（桌面那一份要 withContext，
         // 因为它的键值缝是文件）。读的还是「进这一屏」这一下，不发请求。
         val today = todayOnCampus()

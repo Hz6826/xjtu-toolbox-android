@@ -66,7 +66,7 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
  * 资料站的签名链**按 IP 限流**（每分钟 60 次、每小时 240 次）。网页版天然安全，
  * 因为用户点一次才请求一次；原生端一旦做"列表页预取缩略图/预热直链"，一屏就能打爆，
  * 而且打爆的是**别人的**服务。所以这里严格保持"一次交互一次请求"，
- * 目录内容按需拉、直链点了才要。
+ * 目录内容按需拉、直链点了才要；关键词输入停止 500ms 后才检索，不预取下载地址。
  *
  * 预览另见 [ZyxfPreviewSheet]：那一层的渲染借阿里云 IMM，不自己造。
  */
@@ -81,6 +81,18 @@ fun ZyxfBrowseScreen(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val vm: ZyxfBrowseViewModel = viewModel { ZyxfBrowseViewModel(context) }
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val visible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
+    LaunchedEffect(visible) {
+        if (!visible) {
+            focus.clearFocus(force = true)
+            keyboard?.hide()
+            vm.cancelPendingSearch()
+        } else if (vm.query.isNotBlank()) {
+            vm.runSearch()
+        }
+    }
     val stack = vm.stack
     val entries = vm.entries
     val searching = vm.searching
@@ -140,8 +152,8 @@ fun ZyxfBrowseScreen(
             item(key = "search", contentType = "header") {
                 SearchField(
                     value = vm.query,
-                    onValueChange = { vm.query = it },
-                    onSearch = vm::runSearch,
+                    onValueChange = vm::updateQuery,
+                    onSearch = { vm.runSearch(); focus.clearFocus(force = true); keyboard?.hide() },
                     onClear = vm::clearSearch,
                 )
             }

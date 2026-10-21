@@ -38,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.geometry.Offset
@@ -213,6 +214,7 @@ internal fun MainScreen(
     // 和上面撞车时 refreshDue 自己会跳过后到的那次
     val resumeScope = rememberCoroutineScope()
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        com.xjtu.toolbox.widget.ScheduleWidgetUpdater.requestUpdate(context, resetToToday = false)
         if (loginState.accountId.isEmpty()) return@LifecycleEventEffect
         resumeScope.launch {
             launch { runCatching { loginState.ensureCampusDetected() } }
@@ -248,6 +250,7 @@ internal fun MainScreen(
             onPidaiTap()
         } else {
             if (tab.id != selectedTab.name) haptics.tick()
+            ProactiveBubbleHost.clear()
             tabs.selected = BottomTab.entries.firstOrNull { it.name == tab.id } ?: BottomTab.HOME
         }
     }
@@ -456,81 +459,90 @@ internal fun MainScreen(
         restoring = isRestoring,
         restoreStep = restoreStep,
         page = { shellPage, insets ->
-            // 这一端每格一个分支（判据是格 id：BottomTab 是存盘与启动意图按它认的那个名字）；
-            // `shellPage.tab` 在 Android 上不会为 null（当前页就是选中的那一格），`else` 收「我的」那一格
-            when (shellPage.tab?.id) {
-                BottomTab.HOME.name -> HomeTab(
-                    loginState,
-                    isRestoring = isRestoring,
-                    onNavigate = router::open,
-                    onNavigateToProfile = { tabs.selected = BottomTab.PROFILE },
-                    onNavigateToCourses = { tabs.selected = BottomTab.COURSES },
-                    // 首页不要顶栏，也就没有大标题的展开折叠
-                    scrollBehavior = null,
-                    extraBottomPadding = insets.bottomBarReserve,
-                    homeTheme = homeTheme,
-                    showQuickActions = showQuickActions,
-                    bulletins = heroBulletins,
-                    onBulletinTap = onHeroBulletinTap,
-                    onBulletinDismiss = onHeroBulletinDismiss,
-                    contentTopPadding = insets.contentTopPadding,
-                    topActions = {
-                        HomeTopActions(
-                            onInbox = { router.open(AppRoute.Inbox) },
-                            onScan = { showQrLogin = true },
-                            onSearch = { showGlobalSearch = true },
-                        )
-                    },
-                )
+            Box(Modifier.fillMaxSize().pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                        if (event.changes.any { it.pressed && !it.previousPressed }) ProactiveBubbleHost.clear()
+                    }
+                }
+            }) {
+                // 这一端每格一个分支（判据是格 id：BottomTab 是存盘与启动意图按它认的那个名字）；
+                // `shellPage.tab` 在 Android 上不会为 null（当前页就是选中的那一格），`else` 收「我的」那一格
+                when (shellPage.tab?.id) {
+                    BottomTab.HOME.name -> HomeTab(
+                        loginState,
+                        isRestoring = isRestoring,
+                        onNavigate = router::open,
+                        onNavigateToProfile = { tabs.selected = BottomTab.PROFILE },
+                        onNavigateToCourses = { tabs.selected = BottomTab.COURSES },
+                        // 首页不要顶栏，也就没有大标题的展开折叠
+                        scrollBehavior = null,
+                        extraBottomPadding = insets.bottomBarReserve,
+                        homeTheme = homeTheme,
+                        showQuickActions = showQuickActions,
+                        bulletins = heroBulletins,
+                        onBulletinTap = onHeroBulletinTap,
+                        onBulletinDismiss = onHeroBulletinDismiss,
+                        contentTopPadding = insets.contentTopPadding,
+                        topActions = {
+                            HomeTopActions(
+                                onInbox = { router.open(AppRoute.Inbox) },
+                                onScan = { showQrLogin = true },
+                                onSearch = { showGlobalSearch = true },
+                            )
+                        },
+                    )
 
-                BottomTab.PIDAI.name -> AgentScreen(
-                    // 端装配与端上资源：`:core` 的屁岱只认这条缝（见 AgentHost）
-                    host = remember { AndroidAgentHost(context, loginState) },
-                    // 系统相册挑图（`:app` 的适配器）：`:core` 拿不到 ActivityResultLauncher
-                    imagePicker = rememberAndroidAgentImagePicker(),
-                    // 屁岱形象那三块（首屏问候头、戳一下的回应气泡、形象选择）都还在这一端：
-                    // 它们认 `ProactiveBubbleHost` / 形象设置 / `PidaiPokes`，桌面没有那几样。
-                    hero = { title, facts, now -> AndroidPidaiHero(title, facts, now) },
-                    pokeWhisper = { AndroidPokeWhisper(it) },
-                    appearanceSection = { PidaiAppearancePanel() },
-                    // 输入栏钉在底边，要让开浮在上面的底栏
-                    extraBottomPadding = insets.bottomBarReserve,
-                    hostBottomPadding = insets.scaffoldBottomPadding,
-                    scrollBehavior = agentScrollBehavior,
-                    onTitleChange = { agentTitle = it },
-                    onActionsChange = { agentHeaderActions = it },
-                    onNavIconChange = { agentHeaderNavIcon = it },
-                    onNavigate = router::open,
-                    contentTopPadding = insets.contentTopPadding,
-                )
+                    BottomTab.PIDAI.name -> AgentScreen(
+                        // 端装配与端上资源：`:core` 的屁岱只认这条缝（见 AgentHost）
+                        host = remember { AndroidAgentHost(context, loginState) },
+                        // 系统相册挑图（`:app` 的适配器）：`:core` 拿不到 ActivityResultLauncher
+                        imagePicker = rememberAndroidAgentImagePicker(),
+                        // 屁岱形象那三块（首屏问候头、戳一下的回应气泡、形象选择）都还在这一端：
+                        // 它们认 `ProactiveBubbleHost` / 形象设置 / `PidaiPokes`，桌面没有那几样。
+                        hero = { title, facts, now -> AndroidPidaiHero(title, facts, now) },
+                        pokeWhisper = { AndroidPokeWhisper(it) },
+                        appearanceSection = { PidaiAppearancePanel() },
+                        // 输入栏钉在底边，要让开浮在上面的底栏
+                        extraBottomPadding = insets.bottomBarReserve,
+                        hostBottomPadding = insets.scaffoldBottomPadding,
+                        scrollBehavior = agentScrollBehavior,
+                        onTitleChange = { agentTitle = it },
+                        onActionsChange = { agentHeaderActions = it },
+                        onNavIconChange = { agentHeaderNavIcon = it },
+                        onNavigate = router::open,
+                        contentTopPadding = insets.contentTopPadding,
+                    )
 
-                BottomTab.COURSES.name -> CoursesTab(
-                    loginState = loginState,
-                    onNavigate = router::open,
-                    scrollBehavior = coursesScrollBehavior,
-                    extraBottomPadding = insets.bottomBarReserve,
-                    contentTopPadding = insets.contentTopPadding,
-                    onSubtitleChange = { courseSubtitle = it },
-                    onActionsChange = { courseHeaderActions = it },
-                    onBottomContentChange = { courseHeaderBottomContent = it },
-                )
+                    BottomTab.COURSES.name -> CoursesTab(
+                        loginState = loginState,
+                        onNavigate = router::open,
+                        scrollBehavior = coursesScrollBehavior,
+                        extraBottomPadding = insets.bottomBarReserve,
+                        contentTopPadding = insets.contentTopPadding,
+                        onSubtitleChange = { courseSubtitle = it },
+                        onActionsChange = { courseHeaderActions = it },
+                        onBottomContentChange = { courseHeaderBottomContent = it },
+                    )
 
-                BottomTab.TOOLS.name -> ZyxfBrowseScreen(
-                    contentPadding = PaddingValues(bottom = insets.bottomBarReserve),
-                    scrollBehavior = toolsScrollBehavior,
-                    contentTopPadding = insets.contentTopPadding,
-                )
+                    BottomTab.TOOLS.name -> ZyxfBrowseScreen(
+                        contentPadding = PaddingValues(bottom = insets.bottomBarReserve),
+                        scrollBehavior = toolsScrollBehavior,
+                        contentTopPadding = insets.contentTopPadding,
+                    )
 
-                else -> ProfileTab(
-                    loginState,
-                    credentialStore,
-                    accountManager,
-                    onNavigate = router::open,
-                    scrollBehavior = profileScrollBehavior,
-                    extraBottomPadding = insets.bottomBarReserve,
-                    onWarmupRequest = onWarmupRequest,
-                    contentTopPadding = insets.contentTopPadding,
-                )
+                    else -> ProfileTab(
+                        loginState,
+                        credentialStore,
+                        accountManager,
+                        onNavigate = router::open,
+                        scrollBehavior = profileScrollBehavior,
+                        extraBottomPadding = insets.bottomBarReserve,
+                        onWarmupRequest = onWarmupRequest,
+                        contentTopPadding = insets.contentTopPadding,
+                    )
+                }
             }
         },
     )

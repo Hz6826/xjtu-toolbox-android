@@ -347,6 +347,7 @@ fun AppNavHost(
                     source = remember(site) { AppLmsSource(site, AppLmsSink(lmsContext)) },
                     onBack = back,
                     initialCourseId = route.courseId,
+                    initialActivityId = route.activityId,
                     cacheStore = remember(accountId) { AppLmsCache(lmsContext, accountId.ifEmpty { null }) },
                     showFirstUseHint = !hintPrefs.getBoolean("lms_hint_shown", false),
                     onFirstUseHintRead = { hintPrefs.edit().putBoolean("lms_hint_shown", true).apply() },

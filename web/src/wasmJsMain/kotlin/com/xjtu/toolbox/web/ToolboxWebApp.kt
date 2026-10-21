@@ -520,6 +520,7 @@ private fun AppPage(
                         onBack = back,
                         // 深链 `?route=lms?courseId=` 带的课程：一到课程列表就直接翻到那门课的活动页
                         initialCourseId = route.courseId,
+                    initialActivityId = route.activityId,
                         // 课表缓存那一格不传（null = 不缓存，取数照常）：浏览器里的 localStorage 与
                         // `LmsCacheStore` 的语义对不上，本端不假装有一份首屏秒开。
                         cacheStore = null,

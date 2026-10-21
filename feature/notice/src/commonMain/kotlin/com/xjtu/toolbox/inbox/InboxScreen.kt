@@ -119,10 +119,10 @@ fun InboxScreen(
     val glass = rememberPageGlass()
 
     val data = InboxStore.snapshot()
-    val now = remember(data) { Clock.System.now().toEpochMilliseconds() }
-    val todos = remember(data) { InboxRules.todos(data, now) }
-    val finished = remember(data) { InboxRules.finished(data, now) }
-    val groups = remember(data) { InboxRules.groups(data, now) }
+    val now = com.xjtu.toolbox.util.campusEpochMsOf(com.xjtu.toolbox.ui.rememberCampusNow())
+    val todos = remember(data, now) { InboxRules.todos(data, now) }
+    val finished = remember(data, now) { InboxRules.finished(data, now) }
+    val groups = remember(data, now) { InboxRules.groups(data, now) }
     val unread = groups.count { it.unread }
     // 作业按科目取课表里那门课的颜色，和课表、思源学堂一致
     val courseNames = remember(data) { (todos + finished.map { it.item }).filter { it.category == InboxCategories.LMS }.map { it.source }.distinct() }
@@ -165,7 +165,7 @@ fun InboxScreen(
 
     fun open(item: InboxItem, ids: List<String> = listOf(item.id)) {
         InboxStore.markRead(ids)
-        item.route?.let(onOpen) ?: run { detail = item }
+        item.resolvedRouteId()?.let(onOpen) ?: run { detail = item }
     }
 
     Scaffold(

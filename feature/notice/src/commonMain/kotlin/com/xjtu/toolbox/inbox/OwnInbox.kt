@@ -34,7 +34,9 @@ object OwnInbox {
 
     fun notice(n: Notification) = InboxItem(
         id = "notice:${n.link}", category = InboxCategories.NOTICE, source = n.source.displayName,
-        title = n.title, time = Clock.System.now().toEpochMilliseconds(), route = AppRoute.Browser(n.link).id,
+        title = n.title,
+        time = com.xjtu.toolbox.util.campusEpochMsOf(kotlinx.datetime.LocalDateTime(n.date, kotlinx.datetime.LocalTime(0, 0))),
+        route = AppRoute.Browser(n.link).id,
     )
 
     /** 工具箱公告。时间取开始时间，没有就取 id 开头的日期（公告 id 都以发布日期开头），再没有就算现在。 */
@@ -67,7 +69,7 @@ object OwnInbox {
                 id = (if (d.exam) "lms:exam:" else "lms:") + "${d.courseId}:${d.activityId}",
                 category = InboxCategories.LMS, source = d.courseName,
                 title = if (d.exam) "测试 · ${d.title}" else d.title,
-                time = d.fetchedAt, route = AppRoute.Lms(d.courseId).id, expiresAt = deadline,
+                time = d.fetchedAt, route = AppRoute.Lms(d.courseId, d.activityId.takeUnless { d.exam }).id, expiresAt = deadline,
             )
         }
 }

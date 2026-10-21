@@ -192,13 +192,8 @@ fun TodayTimeline(
         return
     }
 
-    // 每到整分钟走一次：正在上的课的进度、过去的课变淡都跟着它，不用重进页面才更新
-    val nowMinute by androidx.compose.runtime.produceState(nowOnCampus().time.toMinuteOfDay()) {
-        while (true) {
-            kotlinx.coroutines.delay((60 - nowOnCampus().time.second) * 1000L)
-            value = nowOnCampus().time.toMinuteOfDay()
-        }
-    }
+    val campusNow = com.xjtu.toolbox.ui.rememberCampusNow()
+    val nowMinute = campusNow.time.toMinuteOfDay()
     LazyColumn(
         Modifier.fillMaxSize().overScrollVertical(),
         contentPadding = PaddingValues(

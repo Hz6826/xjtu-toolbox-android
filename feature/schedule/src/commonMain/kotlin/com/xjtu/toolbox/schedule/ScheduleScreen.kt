@@ -107,9 +107,11 @@ fun ScheduleScreen(
     val isWideLayout = com.xjtu.toolbox.ui.isWideLayout()
     // 「会话过期」走 :core 既有的那条缝（`:app` 在 AppRoot 顶层注入过一次），本屏不另造一格。
     val authExpiry = LocalAuthExpiry.current
+    val campusNow = com.xjtu.toolbox.ui.rememberCampusNow()
     val scope = rememberCoroutineScope()
     val haptics = com.xjtu.toolbox.ui.rememberHaptics()
     val vm: ScheduleViewModel = viewModel(key = "schedule") { ScheduleViewModel(host) }
+    LaunchedEffect(campusNow.date, vm.startOfTerm, vm.totalWeeks) { vm.refreshClock(campusNow.date) }
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(vm) {
         vm.events.collect { event ->
@@ -162,8 +164,10 @@ fun ScheduleScreen(
         filteredMergedCourses.map { it.courseName }.distinct().sorted()
     }
     // 「接下来」：今日两处 TodayTimeline（窄屏 tab、宽屏常驻栏）共用
-    val upcomingItems = remember(vm.exams, vm.homeworkDue) { buildUpcoming(vm.exams, vm.homeworkDue) }
-    val nextExam = remember(vm.exams) { ExamCountdown.next(vm.exams) }
+    val upcomingItems = remember(vm.exams, vm.homeworkDue, campusNow.date, campusNow.hour, campusNow.minute) {
+        buildUpcoming(vm.exams, vm.homeworkDue, campusNow)
+    }
+    val nextExam = remember(vm.exams, campusNow.date, campusNow.hour, campusNow.minute) { ExamCountdown.next(vm.exams, campusNow) }
 
     vm.pendingSave?.let { (entity, conflicts) ->
         val lines = conflicts.joinToString("\n") { other ->
@@ -660,11 +664,11 @@ fun ScheduleScreen(
                                         filteredMergedCourses.filter { it.isInWeek(vm.realCurrentWeek) }
                                     },
                                     exams = vm.exams,
-                                    today = todayOnCampus(),
+                                    today = campusNow.date,
                                     allCourseNames = allCourseNames,
                                     onCourseClick = {
                                         unifiedOccurrence = Occurrence(
-                                            todayOnCampus(), vm.realCurrentWeek,
+                                            campusNow.date, vm.realCurrentWeek,
                                         )
                                         unifiedSelectedCourse = it
                                     },
@@ -727,7 +731,7 @@ fun ScheduleScreen(
                     }
                     val onTodayTab = contentOf(selectedTab) == "today"
                     val todayFocus = if (unifiedSelectedCourse == null && onTodayTab) {
-                        remember(weekCourses) { focusCourseOf(weekCourses, todayOnCampus(), nowOnCampus().time) }
+                        remember(weekCourses, campusNow.date, campusNow.hour, campusNow.minute) { focusCourseOf(weekCourses, campusNow.date, campusNow.time) }
                     } else {
                         null
                     }
@@ -757,7 +761,7 @@ fun ScheduleScreen(
                                 textbooksProblem = vm.textbooksBackgroundError,
                                 termCode = vm.selectedTermCode,
                                 occurrence = if (todayFocus != null) {
-                                    Occurrence(todayOnCampus(), vm.realCurrentWeek)
+                                    Occurrence(campusNow.date, vm.realCurrentWeek)
                                 } else {
                                     unifiedOccurrence
                                 },
@@ -766,7 +770,7 @@ fun ScheduleScreen(
                             )
                         }
                     } else if (onTodayTab) {
-                        WeekGlance(courses = weekCourses, today = todayOnCampus())
+                        WeekGlance(courses = weekCourses, today = campusNow.date)
                     } else {
                         Text(
                             "今天的课",
@@ -777,11 +781,11 @@ fun ScheduleScreen(
                         TodayTimeline(
                             courses = weekCourses,
                             exams = vm.exams,
-                            today = todayOnCampus(),
+                            today = campusNow.date,
                             allCourseNames = allCourseNames,
                             onCourseClick = {
                                 unifiedOccurrence = Occurrence(
-                                    todayOnCampus(), vm.realCurrentWeek,
+                                    campusNow.date, vm.realCurrentWeek,
                                 )
                                 unifiedSelectedCourse = it
                             },

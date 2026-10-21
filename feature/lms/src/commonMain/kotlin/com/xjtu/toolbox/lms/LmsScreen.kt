@@ -152,6 +152,7 @@ fun LmsScreen(
      * 用户到了他要去的系统，只是少了一跳。
      */
     initialCourseId: Int? = null,
+    initialActivityId: Int? = null,
     /** 课程列表 / 活动列表的落盘缓存：[LmsCacheStore] 已在按账号分命名空间那一层建好（`:app` 的 `AppLmsCache` 用 `remember(accountId)` 包；桌面传 null = 不缓存，取数照常）。 */
     cacheStore: LmsCacheStore? = null,
     /** 「功能说明」弹过了没。`:app` 与原实现同一个 pref 文件、同一个键（`feature_hints` / `lms_hint_shown`）。 */
@@ -196,8 +197,24 @@ fun LmsScreen(
         // 落盘的旧列表里没有（比如新学期刚加的课）：等联网结果再下结论
         if (hit == null && !cache.coursesSynced) return@LaunchedEffect
         // 匹配不到就老实落回课程列表，别把用户困在转圈里。
+        if (hit == null) {
+            listPlaceholder = false
+        } else if (initialActivityId == null) {
+            currentPage = LmsPage.ActivityList(hit)
+        } else {
+            val activity = try {
+                if (!cache.activitiesSynced(hit.id)) cache.syncActivities(source, hit.id)
+                cache.activities[hit.id]?.firstOrNull { it.id == initialActivityId }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) { null }
+            currentPage = if (activity != null) LmsPage.ActivityDetail(hit, activity) else LmsPage.ActivityList(hit)
+            if (activity == null) {
+                com.xjtu.toolbox.platform.showBriefMessage("未能打开这项作业，请在课程中查找或刷新后重试")
+            }
+        }
+        // 活动列表拉取完成才消费意图，避免改变 effect 的 key 取消自己。
         pendingCourseId = null
-        if (hit != null) currentPage = LmsPage.ActivityList(hit) else listPlaceholder = false
     }
 
     // 首次使用提示（`:app` 与原实现同一个 pref 文件、同一个键；桌面端也走 `keyValueStore` 的同一份）

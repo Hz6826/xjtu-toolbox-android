@@ -95,6 +95,9 @@ object ScheduleWidgetUpdater {
     private const val MIN_WEEK_OFFSET = -30
     private const val MAX_WEEK_OFFSET = 30
 
+    private val clockListeners = mutableMapOf<WidgetSize, AlarmManager.OnAlarmListener>()
+    private val clockHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
     private val holidayFetchInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /**
@@ -450,7 +453,8 @@ object ScheduleWidgetUpdater {
     /**
      * 约下一次刷新：今天下一个上课或下课时刻，今天没有了就约到明天零点。系统自带的定时刷新半小时起步、
      * 省电时还会推迟，全靠它的话下课标记、「正在进行」、跨天都会滞后。闹钟能拉起已经退出的进程；
-     * 不用精确闹钟（要用户单独授权），系统允许最多晚 10 分钟。
+     * 进程存活时另用 OnAlarmListener 精准回调（不要求精准闹钟权限）；保留非精准 PendingIntent
+     * 作为进程退出后的恢复途径。系统省电 / 杀进程仍可能推迟后者。
      */
     private fun scheduleNextRefresh(context: Context, size: WidgetSize) {
         val now = LocalDateTime.now(com.xjtu.toolbox.util.CampusZoneId)
@@ -464,12 +468,26 @@ object ScheduleWidgetUpdater {
             ?.let { today.atStartOfDay().plusMinutes(it.toLong()) }
             ?: today.plusDays(1).atStartOfDay()
         val millis = at.atZone(com.xjtu.toolbox.util.CampusZoneId).toInstant().toEpochMilli()
-        context.getSystemService(AlarmManager::class.java)
-            ?.setWindow(AlarmManager.RTC, millis, 10 * 60_000L, refreshAlarmIntent(context, size))
+        val alarms = context.getSystemService(AlarmManager::class.java) ?: return
+        alarms.setWindow(AlarmManager.RTC, millis, 10 * 60_000L, refreshAlarmIntent(context, size))
+        val app = context.applicationContext
+        synchronized(clockListeners) {
+            clockListeners.remove(size)?.let(alarms::cancel)
+            val listener = AlarmManager.OnAlarmListener { requestUpdate(app, resetToToday = false) }
+            clockListeners[size] = listener
+            runCatching {
+                alarms.setExact(AlarmManager.RTC, millis, "schedule-widget-$size", listener, clockHandler)
+            }.onFailure {
+                clockListeners.remove(size)
+                android.util.Log.w("ScheduleWidget", "精准回调不可用，保留系统窗口刷新", it)
+            }
+        }
     }
 
     internal fun cancelScheduledRefresh(context: Context, size: WidgetSize) {
-        context.getSystemService(AlarmManager::class.java)?.cancel(refreshAlarmIntent(context, size))
+        val alarms = context.getSystemService(AlarmManager::class.java) ?: return
+        alarms.cancel(refreshAlarmIntent(context, size))
+        synchronized(clockListeners) { clockListeners.remove(size)?.let(alarms::cancel) }
     }
 
     private fun refreshAlarmIntent(context: Context, size: WidgetSize): PendingIntent {
