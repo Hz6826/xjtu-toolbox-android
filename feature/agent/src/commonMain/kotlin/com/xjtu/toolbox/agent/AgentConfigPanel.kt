@@ -61,6 +61,11 @@ internal fun ConfigPanel(
     var thinkingEnabled by remember { mutableStateOf(config.thinkingEnabled) }
     var reasoningEffort by remember { mutableStateOf(config.reasoningEffort) }
     var showReasoning by remember { mutableStateOf(config.showReasoning) }
+    var mcpEnabled by remember { mutableStateOf(config.mcpEnabled) }
+    var mcpEndpoint by remember { mutableStateOf(config.mcpEndpoint) }
+    var mcpToken by remember { mutableStateOf(config.mcpToken) }
+    var mcpTesting by remember { mutableStateOf(false) }
+    var mcpStatus by remember { mutableStateOf<String?>(null) }
 
     // 辅助函数：立即保存当前所有配置
     fun saveNow() {
@@ -74,7 +79,10 @@ internal fun ConfigPanel(
             searchApiKey = searchApiKey.trim(),
             thinkingEnabled = thinkingEnabled,
             reasoningEffort = reasoningEffort,
-            showReasoning = showReasoning
+            showReasoning = showReasoning,
+            mcpEnabled = mcpEnabled,
+            mcpEndpoint = mcpEndpoint.trim(),
+            mcpToken = mcpToken.trim(),
         ))
     }
 
@@ -137,6 +145,38 @@ internal fun ConfigPanel(
                         text = "去 DeepSeek 开放平台创建 Key",
                         onClick = { uriHandler.openUri(AgentConfig.DEEPSEEK_KEYS_URL) },
                     )
+                }
+            }
+        }
+        if (host.supportsMcp) {
+            item {
+                Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("MCP 远程工具", style = MiuixTheme.textStyles.title3)
+                        Text("连接支持 Streamable HTTP 的服务，例如你自己的清单服务桥接。每次工具执行前会让你确认参数。", style = MiuixTheme.textStyles.footnote1)
+                        top.yukonga.miuix.kmp.preference.SwitchPreference(
+                            title = "启用 MCP", checked = mcpEnabled,
+                            onCheckedChange = { mcpEnabled = it; saveNow() },
+                        )
+                        TextField(value = mcpEndpoint, onValueChange = { mcpEndpoint = it; mcpStatus = null; scheduleSave() },
+                            label = "服务地址（https://…/mcp）", singleLine = true, modifier = Modifier.fillMaxWidth())
+                        TextField(value = mcpToken, onValueChange = { mcpToken = it; mcpStatus = null; scheduleSave() },
+                            label = "Bearer 令牌（可选）", visualTransformation = PasswordVisualTransformation(),
+                            singleLine = true, modifier = Modifier.fillMaxWidth())
+                        TextButton(text = if (mcpTesting) "连接中…" else "测试连接", enabled = !mcpTesting && mcpEndpoint.isNotBlank(), onClick = {
+                            val snapshot = config.copy(mcpEnabled = true, mcpEndpoint = mcpEndpoint.trim(), mcpToken = mcpToken.trim())
+                            mcpTesting = true
+                            scope.launch {
+                                try {
+                                    mcpStatus = host.testMcp(snapshot)
+                                } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                                catch (error: Exception) { mcpStatus = error.message ?: "连接失败" }
+                                finally { mcpTesting = false }
+                            }
+                        })
+                        mcpStatus?.let { Text(it, style = MiuixTheme.textStyles.footnote1) }
+                        Text("支持远程 HTTP 与 Bearer 令牌。需要 OAuth 登录或本地 stdio 的服务，请先通过兼容桥接服务接入。", style = MiuixTheme.textStyles.footnote1)
+                    }
                 }
             }
         }
