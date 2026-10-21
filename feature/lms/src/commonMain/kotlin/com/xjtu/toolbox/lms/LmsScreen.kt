@@ -488,10 +488,13 @@ internal fun fileTypeIcon(type: String): ImageVector = when {
  */
 fun lmsActivityTimeLine(activity: LmsActivity): String {
     val isHomework = activity.type == LmsActivityType.HOMEWORK
-    val begin = activity.startTime ?: activity.visibleStartAt
-    val beginLabel = if (!isHomework) "" else if (activity.startTime == null) "可见 " else "开始 "
+    val start = activity.startTime?.takeIf { it.isNotBlank() }
+    val begin = start ?: activity.visibleStartAt?.takeIf { it.isNotBlank() }
+    val beginLabel = if (!isHomework) "" else if (start == null) "可见 " else "开始 "
     val endLabel = if (isHomework) "截止 " else ""
-    val end = if (isHomework) (activity.deadline ?: activity.endTime) else activity.endTime
+    val end = if (isHomework) {
+        activity.deadline?.takeIf { it.isNotBlank() } ?: activity.endTime?.takeIf { it.isNotBlank() }
+    } else activity.endTime?.takeIf { it.isNotBlank() }
     return buildString {
         begin?.let { append(beginLabel).append(formatLmsTime(it)) }
         end?.let {
@@ -500,15 +503,15 @@ fun lmsActivityTimeLine(activity: LmsActivity): String {
         }
     }
 }
-/**
- * 格式化 LMS 时间字符串 (ISO 8601 → 友好显示)
- */
+/** 将带偏移量的上游时间转换为学校时区；无偏移量的旧格式视为学校墙钟时间。 */
 fun formatLmsTime(raw: String): String {
-    // 上游是带偏移量的 ISO 串，原样取年月日时分、不换算时区（`:app` 的 `LmsActivityTimeLineTest` 钉着）。
-    val m = Regex("""(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})""").find(raw)
-    if (m != null) {
-        val (y, mo, d, h, mi) = m.destructured
-        return "$y/$mo/$d $h:$mi"
-    }
-    return raw.take(16).replace("T", " ")
+    val text = raw.trim()
+    val instant = lmsInstant(text)
+    val campus = instant?.let { com.xjtu.toolbox.util.campusDateTimeOf(it.toEpochMilliseconds()) }
+        ?: runCatching {
+            kotlinx.datetime.LocalDateTime.parse(text.replace(' ', 'T'))
+        }.getOrNull()
+        ?: return text.take(16).replace('T', ' ')
+    fun pad(value: Int) = value.toString().padStart(2, '0')
+    return "${campus.year}/${pad(campus.month.ordinal + 1)}/${pad(campus.day)} ${pad(campus.hour)}:${pad(campus.minute)}"
 }
