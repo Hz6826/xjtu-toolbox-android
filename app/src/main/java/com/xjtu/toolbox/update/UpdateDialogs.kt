@@ -1,36 +1,48 @@
 package com.xjtu.toolbox.update
 
-import com.xjtu.toolbox.BuildConfig
-import com.xjtu.toolbox.platform.BackHandler
-import androidx.compose.animation.*
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
-import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
-import top.yukonga.miuix.kmp.window.WindowBottomSheet
-import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
-import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
-import top.yukonga.miuix.kmp.basic.HorizontalDivider
-import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.Surface
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.theme.MiuixTheme
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.*
+import com.xjtu.toolbox.BuildConfig
+import com.xjtu.toolbox.platform.BackHandler
 import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowBottomSheet
 
 // ══════════════════════════════════════════
 //  本地 What's New 弹窗 —— 堆叠展示版
@@ -38,7 +50,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 internal fun UpdateNoticeDialog(
-    entries: List<Pair<String, com.xjtu.toolbox.update.VersionChangelog>>,
+    entries: List<Pair<String, VersionChangelog>>,
     show: MutableState<Boolean>,
     fromVersion: String? = null,
     onDismiss: () -> Unit
@@ -123,14 +135,16 @@ internal fun UpdateNoticeDialog(
 
 @Composable
 fun AutoUpdateDialog(
-    version: String,
-    body: String,
-    downloadUrl: String,
-    releaseUrl: String,
-    channelLabel: String = "",
-    isPreview: Boolean = false,
+    updateInfo: AppUpdateInfo,
     onDismiss: () -> Unit
 ) {
+    val version = updateInfo.version
+    val body = updateInfo.notes
+    val downloadUrl = updateInfo.downloadUrl
+    val releaseUrl = updateInfo.releaseUrl
+    val channelLabel = updateInfo.channelLabel
+    val isPreview = updateInfo.isPreview
+
     val show = remember { mutableStateOf(true) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -201,12 +215,12 @@ fun AutoUpdateDialog(
                         onClick = {
                             val readyApk = downloadedApk
                             if (readyApk != null && readyApk.exists()) {
-                                if (com.xjtu.toolbox.update.AppUpdater.canInstallPackages(context)) {
-                                    com.xjtu.toolbox.update.AppUpdater.install(context, readyApk)
+                                if (AppUpdater.canInstallPackages(context)) {
+                                    AppUpdater.install(context, readyApk)
                                     show.value = false
                                     onDismiss()
                                 } else {
-                                    com.xjtu.toolbox.update.AppUpdater.requestInstallPermission(context)
+                                    AppUpdater.requestInstallPermission(context)
                                     android.widget.Toast.makeText(
                                         context,
                                         "允许安装后，返回并点击“继续安装”",
@@ -219,25 +233,20 @@ fun AutoUpdateDialog(
                             downloadProgress = 0f
                             scope.launch {
                                 try {
-                                    val apkFile = com.xjtu.toolbox.update.AppUpdater.download(
+                                    val apkFile = AppUpdater.download(
                                         context,
-                                        com.xjtu.toolbox.update.AppUpdateInfo(
-                                            version = version,
-                                            notes = body,
-                                            downloadUrl = downloadUrl,
-                                            releaseUrl = releaseUrl
-                                        )
+                                        updateInfo
                                     ) { progress ->
                                         scope.launch { downloadProgress = progress }
                                     }
                                     downloadedApk = apkFile
                                     isDownloading = false
-                                    if (com.xjtu.toolbox.update.AppUpdater.canInstallPackages(context)) {
-                                        com.xjtu.toolbox.update.AppUpdater.install(context, apkFile)
+                                    if (AppUpdater.canInstallPackages(context)) {
+                                        AppUpdater.install(context, apkFile)
                                         show.value = false
                                         onDismiss()
                                     } else {
-                                        com.xjtu.toolbox.update.AppUpdater.requestInstallPermission(context)
+                                        AppUpdater.requestInstallPermission(context)
                                         android.widget.Toast.makeText(
                                             context,
                                             "允许安装后，返回并点击“继续安装”",

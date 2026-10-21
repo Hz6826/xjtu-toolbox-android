@@ -538,15 +538,7 @@ private fun UpdateSection(context: Context, scope: CoroutineScope, credentialSto
         }
     }
     pendingUpdate?.let { update ->
-        AutoUpdateDialog(
-            version = update.version,
-            body = update.notes,
-            downloadUrl = update.downloadUrl,
-            releaseUrl = update.releaseUrl,
-            channelLabel = update.channelLabel,
-            isPreview = update.isPreview,
-            onDismiss = { pendingUpdate = null }
-        )
+        AutoUpdateDialog(update, onDismiss = { pendingUpdate = null })
     }
 }
 

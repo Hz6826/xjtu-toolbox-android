@@ -47,7 +47,7 @@
 | `targetFormats` | `Deb` · `AppImage` · `Msi` · `Exe` | 前两个是 §7.1 定的 Linux 两样（第三样 `tar.gz` 由 `packageTarGz` 从 app-image 再打）；后两个是 `docs/windows-delivery.md` 定的 Windows 两样，在 Linux 上只是**声明**（任务会注册，但执行时 `SKIPPED`，见 `windows-delivery.md` §1） |
 | `packageName` | `xjtu-toolbox` | 一处定义，三处用：安装目录（`/opt/xjtu-toolbox`）、`.deb` 的包名与 `bin/` 里的可执行名、`tar.gz` 里的目录名 |
 | `packageVersion` | `5.1.1`（`desktopPackageVersion`） | jpackage 只接受 `x.y.z`；同时是 `DesktopBuildConfig.VERSION_NAME` 与 `tar.gz` 文件名的一部分。**与 Windows 同源**（同一行） |
-| `description` | 西安交通大学工具箱（桌面预览） | 进 `.deb` 的 `Description` 与 `.desktop` 的 `Comment=`（实测见 §3.3） |
+| `description` | `XJTU ToolBox (desktop preview)` | 进 `.deb` 的 `Description` 与 `.desktop` 的 `Comment=`（实测见 §3.3）。**2026-10-19 起是 ASCII**：Windows 上 jpackage 固定 `-cultures:en-us` ⇒ MSI 代码页 1252，中文会触发 WiX 的 `LGHT0311`（`light.exe` 退出码 311、不打印错误）；DSL 没有分平台的 description ⇒ 三端同值，Linux 这边也跟着变英文 |
 | `vendor` | `XJTU ToolBox` | 进 `.deb` 的 `Maintainer` 前半段（与 `linux.debMaintainer` 拼成那一行：`XJTU ToolBox <…@…>`，实测见 §3.4）；Windows 侧进「发布者」栏 |
 | `copyright` | `Copyright © XJTU ToolBox contributors` | 进 `/opt/xjtu-toolbox/share/doc/copyright`（实测见 §3.3）。与 Windows 侧同一个值 |
 | `linux.menuGroup` | `Education` | 与 `windows.menuGroup` **同一个词**（Windows 那栏就是刻意对齐 Linux 这一栏）。⚠️ 但它在 `.deb` 这条路上**没落地**：jpackage 生成的 `.desktop` 里没有它（见 §7 第 4 条） |
@@ -233,7 +233,7 @@ xjtu-toolbox/lib/runtime/**             jlink 出来的 JDK 运行时
  Priority: optional
  Architecture: amd64
  Provides: xjtu-toolbox
- Description: 西安交通大学工具箱（桌面预览）
+ Description: XJTU ToolBox (desktop preview)
  Depends: libasound2t64, libatomic1, libbrotli1, libbz2-1.0, libc6, libexpat1, libfontconfig1,
           libfreetype6, libgcc-s1, libgif7, libgl1, libglib2.0-0t64, libglvnd0, libglx0,
           libgraphite2-3, libharfbuzz0b, libjpeg-turbo8, liblcms2-2, libpcre2-8-0, libpng16-16t64,
@@ -276,7 +276,7 @@ xjtu-toolbox/lib/runtime/**             jlink 出来的 JDK 运行时
 ```
 [Desktop Entry]
 Name=xjtu-toolbox
-Comment=西安交通大学工具箱（桌面预览）
+Comment=XJTU ToolBox (desktop preview)
 Exec=/opt/xjtu-toolbox/bin/xjtu-toolbox
 Icon=/opt/xjtu-toolbox/lib/xjtu-toolbox.png
 Terminal=false
@@ -455,7 +455,7 @@ Icon=/opt/xjtu-toolbox/lib/xjtu-toolbox.png
 |---|---|---|---|
 | `packageName` | `xjtu-toolbox` | 同一个（`nativeDistributions` 里**同一行**） | ✅ 不可能分叉 |
 | `packageVersion` | `5.1.1`（`desktopPackageVersion`） | 同一个（同一行） | ✅ |
-| `description` | 西安交通大学工具箱（桌面预览） | 同一个 | ✅ |
+| `description` | `XJTU ToolBox (desktop preview)` | 同一个（2026-10-19 起 ASCII，理由同上） | ✅ |
 | `vendor` | `XJTU ToolBox` | 同一个 | ✅ |
 | `copyright` | `Copyright © XJTU ToolBox contributors` | 同一个 | ✅ |
 | `menuGroup` | `Education` | `Education`（`windows.menuGroup`） | ✅ 同一个词 |

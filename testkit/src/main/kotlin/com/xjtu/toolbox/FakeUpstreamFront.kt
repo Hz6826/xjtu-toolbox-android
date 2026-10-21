@@ -15,12 +15,27 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
+import java.nio.file.attribute.PosixFilePermissions
 import java.security.KeyStore
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
+
+/**
+ * 把 [path] 改成可写：`Files.copy` 会把源文件的 POSIX 权限一起带过来，JDK 的 `cacerts` 是 `444` 时副本也只读，
+ * 随后 `keytool -importcert` 报 `java.io.FileNotFoundException: .../trust.p12 (Permission denied)`。
+ * 这条只在 CI 复现（CI runner 的 JDK 是 444，本机的是 644）。
+ *
+ * 先试 POSIX（`rw-------`），失败就回落到 [File.setWritable]（Windows / 非 POSIX 文件系统）；两者都不往外抛。
+ * public 而非 internal：钉它的用例在 `:shared:data:jvmTest`，而 internal 跨 Gradle 模块不可见。
+ */
+fun makeWritable(path: Path) {
+    // 两处都要吞掉异常：权限改不动时，让下面那句 keytool 自己报出它读得懂的错误，而不是在这里崩掉。
+    val posix = runCatching { Files.setPosixFilePermissions(path, PosixFilePermissions.fromString("rw-------")) }
+    if (posix.isFailure) runCatching { path.toFile().setWritable(true, true) }
+}
 
 /** 假上游对外的那个端口：一个裸 TCP 前置 + 两个 `com.sun.net.httpserver` 后端（明文 / TLS）。 */
 class FakeUpstreamFront(
@@ -223,6 +238,8 @@ internal object FakeUpstreamTls {
                 trustStore,
                 StandardCopyOption.REPLACE_EXISTING,
             )
+            // 副本会带着源文件的只读位过来（CI 的 cacerts 是 444）⇒ 不显式改可写，下面这行 keytool 就写不进去。
+            makeWritable(trustStore)
             keytool(
                 "-importcert", "-noprompt", "-trustcacerts", "-alias", ALIAS,
                 "-file", cert.toString(), "-keystore", trustStore.toString(),

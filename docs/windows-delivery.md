@@ -52,7 +52,7 @@ WiX（`candle.exe` / `light.exe`）。Compose Desktop 会**自己下载**一份 
 |---|---|---|---|
 | `packageName` | `xjtu-toolbox` | 同一个（`nativeDistributions` 里**同一行**） | ✅ 不可能分叉 |
 | `packageVersion` | `5.1.1`（`desktopPackageVersion`） | 同一个（同一行） | ✅ |
-| `description` | 西安交通大学工具箱（桌面预览） | 同一个 | ✅ |
+| `description` | `XJTU ToolBox (desktop preview)` | 同一个（**2026-10-19 起改成 ASCII**：Windows 上 jpackage 固定 `-cultures:en-us` ⇒ MSI 代码页 1252，中文会让 WiX 的 `light.exe` 报 `LGHT0311`／退出码 311） | ✅ |
 | `vendor` | `XJTU ToolBox`（安装器里的「发布者」栏） | 同一个（也是 `.deb` 的 `Maintainer` 名字那半边） | ✅ |
 | `copyright` | `Copyright © XJTU ToolBox contributors` | 同一个 | ✅ |
 | `menuGroup` | `Education`（`windows.menuGroup`） | `Education`（`linux.menuGroup`） | ✅ 同一个词 |
