@@ -6,6 +6,9 @@ plugins {
 
 kotlin {
     sourceSets {
+        androidMain.dependencies {
+            implementation(libs.androidx.activity.compose)
+        }
         commonMain.dependencies {
             api(project(":shared:model"))
             api(project(":shared:navigation"))

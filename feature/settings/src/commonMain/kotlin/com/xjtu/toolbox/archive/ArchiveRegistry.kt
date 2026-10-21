@@ -20,7 +20,7 @@ object ArchiveRegistry {
     )
 
     /** 凭据族前缀（§8.10）：`cookies_*` / `sites_*` / `agent_config_secure*`。 */
-    private val credentialPrefixes = listOf("cookies_", "sites_", "agent_config_secure")
+    private val credentialPrefixes = listOf("cookies_", "sites_", "agent_config_secure", "community_images_")
 
     /** 端内私有、永不进档案（§2.4）。 */
     private val excludedNames = setOf("data_cache_meta", "serve", "agent_config_fallback")

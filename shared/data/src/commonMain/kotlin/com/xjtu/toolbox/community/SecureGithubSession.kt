@@ -29,6 +29,9 @@ class SecureGithubSession private constructor(private val store: KeyValueStore) 
     }
 
     override fun signOut() {
+        _login.value?.takeIf { it.matches(Regex("[A-Za-z0-9-]{1,39}")) }?.let { name ->
+            GithubImageStorage(login = { name }).saveConfig(CommunityImageConfig())
+        }
         store.remove(KEY_TOKEN)
         store.remove(KEY_LOGIN)
         _login.value = null

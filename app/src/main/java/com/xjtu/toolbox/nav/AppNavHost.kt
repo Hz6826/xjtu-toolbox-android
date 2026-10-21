@@ -488,6 +488,7 @@ fun AppNavHost(
         }
         entry<AppRoute.Community>(transition = expand(AppRoute.Community::class)) {
             CommunityScreen(
+                imageStorage = remember { com.xjtu.toolbox.community.GithubImageStorage({ SecureGithubSession.get().login.value }) },
                 session = remember { SecureGithubSession.get() },
                 deviceAuth = remember {
                     GithubOAuthDeviceAuthRepository(

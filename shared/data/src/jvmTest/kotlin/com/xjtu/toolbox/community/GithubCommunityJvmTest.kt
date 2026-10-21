@@ -97,10 +97,14 @@ class GithubCommunityJvmTest {
         assertEquals(CommunityFakeUpstream.ACCESS_TOKEN, store.getString("token"))
         assertEquals(CommunityFakeUpstream.VIEWER_LOGIN, store.getString("login"))
 
+        val images = GithubImageStorage(login = { name })
+        images.saveConfig(CommunityImageConfig("images", "image-test-token"))
+
         session.signOut()
         assertNull(session.login.value)
         assertNull(store.getString("token"), "退出登录要清本机 token")
         assertNull(store.getString("login"))
+        assertEquals(CommunityImageConfig(), images.config(), "退出也要清除本机图片上传授权")
     }
 
     @Test
