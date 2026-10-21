@@ -5,6 +5,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -16,6 +17,7 @@ internal val LocalCommunityImageStorage = staticCompositionLocalOf<CommunityImag
 @Composable
 internal fun CommunityImageActions(enabled: Boolean, onInsert: (String) -> Unit, onBusy: (Boolean) -> Unit) {
     val storage = LocalCommunityImageStorage.current
+    val uriHandler = LocalUriHandler.current
     var show by remember { mutableStateOf(false) }
     var showConfig by remember { mutableStateOf(false) }
     var url by remember { mutableStateOf("") }
@@ -74,6 +76,10 @@ internal fun CommunityImageActions(enabled: Boolean, onInsert: (String) -> Unit,
                     TextButton(text = "图片上传设置", onClick = { showConfig = !showConfig })
                     if (showConfig) {
                         Text("使用你自己的公开 GitHub 图片仓库。另建仅授权该仓库 Contents 读写的细粒度令牌；社区登录授权无需更改。令牌只保存在本机安全存储。")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(text = "创建图片仓库", modifier = Modifier.weight(1f), onClick = { uriHandler.openUri("https://github.com/new") })
+                            TextButton(text = "管理专用令牌", modifier = Modifier.weight(1f), onClick = { uriHandler.openUri("https://github.com/settings/personal-access-tokens") })
+                        }
                         TextField(value = repo, onValueChange = { repo = it }, label = "自己的仓库名称", singleLine = true, modifier = Modifier.fillMaxWidth())
                         TextField(value = token, onValueChange = { token = it }, label = "图片仓库令牌", visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -24,6 +24,7 @@ internal actual fun rememberCommunityImagePicker(onPicked: (Result<CommunityImag
                 ImageIO.createImageInputStream(file).use { input ->
                     val reader = ImageIO.getImageReaders(input).asSequence().firstOrNull() ?: error("无法解码图片")
                     try {
+                        require(reader.formatName.lowercase() in setOf("png", "jpeg", "jpg")) { "请选择 PNG 或 JPEG 图片" }
                         reader.input = input
                         val width = reader.getWidth(0); val height = reader.getHeight(0)
                         require(width.toLong() * height <= 40_000_000) { "图片尺寸过大" }
