@@ -96,9 +96,9 @@ internal class ZyxfBrowseViewModel(context: Context) : ViewModel() {
     }
 
     fun goTo(index: Int) {
+        if (index >= stack.lastIndex) return
         cancelPendingSearch()
         searchedQuery = null
-        if (index >= stack.lastIndex) return
         while (stack.lastIndex > index) stack.removeAt(stack.lastIndex)
         query = ""
         searching = false

@@ -19,7 +19,7 @@ fun main() {
         XJTUToolBoxTheme(
             darkModeOverride = remember(appearanceTick) { settings.darkMode },
             dynamicColor = remember(appearanceTick) { settings.dynamicColor },
-            customColorHex = remember(appearanceTick) { if (settings.customColorEnabled) settings.customColorHex else "" },
+            customColorHex = remember(appearanceTick) { settings.themeSeedHex },
             content = { ToolboxWebApp(onAppearanceChanged = { appearanceTick++ }) },
         )
     }

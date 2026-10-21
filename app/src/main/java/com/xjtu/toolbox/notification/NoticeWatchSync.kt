@@ -86,8 +86,7 @@ internal object NoticeWatchSync {
         NoticeWatchStore.setSeenLinks(app, delta.seen)
         NoticeWatchStore.setBaselinedSources(app, delta.baselined)
         NoticeWatchStore.setLatestDates(app, delta.latestDates)
-        // 全部失败时保留原有同步时间，下次进入页面仍能重试。
-        if (successfulSources.isNotEmpty()) NoticeWatchStore.setLastSyncAt(app, now)
+        NoticeWatchStore.setLastSyncAt(app, now)
 
         val multi = selected.size > 1
         val titles = items.take(3).map { formatTitle(it, multi) }

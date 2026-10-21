@@ -23,15 +23,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,9 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
@@ -154,12 +147,14 @@ fun ZyxfBrowseScreen(
                 }
             }
             item(key = "search", contentType = "header") {
-                SearchField(
-                    value = vm.query,
-                    onValueChange = vm::updateQuery,
+                com.xjtu.toolbox.ui.components.AppSearchBar(
+                    query = vm.query,
+                    onQueryChange = vm::updateQuery,
+                    label = "搜课件、历年卷、笔记…",
                     onSearch = { vm.runSearch(); focus.clearFocus(force = true); keyboard?.hide() },
-                    onClear = vm::clearSearch,
-                    onFocusChanged = { searchFocused = it },
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .onFocusChanged { searchFocused = it.hasFocus },
                 )
             }
             if (!searching && stack.size > 1) {
@@ -340,64 +335,6 @@ fun ZyxfBrowseScreen(
 }
 
 
-
-@Composable
-private fun SearchField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    onSearch: () -> Unit,
-    onClear: () -> Unit,
-    onFocusChanged: (Boolean) -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(22.dp))
-            .background(MiuixTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            Icons.Default.Search,
-            contentDescription = null,
-            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.size(18.dp),
-        )
-        Spacer(Modifier.width(10.dp))
-        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                singleLine = true,
-                textStyle = MiuixTheme.textStyles.body2.copy(
-                    color = MiuixTheme.colorScheme.onSurface,
-                ),
-                cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                modifier = Modifier.fillMaxWidth().onFocusChanged { onFocusChanged(it.isFocused) },
-            )
-            if (value.isEmpty()) {
-                Text(
-                    "搜课件、历年卷、笔记…",
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-            }
-        }
-        if (value.isNotEmpty()) {
-            IconButton(onClick = onClear, modifier = Modifier.size(22.dp)) {
-                Icon(
-                    Icons.Default.Clear,
-                    contentDescription = "清空",
-                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-        }
-    }
-}
 
 @Composable
 private fun Breadcrumb(stack: List<Crumb>, onJump: (Int) -> Unit) {

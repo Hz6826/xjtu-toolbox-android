@@ -140,7 +140,7 @@ fun HomeScreen(
     val groups = HomeCards.groups(host.audience, host.stats, host.openableRouteIds)
     val frontInbox = host.inbox.takeIf { !isIconTheme && HomeCard.INBOX in honored }
 
-    // 状态跟随功能留在分类里；不再把有数据的功能抽成另一份展示区。
+    // 功能状态就地附在分类行里，不另设展示区。
     fun indexRow(service: AppService, stat: String?, detail: String?): HomeServiceRow {
         val glance = host.glances.takeIf { HomeCard.GLANCE in honored }
             ?.firstOrNull { it.route?.id == service.route.id && it.route != AppRoute.Schedule }

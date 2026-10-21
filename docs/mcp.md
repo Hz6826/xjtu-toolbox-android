@@ -6,6 +6,6 @@
 
 此版本支持 Streamable HTTP（JSON/SSE）、初始化、2025-06-18 / 2025-03-26 协商、会话标识、工具分页与调用。只允许 HTTPS，回环地址可用 HTTP；不会跟随重定向发送凭据。暂不支持旧版独立 SSE 端点、stdio、OAuth 交互、resources/prompts/sampling。需要这些的服务应先使用兼容的远程桥接。
 
-滴答清单等服务需要用户自行部署或选择可信的兼容 MCP 桥接，并完成该服务自身授权；应用没有预置滴答凭据，也没有声称已用真实滴答账号联调。测试使用本地假 MCP 服务验证协议和确认流程。
+滴答清单等服务需要用户自行部署或选择可信的兼容 MCP 桥接，并完成该服务自身授权；应用不预置任何第三方凭据。
 
 协议参考：https://modelcontextprotocol.io/specification/2025-06-18/basic/transports

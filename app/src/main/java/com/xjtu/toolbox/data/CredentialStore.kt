@@ -140,11 +140,9 @@ class CredentialStore(context: Context) {
         get() = settings.darkMode
         set(value) { settings.darkMode = value }
 
-    /** 跟随系统壁纸 / 调色盘动态取色（Material You / Monet）。默认关闭。 */
-    var customColorHex: String
-        get() = if (settings.customColorEnabled) settings.customColorHex else ""
-        set(value) { settings.customColorHex = value; settings.customColorEnabled = value.isNotBlank() }
+    val customColorHex: String get() = settings.themeSeedHex
 
+    /** 跟随系统壁纸 / 调色盘动态取色（Material You / Monet）。默认关闭。 */
     var dynamicColor: Boolean
         get() = settings.dynamicColor
         set(value) { settings.dynamicColor = value }

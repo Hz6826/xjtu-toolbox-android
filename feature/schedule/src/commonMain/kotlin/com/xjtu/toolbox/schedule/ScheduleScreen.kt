@@ -8,7 +8,6 @@ import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.platform.showBriefMessage
 import com.xjtu.toolbox.util.formatTwoDigits
-import com.xjtu.toolbox.util.nowOnCampus
 import com.xjtu.toolbox.util.todayOnCampus
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card

@@ -148,38 +148,6 @@ internal fun ConfigPanel(
                 }
             }
         }
-        if (host.supportsMcp) {
-            item {
-                Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("MCP 远程工具", style = MiuixTheme.textStyles.title3)
-                        Text("连接支持 Streamable HTTP 的服务，例如你自己的清单服务桥接。每次工具执行前会让你确认参数。", style = MiuixTheme.textStyles.footnote1)
-                        top.yukonga.miuix.kmp.preference.SwitchPreference(
-                            title = "启用 MCP", checked = mcpEnabled,
-                            onCheckedChange = { mcpEnabled = it; saveNow() },
-                        )
-                        TextField(value = mcpEndpoint, onValueChange = { mcpEndpoint = it; mcpStatus = null; scheduleSave() },
-                            label = "服务地址（https://…/mcp）", singleLine = true, modifier = Modifier.fillMaxWidth())
-                        TextField(value = mcpToken, onValueChange = { mcpToken = it; mcpStatus = null; scheduleSave() },
-                            label = "Bearer 令牌（可选）", visualTransformation = PasswordVisualTransformation(),
-                            singleLine = true, modifier = Modifier.fillMaxWidth())
-                        TextButton(text = if (mcpTesting) "连接中…" else "测试连接", enabled = !mcpTesting && mcpEndpoint.isNotBlank(), onClick = {
-                            val snapshot = config.copy(mcpEnabled = true, mcpEndpoint = mcpEndpoint.trim(), mcpToken = mcpToken.trim())
-                            mcpTesting = true
-                            scope.launch {
-                                try {
-                                    mcpStatus = host.testMcp(snapshot)
-                                } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-                                catch (error: Exception) { mcpStatus = error.message ?: "连接失败" }
-                                finally { mcpTesting = false }
-                            }
-                        })
-                        mcpStatus?.let { Text(it, style = MiuixTheme.textStyles.footnote1) }
-                        Text("支持远程 HTTP 与 Bearer 令牌。需要 OAuth 登录或本地 stdio 的服务，请先通过兼容桥接服务接入。", style = MiuixTheme.textStyles.footnote1)
-                    }
-                }
-            }
-        }
         // 服务商 + 助手名字/API Key/模型 + 思考参数：都是"怎么接到哪个模型、这个模型
         // 怎么想问题"这一件事，原来拆成三张卡片，合并成一张放最前面，改起来不用来回滚动。
         item {
@@ -430,6 +398,37 @@ internal fun ConfigPanel(
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
+                    }
+                }
+            }
+        }
+        if (host.supportsMcp) {
+            item {
+                Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("MCP 远程工具", style = MiuixTheme.textStyles.title3)
+                        Text("连接 Streamable HTTP 服务，可带 Bearer 令牌；需要 OAuth 或本地 stdio 的服务请先经兼容桥接接入。每次调用前都会让你确认参数。", style = MiuixTheme.textStyles.footnote1)
+                        top.yukonga.miuix.kmp.preference.SwitchPreference(
+                            title = "启用 MCP", checked = mcpEnabled,
+                            onCheckedChange = { mcpEnabled = it; saveNow() },
+                        )
+                        TextField(value = mcpEndpoint, onValueChange = { mcpEndpoint = it; mcpStatus = null; scheduleSave() },
+                            label = "服务地址（https://…/mcp）", singleLine = true, modifier = Modifier.fillMaxWidth())
+                        TextField(value = mcpToken, onValueChange = { mcpToken = it; mcpStatus = null; scheduleSave() },
+                            label = "Bearer 令牌（可选）", visualTransformation = PasswordVisualTransformation(),
+                            singleLine = true, modifier = Modifier.fillMaxWidth())
+                        TextButton(text = if (mcpTesting) "连接中…" else "测试连接", enabled = !mcpTesting && mcpEndpoint.isNotBlank(), onClick = {
+                            val snapshot = config.copy(mcpEnabled = true, mcpEndpoint = mcpEndpoint.trim(), mcpToken = mcpToken.trim())
+                            mcpTesting = true
+                            scope.launch {
+                                try {
+                                    mcpStatus = host.testMcp(snapshot)
+                                } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                                catch (error: Exception) { mcpStatus = error.message ?: "连接失败" }
+                                finally { mcpTesting = false }
+                            }
+                        })
+                        mcpStatus?.let { Text(it, style = MiuixTheme.textStyles.footnote1) }
                     }
                 }
             }

@@ -1,8 +1,6 @@
 package com.xjtu.toolbox.schedule
 
 import com.xjtu.toolbox.util.formatTwoDigits
-import com.xjtu.toolbox.util.nowOnCampus
-import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.datetime.LocalDate
 
 import top.yukonga.miuix.kmp.theme.MiuixTheme

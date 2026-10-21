@@ -29,6 +29,9 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getBoolean("custom_color_enabled", false)
         set(value) = store.putBoolean("custom_color_enabled", value)
 
+    /** 主题实际采用的种子色：未启用自定义时为空串。 */
+    val themeSeedHex: String get() = if (customColorEnabled) customColorHex else ""
+
     /** 默认启动 tab。 */
     var defaultTab: String
         get() = store.getString(KEY_DEFAULT_TAB) ?: TAB_COURSES
