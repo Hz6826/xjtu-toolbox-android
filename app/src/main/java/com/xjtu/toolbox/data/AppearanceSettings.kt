@@ -17,6 +17,8 @@ class AppearanceSettings private constructor(context: Context) {
         context.applicationContext.getSharedPreferences(CredentialStore.APP_SETTINGS_FILE, Context.MODE_PRIVATE)
 
     private val _darkMode = MutableStateFlow(store.darkMode)
+    private val _customColorHex = MutableStateFlow(store.customColorHex)
+    val customColorHex: StateFlow<String> = _customColorHex.asStateFlow()
     private val _dynamicColor = MutableStateFlow(store.dynamicColor)
     private val _navBarStyle = MutableStateFlow(store.navBarStyle)
     private val _homeTheme = MutableStateFlow(store.homeTheme)
@@ -36,6 +38,7 @@ class AppearanceSettings private constructor(context: Context) {
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         _darkMode.value = store.darkMode
         _dynamicColor.value = store.dynamicColor
+        _customColorHex.value = store.customColorHex
         _navBarStyle.value = store.navBarStyle
         _homeTheme.value = store.homeTheme
         _showQuickActions.value = store.showQuickActions

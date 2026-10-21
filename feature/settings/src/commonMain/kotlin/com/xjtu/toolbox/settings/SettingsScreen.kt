@@ -101,6 +101,9 @@ fun SettingsScreen(
     var navBarStyle by remember { mutableStateOf(store.navBarStyle) }
     var darkMode by remember { mutableStateOf(store.darkMode) }
     var dynamicColor by remember { mutableStateOf(store.dynamicColor) }
+    var customColorEnabled by remember { mutableStateOf(store.customColorEnabled) }
+    var customColorHex by remember { mutableStateOf(store.customColorHex) }
+    var showThemeColor by remember { mutableStateOf(false) }
     var defaultTab by remember { mutableStateOf(store.defaultTab) }
     var networkMode by remember { mutableStateOf(store.networkMode) }
     var theme by remember { mutableStateOf(store.homeTheme) }
@@ -110,6 +113,22 @@ fun SettingsScreen(
     var venueAutoSolveCaptcha by remember { mutableStateOf(store.venueAutoSolveCaptchaEnabled) }
     var showChangelog by remember { mutableStateOf(false) }
     var showEula by remember { mutableStateOf(false) }
+    if (showThemeColor) {
+        ThemeColorDialog(
+            initialHex = customColorHex,
+            onDismiss = { showThemeColor = false },
+            onConfirm = { hex ->
+                customColorHex = hex
+                customColorEnabled = true
+                dynamicColor = false
+                store.customColorHex = hex
+                store.customColorEnabled = true
+                store.dynamicColor = false
+                host.onAppearanceChanged()
+                showThemeColor = false
+            },
+        )
+    }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
     // 设置页低饱和多彩调色板
@@ -195,17 +214,36 @@ fun SettingsScreen(
                     )
                 }
                 if (showDynamicColor) {
-                    SwitchPreference(
-                        title = "跟随系统取色",
-                        summary = if (dynamicColor) "主题色跟随壁纸与系统调色盘" else "已关闭，使用应用默认配色",
-                        checked = dynamicColor,
+                    OverlayDropdownPreference(
+                        title = "主题取色",
+                        items = listOf("默认配色", "跟随系统", "自定义颜色"),
+                        selectedIndex = if (customColorEnabled) 2 else if (dynamicColor) 1 else 0,
                         startAction = { SettingsIcon(Icons.Default.Palette, cPink) },
-                        onCheckedChange = { enabled ->
-                            dynamicColor = enabled
-                            store.dynamicColor = enabled
-                            host.onAppearanceChanged()
-                        }
+                        onSelectedIndexChange = { idx ->
+                            if (idx == 2 && customColorHex.isEmpty()) {
+                                showThemeColor = true
+                            } else {
+                                customColorEnabled = idx == 2
+                                dynamicColor = idx == 1
+                                store.customColorEnabled = customColorEnabled
+                                store.dynamicColor = dynamicColor
+                                host.onAppearanceChanged()
+                            }
+                        },
                     )
+                    if (customColorEnabled) {
+                        ArrowPreference(
+                            title = "自定义主题色",
+                            summary = customColorHex,
+                            startAction = {
+                                Box(Modifier.size(24.dp).background(
+                                    com.xjtu.toolbox.schedule.CourseColors.parseHex(customColorHex) ?: cPink,
+                                    CircleShape,
+                                ))
+                            },
+                            onClick = { showThemeColor = true },
+                        )
+                    }
                 }
                 if (showHomeTheme) {
                     OverlayDropdownPreference(
