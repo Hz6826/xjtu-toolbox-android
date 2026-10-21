@@ -3,8 +3,11 @@ import java.util.Properties
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
 // :desktop —— 桌面端（Linux / Windows），Compose Desktop 原生窗口；离屏渲染证据在 test 源集（依赖 `:testkit`，不能进交付物）。
-/** 桌面包的版本号。 */
-val desktopPackageVersion = "5.1.1"
+/**
+ * 桌面包的版本号（jpackage 的 `--app-version`）。⚠️ 必须与 `:app` 的 `versionName` 逐字相同：
+ * 两个手抄本会漂（App 5.2.0 / 安装包 5.1.1 就是这么来的），`DesktopPackageVersionJvmTest` 盯着这件事。
+ */
+val desktopPackageVersion = "5.2.0"
 
 /** 反馈后端的凭据（与 `:app` 同一份来源） */
 val desktopFeedbackConfig: Map<String, String> = run {

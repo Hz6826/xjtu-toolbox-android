@@ -73,7 +73,7 @@ class DesktopFeedbackJvmTest {
             )
             assertEquals(1, fake.feedback.submitCalls.get())
             assertTrue(
-                fake.feedback.lastSubmitFields.orEmpty().contains("\"版本\":\"5.1.1 (desktop)\""),
+                fake.feedback.lastSubmitFields.orEmpty().contains("\"版本\":\"${DesktopBuildConfig.VERSION_NAME} (desktop)\""),
                 "版本列应当是桌面口径：${fake.feedback.lastSubmitFields}",
             )
 

@@ -74,6 +74,16 @@ jobs:
         # 测试都依赖它，所以要单独编一遍（它一旦编不过，两边的失败信息都很难指向真因）。
         run: ./gradlew :testkit:compileKotlin :shared:data:compileAndroidMain :shared:data:jvmTest :data:compileAndroidMain :data:jvmTest :desktop:compileKotlin :desktop:test
 
+      - name: wasm 的运行时证明（:web 在真浏览器里跑真数据）
+        # 上面那句「wasm 的运行时证明交给 :web 在真浏览器里跑真数据」此前**只写在注释里**，命令里没有 ——
+        # 所以这条门禁从来没跑过它。wasm 测试只能在浏览器里跑（nodejs 下 skiko.mjs 解析不了，见上一条），
+        # Chrome 由 web/build.gradle.kts 自己找：`-Pchrome.bin` → `CHROME_BIN` → 常见路径探测，
+        # ubuntu-latest 自带 /usr/bin/google-chrome ⇒ CI 上**不用**设 CHROME_BIN；容器里跑 Chrome 需要的
+        # `--no-sandbox` 也已经由 useChromeHeadlessNoSandbox() 带上。
+        # 刻意排在「产证据的那一步」**之后**：本步一旦红，后面的步骤会被跳过 —— 而 CI 红的证据在
+        # 数据层/桌面端那一步的 XML 里，不能让一个新门禁把它挡住（失败上传那一步仍然跑得到）。
+        run: ./gradlew :web:wasmJsBrowserTest
+
       - name: 失败时保留诊断报告
         if: failure()
         uses: actions/upload-artifact@v4

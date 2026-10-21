@@ -133,13 +133,48 @@ jobs:
           # 上面的发现已验证工具存在；不要让可选安装的旧退出码覆盖成功结果。
           exit 0
 
+      - name: 给构建目录与临时目录加 Defender 排除（MSI 随机失败的头号嫌疑）
+        # light.exe 退出 311、无输出、两轮换着档位失败 ⇒ 先排除「实时扫描锁住输出文件」这个成因。
+        # 排除失败**不**让这一步红（拿不到权限时照样往下跑，重试那一步兜底），但要打出来。
+        shell: pwsh
+        run: |
+          $paths = @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, $env:TEMP)
+          foreach ($p in $paths) {
+            try {
+              Add-MpPreference -ExclusionPath $p -ErrorAction Stop
+              Write-Host "已排除: $p"
+            } catch {
+              Write-Host "::warning::加 Defender 排除失败（$p）：$($_.Exception.Message)"
+            }
+          }
+
       - name: 打 Windows 安装包（.msi 与 .exe）
         # ⚠️ 这一步本机（Linux）跑不了，只能在这里验。WiX 是上面那一步装好、由 WIX_PATH 指过去的。
         # 不加 `-Pcompose.desktop.verbose=true`：在 Windows 上这一行会被拆成 `-Pcompose` 与
         # `.desktop.verbose=true` 两段（Gradle 报 `Task '.desktop.verbose=true' not found`，实测过一轮）。
         # 这一步失败时需要的 jpackage 完整命令行与 WiX 自己的输出，靠下面的 artifact
         # （`desktop/build/compose/logs/**`）拿，不靠那个开关。
-        run: .\gradlew.bat :desktop:packageMsi :desktop:packageExe
+        # `--info`：让 Gradle 把 jpackage 与 WiX（candle.exe / light.exe）的完整过程打到控制台 ——
+        #   jpackage 自己的 out.txt 实测是空的、-err.txt 只有一行 IOException，WiX 子进程的输出
+        #   只有它能抬出来（实测两轮里 light.exe 一个字的错误都没打印，所以它不是靠山）。
+        # `--stacktrace`：失败那层的 Java 栈（哪个任务、哪条异常链），光靠 G 厂的一行摘要看不出来。
+        # 两个都是安全 token：不会像 `-P…` 那样被拆成两段；三个尝试**都**带它们 —— 随机失败要的是
+        #   失败**那一次**的现场，而失败那次未必是最后一次。
+        # 重试 3 次：见下面 run 的第一段注释。
+        shell: pwsh
+        run: |
+          # 为什么重试：这一步在 CI 上**随机**失败 —— light.exe 退出 311、一个字的错误都不打印，
+          # 两轮里换着档位出现（一轮是 .exe 失败、一轮是 .msi 失败）。这类随机失败重试是标准处置；
+          # 若三次都失败，说明不是随机（例如 WiX 装错、图标被拒），照样响亮失败。
+          $attempts = 3
+          for ($i = 1; $i -le $attempts; $i++) {
+            Write-Host "=== 第 $i / $attempts 次：:desktop:packageMsi :desktop:packageExe ==="
+            .\gradlew.bat :desktop:packageMsi :desktop:packageExe --info --stacktrace
+            if ($LASTEXITCODE -eq 0) { Write-Host "出包成功（第 $i 次）"; exit 0 }
+            Write-Host "第 $i 次失败（exit=$LASTEXITCODE）"
+            if ($i -lt $attempts) { Start-Sleep -Seconds 20 }
+          }
+          throw "打包连续 $attempts 次都失败 —— 不是随机失败，去看 desktop/build/compose/logs/ 下的 jpackage-*-err.txt"
 
       - name: 列出产物
         shell: pwsh
@@ -173,6 +208,23 @@ jobs:
         # 纯函数那半（挑发布、比版本）与注入假响应的那条 GET：与平台无关，Windows 上也该绿
         run: .\gradlew.bat :desktop:test --tests "com.xjtu.toolbox.desktop.DesktopUpdateJvmTest"
 
+      - name: 收集 jpackage 的临时目录（失败时才有价值）
+        # jpackage 在 %TEMP%\jdk.jpackage* 里建 config / wixobj / images，light.exe 的现场就在那儿；
+        # 它的 stdout/stderr 不进 compose 的 out.txt（实测为空），所以只能把这些目录整个收走。
+        # ⚠️ 实测这一轮收到 **0 个文件**：jpackage 失败时也会清掉自己的 %TEMP%\jdk.jpackage*，
+        #    所以这份 artifact 现在主要靠 `desktop/build/compose/logs/**`；这一步留着是为将来
+        #    某一轮 jpackage 没清干净时还能捞到东西。
+        if: failure()
+        shell: pwsh
+        run: |
+          $dst = "desktop\build\diagnostics\jpackage-tmp"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Get-ChildItem -Path (Join-Path $env:TEMP 'jdk.jpackage*') -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "收集 $($_.FullName)"
+            Copy-Item -Recurse -Force $_.FullName (Join-Path $dst $_.Name)
+          }
+          Get-ChildItem -Recurse -File $dst -ErrorAction SilentlyContinue | Measure-Object | ForEach-Object { Write-Host "共 $($_.Count) 个文件" }
+
       - name: 失败时保留诊断报告
         if: failure()
         uses: actions/upload-artifact@v4
@@ -185,3 +237,5 @@ jobs:
             desktop/build/test-results/**
             desktop/build/compose/logs/**
             desktop/build/compose/tmp/*.args.txt
+            desktop/build/diagnostics/**
+            desktop/build/compose/binaries/**

@@ -1423,3 +1423,44 @@ Type 'IntArray' cannot be used as return type of JS interop function.
 
 **文风**：新基线的注释是**瘦注释**（同一批文件比旧线少 10%–40% 行），移植时只写「事实」那一两句，
 **不把旧线的长 KDoc / 决策过程搬回来**（那些留在本节与 tag `kmp-refactor-2026-10-16` 里）。
+
+### 16.14 CI 第一次真的跑起来：四条既有病因的定位与修复（2026-10-18/19）
+
+**背景**：`Core KMP Gate` / `Desktop Linux Packaging` / `Desktop Windows Packaging` 三条 workflow **只由
+`pull_request` 触发**，而这条线**一个 PR 都没开过**（`main` 上甚至只有 `build.yml` + `sync-announce.yml`）
+⇒ 它们**从未拦过任何东西**。PR #140 是它们第一次真跑，结果三条全红 —— 而 CI 控制台**只印**
+`java.lang.IllegalStateException at SomeTest.kt:20`（不带消息、不带堆栈），一个字的证据都没留下。
+
+**第一步：先让失败可诊断。** 三条 workflow 各加末步 `if: failure()` + `upload-artifact`
+（`**/build/test-results/**/*.xml` + `**/build/reports/tests/**`；Windows 再加
+`desktop/build/compose/logs/**`）。**没有这一步，后面四条都只能靠猜** —— 这是本批最值得留下的一条经验。
+
+**四条根因（全部由 CI 的 XML / jpackage 日志定性，本机一条都复现不出来）**
+
+| # | 现象 | 根因 | 修法 |
+|---|---|---|---|
+| 1 | `:shared:data:jvmTest` 270/115、`:data:jvmTest` 14/6 红 | `Files.copy` **会把源文件的 POSIX 权限一起带过去**：假上游拿「系统 cacerts 的副本 + 自签证书」当信任库，CI 的 JDK cacerts 是 **444** ⇒ 副本只读 ⇒ `keytool -importcert` 报 `Permission denied`（本机是 644 ⇒ 永远绿） | `Files.copy` 之后显式 `makeWritable`（先 POSIX、回落 `setWritable`）+ 一条 444 临时文件的用例 |
+| 2 | `:desktop:test` 133/1 红（两处 workflow 都跑它） | `DesktopShellRailJvmTest` 量的是**离屏渲染的文字宽度**，`ubuntu-latest` 没有中日字体 | 两处都在跑测试前装 `fonts-noto-cjk` + `fc-list :lang=zh` 响亮自检 |
+| 3 | `:desktop:packageMsi` / `packageExe` 报 `light.exe … exited with 311 code`（**不打印任何错误**） | Compose 自动下载的 **WiX 3.11 要 .NET Framework 3.5**，`windows-latest` 不带 3.5 | 发现 runner 自带的 **WiX 3.14**（`WIX_PATH` 交给 Compose），没有才 `choco install` |
+| 4 | 同上，且**随机**（一轮 msi 成功/exe 失败，一轮 msi 自己失败） | 退出码 311 就是 WiX 的 **`LGHT0311`**（字符串里有当前代码页表示不了的字符）；jpackage 固定 `-cultures:en-us` ⇒ MSI 代码页 **1252**，而 `description` 是**中文**；随机性来自 jpackage 写 `.wxs` 用的 JVM 默认字符集（被折成 `?` 的那几轮能过） | `description` 改成 ASCII `XJTU ToolBox (desktop preview)`（Compose 插件不暴露 `--resource-dir`，改不了代码页）；DSL 无分平台 description ⇒ Linux 包描述也跟着变英文 |
+
+**顺带修的两条发版一致性问题**
+
+- `desktop/build.gradle.kts` 的 `desktopPackageVersion` 还写着 **5.1.1**（App 已经 5.2.0）⇒ 安装包会带旧版本号
+  （实证：jpackage 命令行里是 `xjtu-toolbox-5.1.1.msi`）。改成 5.2.0 + 一条「两处必须逐字相同」的断言
+  （`DesktopPackageVersionJvmTest`，带「只改一处就红」的实证）。
+- `:server:installDist` / `distZip` 一直失败：JetBrains 在桌面目标上发布的**一组坐标是空壳模块**（jar 里 0 个 class、
+  与 androidx 真身**同名**）⇒ Gradle 9 的 Copy 报 duplicate。用 `resolutionStrategy` 把 8 个空壳换成真身，
+  **刻意不设** `duplicatesStrategy`（WARN 实测显示空壳会**覆盖**真身 ⇒ 包会缺类）。
+
+**门禁（PR #142，三条全绿）**
+
+| workflow | 结果 |
+|---|---|
+| `Core KMP Gate` | ✅ pass（`:shared:data` 271 · `data` 14 · `shared/model` 196 · 15 个 `:feature:*` · `:desktop:test` 135 · 新加的 `:web:wasmJsBrowserTest` 65，全 0 失败） |
+| `Desktop Linux Packaging` | ✅ pass（`:desktop:test` 133/0 + `.deb` / `.AppImage` 出包） |
+| `Desktop Windows Packaging` | ✅ pass（`.msi` 118.4 MB + `.exe`，artifact `xjtu-toolbox-windows` 246 MB；**第一次尝试就成功**） |
+
+**另一条经验**：`-P…` 形式的 Gradle 属性在 Windows runner 上会被拆成两段
+（`-Pcompose.desktop.verbose=true` → `-Pcompose` + `.desktop.verbose=true`，后者被当成任务名）——
+需要诊断信息时改用 `--info --stacktrace` 这类安全 token，或者干脆靠 artifact。
