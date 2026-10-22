@@ -2,7 +2,9 @@ package com.xjtu.toolbox.main
 
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -28,7 +30,7 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -44,9 +46,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -61,13 +67,7 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.account.AccountManager
 import com.xjtu.toolbox.agent.AgentInsightEngine
 import com.xjtu.toolbox.agent.AgentInsightHub
@@ -95,7 +95,6 @@ import com.xjtu.toolbox.home.HomeSignals
 import com.xjtu.toolbox.home.HomeStats
 import com.xjtu.toolbox.home.HomeStatsRefresher
 import com.xjtu.toolbox.home.HomeTab
-import com.xjtu.toolbox.home.LocalHomeBarBackdrop
 import com.xjtu.toolbox.library.LibraryFocus
 import com.xjtu.toolbox.library.LibraryQrArea
 import com.xjtu.toolbox.nav.AppRoute
@@ -114,7 +113,6 @@ import com.xjtu.toolbox.shell.ShellTab
 import com.xjtu.toolbox.ui.glass.LocalAppBackdrop
 import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
 import com.xjtu.toolbox.ui.glass.glassBarSurface
-import com.xjtu.toolbox.ui.glass.floatingGlassShadow
 import com.xjtu.toolbox.ui.glass.glassBarTint
 import com.xjtu.toolbox.ui.isWideLayout
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
@@ -564,74 +562,74 @@ internal fun MainScreen(
 private val OverlayEnter = fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 16 }
 private val OverlayExit = fadeOut(tween(180)) + slideOutVertically(tween(200)) { it / 16 }
 
-/** 首页最上面一行：左边消息，右边扫一扫和搜索。不吸顶，跟着内容滚走。 */
+/** 首页最上面一行右侧的三个圆钮：搜索、扫一扫、消息。 */
 @Composable
 private fun HomeTopActions(onInbox: () -> Unit, onScan: () -> Unit, onSearch: () -> Unit) {
-    // 和底栏同一套流体玻璃：vibrancy + 8dp 模糊 + 按压折射/高光 + 环境光阴影
-    val backdrop = LocalHomeBarBackdrop.current
-    val tint = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.78f)
+    val tint = MiuixTheme.colorScheme.onSurface
     Row(
         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        GlassRoundAction(backdrop, onClick = onSearch) {
-            Icon(Icons.Default.Search, contentDescription = "搜索", tint = tint, modifier = Modifier.size(20.dp))
+        HomeRoundAction(onClick = onSearch) {
+            Icon(Icons.Outlined.Search, contentDescription = "搜索", tint = tint, modifier = Modifier.size(21.dp))
         }
-        GlassRoundAction(backdrop, onClick = onScan) {
+        HomeRoundAction(onClick = onScan) {
             Icon(
                 androidx.compose.ui.res.painterResource(com.xjtu.toolbox.R.drawable.ic_scan),
                 contentDescription = "扫一扫",
                 tint = tint,
-                modifier = Modifier.size(19.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
-        GlassRoundAction(backdrop, onClick = null) {
-            InboxBell(onInbox)
+        HomeRoundAction(onClick = onInbox) {
+            InboxBell(onInbox, clickable = false, iconSize = 22.dp)
         }
     }
 }
 
 /**
- * 顶栏圆钮的流体玻璃底。onClick 为 null 时只画底，不接管点击（铃铛自己带 IconButton）。
+ * 顶栏圆钮：半透明白底 + 常驻白色高光，直接透出下面的顶栏模糊，不再单独采样/模糊。
+ * 按压缩小后带阻尼回弹；onClick 为 null 时只画底，不接管点击。
  */
 @Composable
-private fun GlassRoundAction(
-    backdrop: Backdrop?,
+private fun HomeRoundAction(
     onClick: (() -> Unit)?,
     size: Dp = 40.dp,
     content: @Composable () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val press by animateFloatAsState(
-        targetValue = if (pressed && onClick != null) 1f else 0f,
-        label = "home-glass-action-press",
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && onClick != null) 0.92f else 1f,
+        animationSpec = spring(
+            dampingRatio = 0.62f,
+            stiffness = Spring.StiffnessMedium,
+        ),
+        label = "home-round-action-press",
     )
     val isDark = LocalIsDarkTheme.current
-    val accent = MiuixTheme.colorScheme.primary
-    val container = MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.4f)
-    val shadow = remember(accent, isDark) { floatingGlassShadow(accent, isDark) }
-    val surface = if (backdrop != null) {
-        Modifier.drawBackdrop(
-            backdrop = backdrop,
-            shape = { CircleShape },
-            effects = {
-                padding = maxOf(padding, 16.dp.toPx())
-                vibrancy()
-                blur(8.dp.toPx())
-                lens(12.dp.toPx() * press, 12.dp.toPx() * press)
-            },
-            highlight = { Highlight.Default.copy(alpha = press) },
-            shadow = { shadow },
-            onDrawSurface = { drawRect(container) },
-        )
-    } else {
-        Modifier.background(container, CircleShape)
-    }
+    val fill = MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (isDark) 0.52f else 0.6f)
+    val ring = Brush.verticalGradient(
+        0f to Color.White.copy(alpha = 1f),
+        0.55f to Color.White.copy(alpha = 0.5f),
+        1f to Color.White.copy(alpha = 0.2f),
+    )
     Box(
         Modifier
             .size(size)
-            .then(surface)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .shadow(
+                elevation = 10.dp,
+                shape = CircleShape,
+                clip = false,
+                ambientColor = Color.White.copy(alpha = if (isDark) 0.28f else 0.6f),
+                spotColor = Color.White.copy(alpha = if (isDark) 0.28f else 0.6f),
+            )
+            .background(fill, CircleShape)
+            .border(1.5.dp, ring, CircleShape)
             .then(
                 if (onClick != null) {
                     Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick)

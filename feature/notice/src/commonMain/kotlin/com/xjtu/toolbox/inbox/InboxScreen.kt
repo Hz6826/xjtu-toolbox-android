@@ -62,6 +62,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.auth.LoginType
@@ -460,16 +461,32 @@ private fun categoryIcon(category: String): ImageVector = when (category) {
 
 /** 首页顶栏的铃铛：角标 = 未读消息组 + 没看过的待办。角标叠在按钮外面，不会被按钮的圆形裁掉。 */
 @Composable
-fun InboxBell(onClick: () -> Unit) {
+fun InboxBell(
+    onClick: () -> Unit,
+    clickable: Boolean = true,
+    iconSize: Dp = 24.dp,
+) {
     val data = InboxStore.snapshot()
     val count = remember(data) { InboxRules.badge(data, Clock.System.now().toEpochMilliseconds()) }
     Box {
-        IconButton(onClick = onClick) {
-            Icon(
-                Icons.Default.Notifications,
-                contentDescription = if (count > 0) "消息，$count 条未处理" else "消息",
-                tint = MiuixTheme.colorScheme.onSurface,
-            )
+        if (clickable) {
+            IconButton(onClick = onClick) {
+                Icon(
+                    Icons.Default.Notifications,
+                    contentDescription = if (count > 0) "消息，$count 条未处理" else "消息",
+                    tint = MiuixTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(iconSize),
+                )
+            }
+        } else {
+            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Default.Notifications,
+                    contentDescription = if (count > 0) "消息，$count 条未处理" else "消息",
+                    tint = MiuixTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(iconSize),
+                )
+            }
         }
         if (count > 0) {
             Box(

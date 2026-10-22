@@ -51,17 +51,21 @@ fun XJTUToolBoxTheme(
     if (applySystemBars) PlatformSystemBars(darkTheme)
     CompositionLocalProvider(LocalIsDarkTheme provides darkTheme) {
         MiuixTheme(controller = controller) {
-            if (!monet) {
-                content()
+            val colors = if (monet) {
+                remapMonetColorsToMiuix(MiuixTheme.colorScheme, darkTheme)
             } else {
-                MiuixTheme(
-                    colors = remapMonetColorsToMiuix(MiuixTheme.colorScheme, darkTheme),
-                    content = content,
-                )
+                MiuixTheme.colorScheme
             }
+            MiuixTheme(
+                colors = if (darkTheme) colors else colors.copy(surface = LightPageBackground),
+                content = content,
+            )
         }
     }
 }
+
+/** 浅色模式的页面底色；卡片仍是 surfaceVariant（白）。 */
+private val LightPageBackground = Color(0xFFF0F1F3)
 
 /**
  * Monet / MD3 按同名角色灌进 MIUIX，会把「灰页 / 白卡片」对调。

@@ -28,9 +28,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -103,12 +101,6 @@ import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
-
-/**
- * 首页顶栏右侧按钮的玻璃采样源：采页面层（含底色），不采壳的内容层——
- * 壳的层里包含按钮自己，采自己会形成反馈。
- */
-val LocalHomeBarBackdrop = compositionLocalOf<Backdrop?> { null }
 
 /** 首页屏。 */
 @Composable
@@ -300,17 +292,15 @@ fun HomeScreen(
         }
         if (topActions != null) {
             val scope = rememberCoroutineScope()
-            CompositionLocalProvider(LocalHomeBarBackdrop provides if (glass) glassBackdrop else null) {
-                HomeCollapsingBar(
-                    progress = progress,
-                    coverage = coverage,
-                    topInset = contentTopPadding,
-                    backdrop = if (glass) glassBackdrop else null,
-                    onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
-                    actions = topActions,
-                    alignWithGreeting = masthead,
-                )
-            }
+            HomeCollapsingBar(
+                progress = progress,
+                coverage = coverage,
+                topInset = contentTopPadding,
+                backdrop = if (glass) glassBackdrop else null,
+                onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
+                actions = topActions,
+                alignWithGreeting = masthead,
+            )
         }
     }
 }
@@ -449,7 +439,7 @@ private fun tintWash(surface: Color): Brush = Brush.verticalGradient(
 
 // ── 杂志版式（THEME_CARD）──
 
-/** 分类面板：白色卡面、细描边与柔和投影；今日安排使用暖色底。 */
+/** 分类面板：白色卡面、细描边与柔和投影；今日安排使用蓝色底。 */
 @Composable
 private fun Modifier.editorialPaper(
     radius: Dp = EDITORIAL_RADIUS,
@@ -458,9 +448,9 @@ private fun Modifier.editorialPaper(
     val dark = LocalIsDarkTheme.current
     val base = AppCardColor
     val fill = when {
-        dark && tinted -> lerp(base, HomeSeal.Red, 0.045f)
+        dark && tinted -> lerp(base, Color(0xFFA0B9FB), 0.22f)
         dark -> base
-        tinted -> lerp(base, Color(0xFFF6EFE4), 0.55f)
+        tinted -> Color(0xFFA0B9FB)
         else -> base
     }
     val border = MiuixTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.09f else 0.065f)
