@@ -28,7 +28,9 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -44,6 +46,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -61,8 +64,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberCanvasBackdrop
+import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
@@ -97,6 +101,12 @@ import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+
+/**
+ * 首页顶栏右侧按钮的玻璃采样源：采页面层（含底色），不采壳的内容层——
+ * 壳的层里包含按钮自己，采自己会形成反馈。
+ */
+val LocalHomeBarBackdrop = compositionLocalOf<Backdrop?> { null }
 
 /** 首页屏。 */
 @Composable
@@ -178,6 +188,14 @@ fun HomeScreen(
     val coverage = { if (scroll.value > 0) 1f else 0f }
     // 顶栏的玻璃采这一页自己的滚动层：顶栏本身在壳的采样层里，采壳的层会采到自己
     val pageBackdrop = rememberLayerBackdrop()
+    // 采样层本身没有页面底色：先垫一层不透明 surface 再采样，否则模糊把透明当黑色，
+    // 字周围会出一圈脏黑边（和参考图里干净的模糊差在这里）。
+    val barSurface = MiuixTheme.colorScheme.surface
+    val surfaceDraw: DrawScope.() -> Unit = remember(barSurface) { { drawRect(barSurface) } }
+    val glassBackdrop = rememberCombinedBackdrop(
+        rememberCanvasBackdrop(surfaceDraw),
+        pageBackdrop,
+    )
     val glass = LocalGlassStyle.current && collapsible
 
     Box(modifier.fillMaxSize()) {
@@ -279,15 +297,17 @@ fun HomeScreen(
         }
         if (topActions != null) {
             val scope = rememberCoroutineScope()
-            HomeCollapsingBar(
-                progress = progress,
-                coverage = coverage,
-                topInset = contentTopPadding,
-                backdrop = if (glass) pageBackdrop else null,
-                onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
-                actions = topActions,
-                alignWithGreeting = masthead,
-            )
+            CompositionLocalProvider(LocalHomeBarBackdrop provides if (glass) glassBackdrop else null) {
+                HomeCollapsingBar(
+                    progress = progress,
+                    coverage = coverage,
+                    topInset = contentTopPadding,
+                    backdrop = if (glass) glassBackdrop else null,
+                    onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
+                    actions = topActions,
+                    alignWithGreeting = masthead,
+                )
+            }
         }
     }
 }
@@ -301,7 +321,7 @@ private fun HomeCollapsingBar(
     progress: () -> Float,
     coverage: () -> Float,
     topInset: Dp,
-    backdrop: LayerBackdrop?,
+    backdrop: Backdrop?,
     onTapCollapsed: () -> Unit,
     actions: @Composable () -> Unit,
     alignWithGreeting: Boolean = false,
@@ -327,12 +347,15 @@ private fun HomeCollapsingBar(
                         .glassBarLayer(
                             backdrop = backdrop,
                             base = surface,
-                            blurRadius = 8.dp,
+                            blurRadius = 4.dp,
                             mask = ProgressiveBlurMaskBrush,
                         )
                 )
-                // 表面色像 iOS 26 顶栏那样：顶部最实，往下随模糊一起淡掉
-                Box(Modifier.matchParentSize().background(tintWash(surface)))
+                // 表面色像 iOS 26 顶栏那样：顶部最实，往下随模糊一起淡掉。
+                // 临时验收开关：关掉时只留模糊层，改回 true 即恢复。
+                if (SHOW_TINT_WASH) {
+                    Box(Modifier.matchParentSize().background(tintWash(surface)))
+                }
             } else {
                 Box(Modifier.matchParentSize().background(surface))
             }
@@ -393,29 +416,32 @@ private fun Modifier.glassBarLayer(
 /** 展开时圆钮比顶栏正中上移的距离：顶栏里圆钮上方正好留这么多，不会顶进状态栏。 */
 private val BUTTON_LIFT get() = (BAR_HEIGHT - 36.dp) / 2 - 2.dp
 
+/** 临时验收开关：关掉表面色遮罩，只留模糊；改回 true 即恢复。 */
+private const val SHOW_TINT_WASH = true
+
 /**
  * 渐进模糊的遮罩：0 = 顶栏顶边，1 = 底边。
- * 顶部 0.95，40% 高度以上保持满强度，往下用 smoothstep 收到 0.5。
+ * 顶部 1.0，40% 高度以上保持满强度；之后先急后缓地收到 0.8。
  */
 private val ProgressiveBlurMaskBrush: Brush = Brush.verticalGradient(
-    0f to Color.Black.copy(alpha = 0.95f),
-    0.4f to Color.Black.copy(alpha = 0.95f),
-    0.5f to Color.Black.copy(alpha = 0.92f),
-    0.6f to Color.Black.copy(alpha = 0.83f),
-    0.7f to Color.Black.copy(alpha = 0.73f),
-    0.8f to Color.Black.copy(alpha = 0.62f),
-    0.9f to Color.Black.copy(alpha = 0.53f),
-    1f to Color.Black.copy(alpha = 0.50f),
+    0f to Color.Black.copy(alpha = 1f),
+    0.4f to Color.Black.copy(alpha = 1f),
+    0.5f to Color.Black.copy(alpha = 0.94f),
+    0.6f to Color.Black.copy(alpha = 0.89f),
+    0.7f to Color.Black.copy(alpha = 0.85f),
+    0.8f to Color.Black.copy(alpha = 0.82f),
+    0.9f to Color.Black.copy(alpha = 0.81f),
+    1f to Color.Black.copy(alpha = 0.80f),
 )
 
-/** 顶栏表面色：顶部 0.95，往下淡到底边 0.3。 */
+/** 顶栏表面色：顶部 20% 保持 0.95，往下淡到底边 0.4。 */
 private fun tintWash(surface: Color): Brush = Brush.verticalGradient(
     0f to surface.copy(alpha = 0.95f),
-    0.2f to surface.copy(alpha = 0.88f),
-    0.4f to surface.copy(alpha = 0.72f),
-    0.6f to surface.copy(alpha = 0.53f),
-    0.8f to surface.copy(alpha = 0.37f),
-    1f to surface.copy(alpha = 0.30f),
+    0.2f to surface.copy(alpha = 0.95f),
+    0.4f to surface.copy(alpha = 0.91f),
+    0.6f to surface.copy(alpha = 0.70f),
+    0.8f to surface.copy(alpha = 0.49f),
+    1f to surface.copy(alpha = 0.40f),
 )
 
 // ── 杂志版式（THEME_CARD）──

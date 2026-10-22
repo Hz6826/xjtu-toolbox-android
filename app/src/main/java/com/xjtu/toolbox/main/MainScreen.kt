@@ -2,6 +2,7 @@ package com.xjtu.toolbox.main
 
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -48,6 +49,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.positionInRoot
@@ -57,7 +61,13 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.account.AccountManager
 import com.xjtu.toolbox.agent.AgentInsightEngine
 import com.xjtu.toolbox.agent.AgentInsightHub
@@ -85,6 +95,7 @@ import com.xjtu.toolbox.home.HomeSignals
 import com.xjtu.toolbox.home.HomeStats
 import com.xjtu.toolbox.home.HomeStatsRefresher
 import com.xjtu.toolbox.home.HomeTab
+import com.xjtu.toolbox.home.LocalHomeBarBackdrop
 import com.xjtu.toolbox.library.LibraryFocus
 import com.xjtu.toolbox.library.LibraryQrArea
 import com.xjtu.toolbox.nav.AppRoute
@@ -103,8 +114,10 @@ import com.xjtu.toolbox.shell.ShellTab
 import com.xjtu.toolbox.ui.glass.LocalAppBackdrop
 import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
 import com.xjtu.toolbox.ui.glass.glassBarSurface
+import com.xjtu.toolbox.ui.glass.floatingGlassShadow
 import com.xjtu.toolbox.ui.glass.glassBarTint
 import com.xjtu.toolbox.ui.isWideLayout
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.rememberHaptics
 import com.xjtu.toolbox.zyxf.ZyxfBrowseScreen
 import kotlinx.coroutines.Dispatchers
@@ -554,43 +567,80 @@ private val OverlayExit = fadeOut(tween(180)) + slideOutVertically(tween(200)) {
 /** 首页最上面一行：左边消息，右边扫一扫和搜索。不吸顶，跟着内容滚走。 */
 @Composable
 private fun HomeTopActions(onInbox: () -> Unit, onScan: () -> Unit, onSearch: () -> Unit) {
-    // 刊头右上角一组克制的小圆钮：淡底色、细图标，搜索、扫一扫、消息依次排开
-    val chip = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+    // 和底栏同一套流体玻璃：vibrancy + 8dp 模糊 + 按压折射/高光 + 环境光阴影
+    val backdrop = LocalHomeBarBackdrop.current
     val tint = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.78f)
     Row(
         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
-        HomeRoundAction(chip, onSearch) {
-            Icon(Icons.Default.Search, contentDescription = "搜索", tint = tint, modifier = Modifier.size(19.dp))
+        GlassRoundAction(backdrop, onClick = onSearch) {
+            Icon(Icons.Default.Search, contentDescription = "搜索", tint = tint, modifier = Modifier.size(20.dp))
         }
-        HomeRoundAction(chip, onScan) {
+        GlassRoundAction(backdrop, onClick = onScan) {
             Icon(
                 androidx.compose.ui.res.painterResource(com.xjtu.toolbox.R.drawable.ic_scan),
                 contentDescription = "扫一扫",
                 tint = tint,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(19.dp),
             )
         }
-        androidx.compose.foundation.layout.Box(
-            Modifier.size(36.dp).background(chip, androidx.compose.foundation.shape.CircleShape),
-            contentAlignment = androidx.compose.ui.Alignment.Center,
-        ) {
+        GlassRoundAction(backdrop, onClick = null) {
             InboxBell(onInbox)
         }
     }
 }
 
+/**
+ * 顶栏圆钮的流体玻璃底。onClick 为 null 时只画底，不接管点击（铃铛自己带 IconButton）。
+ */
 @Composable
-private fun HomeRoundAction(chip: Color, onClick: () -> Unit, icon: @Composable () -> Unit) {
-    androidx.compose.foundation.layout.Box(
+private fun GlassRoundAction(
+    backdrop: Backdrop?,
+    onClick: (() -> Unit)?,
+    size: Dp = 40.dp,
+    content: @Composable () -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val press by animateFloatAsState(
+        targetValue = if (pressed && onClick != null) 1f else 0f,
+        label = "home-glass-action-press",
+    )
+    val isDark = LocalIsDarkTheme.current
+    val accent = MiuixTheme.colorScheme.primary
+    val container = MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.4f)
+    val shadow = remember(accent, isDark) { floatingGlassShadow(accent, isDark) }
+    val surface = if (backdrop != null) {
+        Modifier.drawBackdrop(
+            backdrop = backdrop,
+            shape = { CircleShape },
+            effects = {
+                padding = maxOf(padding, 16.dp.toPx())
+                vibrancy()
+                blur(8.dp.toPx())
+                lens(12.dp.toPx() * press, 12.dp.toPx() * press)
+            },
+            highlight = { Highlight.Default.copy(alpha = press) },
+            shadow = { shadow },
+            onDrawSurface = { drawRect(container) },
+        )
+    } else {
+        Modifier.background(container, CircleShape)
+    }
+    Box(
         Modifier
-            .size(36.dp)
-            .clip(androidx.compose.foundation.shape.CircleShape)
-            .background(chip)
-            .clickable(onClick = onClick),
-        contentAlignment = androidx.compose.ui.Alignment.Center,
-    ) { icon() }
+            .size(size)
+            .then(surface)
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick)
+                } else {
+                    Modifier
+                }
+            ),
+        contentAlignment = Alignment.Center,
+    ) { content() }
 }
 
 /** 主界面顶栏，玻璃风格下采样 tab 内容区。 */
