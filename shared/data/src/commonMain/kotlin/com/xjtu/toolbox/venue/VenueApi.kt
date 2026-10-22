@@ -38,7 +38,7 @@ import org.jsoup.Jsoup
  * 之前打的是 80 端口那套 `/xjtu/…` 部署，会话时常失效、订单接口取不到数据。
  * 两套是并存的不同部署，不是同一批接口。
  *
- * 支付页仍在 80 端口，要浏览器自身的会话：在内置浏览器里先走一遍 OAuth 登录再进支付页。
+ * 支付页也在 8080 端口的 /web 下，要浏览器自身的会话：在内置浏览器里先走一遍 OAuth 登录再进支付页。
  *
  * ## 它在哪一端
  */
@@ -56,7 +56,7 @@ class VenueApi(private val site: SiteSession) {
         /** 业务接口前缀 */
         private const val BASE = "$ROOT/web"
 
-        /** 支付页在 80 端口的另一套站点上 */
+        /** 支付页与业务接口使用同一部署 */
         const val PAYMENT_BASE = VenueLogin.PAY_BASE_URL
         const val BROWSER_LOGIN_URL = VenueLogin.VENUE_OAUTH_URL
 

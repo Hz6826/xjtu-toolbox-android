@@ -479,6 +479,13 @@ private fun planStatusLabel(status: Int): String = when (status) {
  * @param landscapeLock 全屏看座位图时的方向锁定槽位（Web = null）
  * @param fullscreenDialogProperties 全屏 `Dialog` 的窗口属性，由宿主给：Android 多一个 `decorFitsSystemWindows`，写死在 `:core` 编不过
  */
+@Stable
+class SeatPlanUiState {
+    val selected = mutableStateOf<String?>(null)
+    val heatOn = mutableStateOf(false)
+    val fullscreen = mutableStateOf(false)
+}
+
 @Composable
 fun SeatPlanPanel(
     floor: Pair<SeatLayout, PlanImages>?,
@@ -503,12 +510,17 @@ fun SeatPlanPanel(
     fullscreenDialogProperties: DialogProperties = DialogProperties(usePlatformDefaultWidth = false),
     /** 屁岱挑的座位：非空时直接打开热力图，描边换成这几个。 */
     agentPicks: List<String> = emptyList(),
+    state: SeatPlanUiState? = null,
+    hostFullscreen: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     // 按区域记选中：刷新座位状态后选中不丢，状态按新数据重新取
-    var selected by remember(selectedArea) { mutableStateOf<String?>(null) }
+    val ui = state ?: remember { SeatPlanUiState() }
+    var selected by ui.selected
+    if (state == null) LaunchedEffect(selectedArea) { selected = null }
     val selectedSeat = layout?.seats?.firstOrNull { it.seatId == selected }
-    var heatOn by remember(agentPicks) { mutableStateOf(agentPicks.isNotEmpty()) }
+    var heatOn by ui.heatOn
+    if (state == null) LaunchedEffect(agentPicks) { heatOn = agentPicks.isNotEmpty() }
     val heat = remember(layout, heatOn, agentPicks) {
         layout?.takeIf { heatOn }?.seats?.let { seats ->
             val comfort = SeatComfort.of(seats)
@@ -651,7 +663,7 @@ fun SeatPlanPanel(
                 else -> {
                     // 框高按图的比例，太高的图封顶
                     val mapHeight = (width * (images.origHeight.toFloat() / images.origWidth)).coerceAtMost(mapBudget)
-                    var fullscreen by remember { mutableStateOf(false) }
+                    var fullscreen by ui.fullscreen
                     // 卡片里和全屏里是同一套：图 + 信息条，选中座位共用
                     @Composable
                     fun MapAndBar(mapModifier: Modifier, barOnlyForSeat: Boolean = false) {
@@ -692,7 +704,7 @@ fun SeatPlanPanel(
                         Column { MapAndBar(Modifier.fillMaxWidth().height(mapHeight)) }
                         PlanCornerButton(Icons.Default.Fullscreen, "全屏", Modifier.align(Alignment.TopEnd)) { fullscreen = true }
                     }
-                    if (fullscreen) PlanFullscreen(
+                    if (fullscreen && hostFullscreen) PlanFullscreen(
                         landscape = images.origWidth > images.origHeight,
                         onClose = { fullscreen = false },
                         landscapeLock = landscapeLock,
@@ -703,6 +715,48 @@ fun SeatPlanPanel(
                 }
             }
         }
+    }
+}
+
+/** 放在页面层：旋转屏幕或网格项离开视口都不会销毁全屏窗口。 */
+@Composable
+fun SeatPlanFullscreenOverlay(
+    state: SeatPlanUiState,
+    layout: SeatLayout?,
+    images: PlanImages?,
+    areaName: String,
+    freeText: String?,
+    favorites: Set<String>,
+    agentPicks: List<String>,
+    canBook: Boolean,
+    isBooking: Boolean,
+    loading: Boolean,
+    onBook: (String) -> Unit,
+    onToggleFavorite: (String) -> Unit,
+    landscapeLock: (@Composable (Boolean) -> Unit)?,
+    properties: DialogProperties,
+) {
+    if (!state.fullscreen.value || layout == null || images == null) return
+    var selected by state.selected
+    var heatOn by state.heatOn
+    val seat = layout.seats.firstOrNull { it.seatId == selected }
+    val heat = remember(layout, heatOn, agentPicks) {
+        if (!heatOn) null else {
+            val comfort = SeatComfort.of(layout.seats)
+            val picks = layout.seats.filter { it.available && it.seatId in agentPicks }
+            SeatHeat(comfort, picks.ifEmpty { SeatComfort.best(layout.seats, comfort) }, SeatComfort.zones(layout.seats))
+        }
+    }
+    PlanFullscreen(images.origWidth > images.origHeight, { state.fullscreen.value = false }, landscapeLock, properties) {
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().weight(1f)) {
+            SeatPlanView(layout, images, selected, favorites, { selected = it?.seatId }, onToggleFavorite,
+                heat = heat, modifier = Modifier.fillMaxSize().clipToBounds())
+            HeatToggle(heatOn, Modifier.align(Alignment.TopStart).padding(10.dp), onImage = true) { heatOn = !heatOn }
+        }
+        if (seat != null || heat != null) PlanInfoBar(
+            areaName, freeText, seat, seat?.seatId in favorites, canBook, !isBooking && !loading,
+            isBooking, onBook, heat, { selected = it }, Modifier.height(58.dp),
+        )
     }
 }
 

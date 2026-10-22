@@ -14,6 +14,7 @@ import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.ColorPalette
 import top.yukonga.miuix.kmp.window.WindowBottomSheet
 import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -40,7 +41,8 @@ data class CustomCourseDraft(
     val startMinute: Int = 0,
     val endHour: Int = 9,
     val endMinute: Int = 0,
-    val selectedWeeks: Set<Int> = emptySet()  // 默认空，由 Dialog 用 totalWeeks 填充
+    val selectedWeeks: Set<Int> = emptySet(),  // 默认空，由 Dialog 用 totalWeeks 填充
+    val colorHex: String? = null,
 )
 
 /**
@@ -83,6 +85,9 @@ fun CustomCourseDialog(
         mutableStateOf(if (existing != null) existing.courseName else draft.courseName)
     }
     val teacher = existing?.teacher.orEmpty()
+    var color by remember(existing, draft) {
+        mutableStateOf(existing?.let { CourseColors.of(it.courseName) } ?: draft.colorHex?.let(CourseColors::parseHex))
+    }
     var location by remember(existing, draft) {
         mutableStateOf(if (existing != null) existing.location else draft.location)
     }
@@ -121,7 +126,8 @@ fun CustomCourseDialog(
             startMinute = startMinute,
             endHour = endHour,
             endMinute = draftSafeEndMinute,
-            selectedWeeks = selectedWeeks
+            selectedWeeks = selectedWeeks,
+            colorHex = color?.let(CourseColors::toHex),
         )
     }
 
@@ -225,6 +231,13 @@ fun CustomCourseDialog(
             )
 
             // ── 星期 ──
+            SectionHeader("日程颜色", trailing = "同名日程一起生效")
+            ColorPalette(
+                color = color ?: defaultCourseColor(courseName),
+                onColorChanged = { color = it.copy(alpha = 1f) },
+            )
+            TextButton(text = "使用默认颜色", onClick = { color = null })
+
             SectionHeader("星期")
             WeekdaySelectorRow(
                 dayOfWeek = dayOfWeek,
@@ -345,6 +358,7 @@ fun CustomCourseDialog(
                     termCode = termCode,
                     note = encodeAgendaNote(note)
                 )
+                CourseColors.set(entity.courseName, color)
                 onSave(entity)
                 if (!isEdit) onAutoSave?.invoke(CustomCourseDraft())
                 show.value = false

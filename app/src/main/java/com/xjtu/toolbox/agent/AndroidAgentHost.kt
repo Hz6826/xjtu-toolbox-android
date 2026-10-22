@@ -51,7 +51,10 @@ internal class AndroidAgentHost(
 
     // ── 端装配 ────────────────────────────────────────────────────────────────
 
-    override fun tools(config: AgentConfig): AgentTools {
+    override fun tools(config: AgentConfig): AgentTools = buildTools(config, interactiveLogin = false)
+    override fun interactiveTools(config: AgentConfig): AgentTools = buildTools(config, interactiveLogin = true)
+
+    private fun buildTools(config: AgentConfig, interactiveLogin: Boolean): AgentTools {
         val wechat = WeChatSearchTools()
         return CompositeAgentTools(
             primary = AgentToolRegistry(
@@ -60,6 +63,7 @@ internal class AndroidAgentHost(
                 dataCache = DataCache(context, AccountContext.activeAccountId),
                 context = context,
                 host = this,
+                allowInteractiveLogin = interactiveLogin,
             ),
             // 各 feature 自带的工具（只实现 :shared:model 的 AgentTools），在入口这里并进来
             extras = listOfNotNull(

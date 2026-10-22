@@ -446,7 +446,7 @@ fun EmptyRoomScreen(
                     }
                     if (isLive) {
                         Text(
-                            "实时状态只覆盖兴庆、雁塔、创新港；仲英楼、中1、计教中心、田家炳等楼和曲江、苏州校区，请在右上角切到课表数据。",
+                            "部分教学楼暂无实时状态，可切到「按节找空闲」查看。",
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp),
@@ -493,6 +493,21 @@ fun EmptyRoomScreen(
                         colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor),
                     ) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
+                            val viewSources = listOf(RoomSource.LIVE, RoomSource.CDN).filter { it in source.availableSources }
+                            if (viewSources.size > 1) {
+                                AppSegmentedTabs(
+                                    tabs = listOf("此刻实况", "按节找空闲"),
+                                    selectedTabIndex = if (isLive) 0 else 1,
+                                    onTabSelected = { index ->
+                                        val target = viewSources[index]
+                                        if (target != sourceKind) {
+                                            vm.selectSource(target)
+                                            if (target == RoomSource.CDN && !cdnTipRead) tipVisible = true
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                                )
+                            }
                             // 第一行：楼栋（点开选校区、选楼）+ 日期
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Row(

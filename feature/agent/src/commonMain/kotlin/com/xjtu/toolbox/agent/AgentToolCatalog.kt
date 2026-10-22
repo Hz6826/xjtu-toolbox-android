@@ -99,7 +99,7 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
     if (AgentCapability.SCHEDULE_EVENT_WRITE in honored) {
         arr.add(agentTool("add_schedule_event",
             "往本 App 的日程里添加一条（占课表里的一段具体时间），只限当前学期。与课程或已有日程时间重叠时不添加，返回冲突；用户确认后带 force=true 重试。" +
-                "只有截止、没有具体时段的事用 add_todo。",
+                "只写用户明确要求的事项，不额外安排活动；只有截止、没有具体时段的事用 add_todo。",
             agentParams(
                 "title" to agentStrProp("标题。"),
                 "date" to agentStrProp("yyyy-MM-dd；星期取这一天。"),
@@ -179,7 +179,7 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             )))
     }
     arr.add(agentTool("app_guide",
-        "本 App 有哪些功能、某件事去哪一页办；兴庆、创新港的食堂和开放时间。",
+        "查询本 App 的完整功能与操作入口，包括屁岱配置、MCP 扩展工具、日程、下载与隐私；以及兴庆、创新港的食堂和开放时间。回答 App 能力或设置问题时先查此工具。",
         agentParams("topic" to agentEnumProp("app：功能与入口；campus：食堂与开放时间。缺省：两者都给。", "app", "campus"))))
     arr.add(agentTool("calculate",
         "计算表达式：+ - * / ^ 与括号。",

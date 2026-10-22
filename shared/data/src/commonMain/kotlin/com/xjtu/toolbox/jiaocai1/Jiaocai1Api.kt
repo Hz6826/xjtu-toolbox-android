@@ -129,7 +129,7 @@ class Jiaocai1Api(private val site: SiteSession) {
             parseSearchHtml(html)
         } catch (e: Exception) {
             Log.e(TAG, "search failed", e)
-            Jiaocai1SearchResult()
+            throw e
         }
     }
 

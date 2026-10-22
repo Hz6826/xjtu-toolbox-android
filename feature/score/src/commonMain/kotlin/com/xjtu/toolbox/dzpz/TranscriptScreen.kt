@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -34,7 +35,7 @@ import com.xjtu.toolbox.nav.AppRoute
 /**
  * 电子成绩单下载页面
  *
- * 流程：加载表单 → 一键申请（类型沿用学校表单的第一项，不让用户选） → 自动提交 → 下载 PDF
+ * 流程：加载表单 → 选择学校提供的类型 → 一键申请 → 自动提交 → 下载 PDF
  * UI 风格遵循项目 Miuix 风格，使用步骤进度条展示处理状态
  *
  * ## serve 模式下的**如实缺口**（2026-10-13 那次接线）
@@ -113,12 +114,31 @@ fun TranscriptScreen(
                         InfoCard(
                             title = "申请信息",
                             items = listOfNotNull(
-                                ctx.typeOptions.firstOrNull()?.let { "成绩单类型" to it.name },
+                                ctx.typeOptions.firstOrNull { it.value == vm.selectedType }?.let { "成绩单类型" to it.name },
                                 "申请日期" to ctx.defaultDate,
                                 "所属单位" to "西安交通大学",
                                 "份数" to "1"
                             )
                         )
+                    }
+
+                    item {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("成绩单类型", fontWeight = FontWeight.SemiBold)
+                                ctx.typeOptions.filterNot { it.cancelled }.forEach { option ->
+                                    Row(
+                                        Modifier.fillMaxWidth().clickable(enabled = vm.workflowState != WorkflowState.RUNNING) { vm.selectType(option.value) }.padding(vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        RadioButton(selected = option.value == vm.selectedType, onClick = { vm.selectType(option.value) }, enabled = vm.workflowState != WorkflowState.RUNNING)
+                                        Spacer(Modifier.width(12.dp))
+                                        Text(option.name, modifier = Modifier.weight(1f))
+                                    }
+                                }
+                                if (ctx.typeOptions.none { !it.cancelled }) Text("学校暂未提供可申请的类型")
+                            }
+                        }
                     }
 
                     // ── 工作流状态 ──
@@ -128,7 +148,7 @@ fun TranscriptScreen(
                                 state = vm.workflowState,
                                 progress = vm.workflowProgress,
                                 onStart = vm::start,
-                                enabled = vm.workflowState != WorkflowState.RUNNING,
+                                enabled = vm.workflowState != WorkflowState.RUNNING && vm.selectedType != null,
                             )
                         } else {
                             TranscriptWorkflowGapCard()
@@ -218,17 +238,14 @@ private fun TranscriptWorkflowGapCard() {
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Text(
-                "出 PDF 那半条链没有端点",
+                "暂不支持申请成绩单",
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MiuixTheme.colorScheme.onSurface
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "这一端只拿得到「选类型」这一步（服务端契约 §5.5 的 GET /api/dzpz/transcript）。" +
-                    "后面那六步（学籍联动 / 生成预览 PDF / 两次提交 / 签章 / 取下载链接 / 下载 PDF）" +
-                    "刻意不投影：第二步的返回值里有学号，其余是写路径 ⇒ 这里不出现「一键申请成绩单」。" +
-                    "要出 PDF 请在 App 或桌面端申请。",
+                "请使用 App 或桌面版申请。",
                 fontSize = 13.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )

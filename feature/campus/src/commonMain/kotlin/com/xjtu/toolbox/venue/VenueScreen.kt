@@ -97,7 +97,7 @@ fun VenueScreen(
 
     // 本地再记一份「读过了」：传进来的 showFirstUseHint 是组合那一刻的快照（宿主那份存储不是 State，
     // 用户点掉后它不会自己变），所以「切走了再切回来要不要再弹」以本地这份为准。
-    var showHint by remember { mutableStateOf(!showFirstUseHint) }
+    var showHint by remember { mutableStateOf(showFirstUseHint) }
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showBookingConfirm by remember { mutableStateOf(false) }
@@ -117,6 +117,14 @@ fun VenueScreen(
         selectedTab = index
         if (index == 1) vm.loadOrdersOnce()
     }
+    val navigateBack: () -> Unit = {
+        when {
+            selectedTab == 1 -> selectedTab = 0
+            vm.page == VenuePage.SlotSelection -> vm.closeVenue()
+            else -> onBack()
+        }
+    }
+    BackHandler(enabled = selectedTab == 1 || vm.page == VenuePage.SlotSelection, onBack = navigateBack)
     Scaffold(
         topBar = {
             TopAppBar(
@@ -132,16 +140,7 @@ fun VenueScreen(
                 modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
-                    IconButton(onClick = {
-                        if (selectedTab == 1) {
-                            selectedTab = 0
-                        } else {
-                            when (vm.page) {
-                                VenuePage.VenueList -> onBack()
-                                VenuePage.SlotSelection -> vm.closeVenue()
-                            }
-                        }
-                    }) {
+                    IconButton(onClick = navigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },

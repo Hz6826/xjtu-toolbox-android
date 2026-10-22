@@ -268,7 +268,6 @@ object ProactiveRules {
             com.xjtu.toolbox.schedule.ScheduleDiff.pending(com.xjtu.toolbox.schedule.scheduleDiffStore()),
             com.xjtu.toolbox.home.HomeSignals.attendanceAlert,
             com.xjtu.toolbox.home.HomeSignals.couponAlert,
-            com.xjtu.toolbox.home.HomeSignals.dormPowerAlert,
             latestNoticeLink,
             accountType,
             cooldown,
@@ -292,7 +291,6 @@ object ProactiveRules {
         scheduleChange: String?,
         attendanceAlert: String?,
         couponAlert: String?,
-        dormPowerAlert: String?,
         latestNoticeLink: String?,
         accountType: AccountType?,
         globalCooldownMs: Long,
@@ -348,9 +346,6 @@ object ProactiveRules {
                 add(ProactiveMessage("coupon", couponAlert, openRoute = AppRoute.Coupon, inboxCategory = InboxCategories.COUPON))
             }
             // 电用完宿舍就断电，排在校园卡余额前面。
-            if (dormPowerAlert != null) {
-                add(ProactiveMessage("dorm_power", dormPowerAlert, openRoute = AppRoute.DormPower))
-            }
             if (balance != null && balance < LOW_BALANCE) {
                 add(
                     ProactiveMessage(
@@ -776,4 +771,3 @@ object ProactiveBubbleHost {
         message = null
     }
 }
-

@@ -754,7 +754,6 @@ private fun ProactiveReminderLoop(loginState: AppLoginState) {
                     "schedule_change" -> ScheduleDiff.setPending(scheduleDiffStore(), null)
                     "attendance" -> HomeSignals.attendanceAlert = null
                     "coupon" -> HomeSignals.couponAlert = null
-                    "dorm_power" -> HomeSignals.dormPowerAlert = null
                     // 清空即可，下一轮刷新会按服务端状态重填
                     "library" -> HomeSignals.libraryUrgentAction = null
                 }

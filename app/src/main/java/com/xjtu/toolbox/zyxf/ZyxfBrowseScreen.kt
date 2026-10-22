@@ -266,7 +266,7 @@ fun ZyxfBrowseScreen(
                         } else vm.download(entry)
                     }
                     if (folders.isNotEmpty()) {
-                        item(key = "folderHead", contentType = "section") { SectionLabel("文件夹", folders.size) }
+                        item(key = "folderHead", contentType = "section") { SectionLabel(if (searching) "匹配的文件夹 · 点开查看内容" else "文件夹", folders.size) }
                         items(folders.chunked(2), key = { "folders-${it.first().id}" }, contentType = { "folderRow" }) { pair ->
                             Row(
                                 Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -280,7 +280,10 @@ fun ZyxfBrowseScreen(
                         }
                     }
                     if (files.isNotEmpty()) {
-                        item(key = "fileHead", contentType = "section") { SectionLabel("文件", files.size) }
+                        item(key = "fileHead", contentType = "section") {
+                            if (searching && folders.isNotEmpty()) Spacer(Modifier.height(20.dp))
+                            SectionLabel(if (searching) "独立匹配的文件 · 来源见下方路径" else "文件", files.size)
+                        }
                         itemsIndexed(files, key = { _, it -> "file-${it.id}" }, contentType = { _, _ -> "file" }) { i, entry ->
                             FileRow(
                                 entry = entry,

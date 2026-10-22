@@ -102,8 +102,6 @@ import com.xjtu.toolbox.venue.AppVenueSource
 import com.xjtu.toolbox.venue.VenueScreen
 import com.xjtu.toolbox.venue.VenueSlideCaptchaHost
 import com.xjtu.toolbox.auth.AccountType
-import com.xjtu.toolbox.dormpower.DormPowerApi
-import com.xjtu.toolbox.dormpower.DormPowerScreen
 import com.xjtu.toolbox.webvpn.WebVpnConverterScreen
 import com.xjtu.toolbox.webvpn.WebVpnUtil
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
@@ -315,26 +313,6 @@ fun AppNavHost(
                 )
             }
         }
-        entry<AppRoute.DormPower>(transition = expand(AppRoute.DormPower::class)) {
-            val dormContext = LocalContext.current
-            WithSite("ssn") { site ->
-                DormPowerScreen(
-                    source = remember(site) { DormPowerApi(site) },
-                    onBack = back,
-                    onLeave = { HomeStats.invalidate(dormContext, AppRoute.DormPower) },
-                    browser = { url ->
-                    BrowserScreen(
-                        initialUrl = url.orEmpty(),
-                        waiting = url == null,
-                        site = site,
-                        cookieClient = if (url?.contains("webvpn.xjtu.edu.cn", ignoreCase = true) == true) loginState.webVpnClientOrNull else null,
-                        extraCookieDomains = listOfNotNull(url?.let { Uri.parse(it).host }),
-                        onBack = back,
-                    )
-                }
-            )
-            }
-        }
         entry<AppRoute.DownloadManager>(transition = expand(AppRoute.DownloadManager::class)) {
             AppDownloadManagerScreen(onBack = back)
         }
@@ -447,17 +425,18 @@ fun AppNavHost(
         ) { browser ->
             val url = browser.url
             val host = remember(url) { runCatching { Uri.parse(url).host?.lowercase() }.getOrNull() }
+            val destinationHost = remember(browser.then) { runCatching { Uri.parse(browser.then).host?.lowercase() }.getOrNull() }
             BrowserScreen(
                 initialUrl = url,
                 thenUrl = browser.then,
-                site = loginState.sessionManager?.getSiteOrNull(siteKeyForHost(host.orEmpty()))
+                site = loginState.sessionManager?.getSiteOrNull(siteKeyForHost(destinationHost ?: host.orEmpty()))
                     ?: loginState.sessionManager?.getSiteOrNull("jwxt"),
                 cookieClient = if (url.contains("webvpn.xjtu.edu.cn", ignoreCase = true)) {
                     loginState.webVpnClientOrNull
                 } else {
                     null
                 },
-                extraCookieDomains = listOfNotNull(host),
+                extraCookieDomains = listOfNotNull(host, destinationHost),
                 onBack = back,
             )
         }
@@ -607,7 +586,6 @@ private fun siteKeyForHost(host: String): String = when {
     "kq.xjtu.edu.cn" in host -> "new_attendance"
     "lms.xjtu.edu.cn" in host -> "lms"
     "202.117.17.144" in host -> "venue"
-    "ssn.xjtu.edu.cn" in host -> "ssn"
     else -> "jwxt"
 }
 

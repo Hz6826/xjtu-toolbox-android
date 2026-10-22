@@ -37,6 +37,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -45,6 +47,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -166,6 +169,8 @@ fun PidaiInsightCard(
     val insights = AgentInsightHub.insights
     if (!insights.available) return
     val ok = state.outcome as? InsightOutcome.Ok
+    val visibilityStore = remember { com.xjtu.toolbox.platform.keyValueStore("pidai_card_visibility") }
+    var collapsed by rememberSaveable(state.spec.id) { mutableStateOf(visibilityStore.getBoolean(state.spec.id, false)) }
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.defaultColors(color = AppCardColor),
@@ -176,7 +181,10 @@ fun PidaiInsightCard(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 PidaiBadge(thinking = state.loading)
-                Column(Modifier.padding(start = 10.dp).weight(1f)) {
+                Column(Modifier.padding(start = 10.dp).weight(1f).clickable {
+                    collapsed = !collapsed
+                    visibilityStore.putBoolean(state.spec.id, collapsed)
+                }) {
                     Text(title, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
                     val status = when {
                         state.loading -> state.progress
@@ -204,27 +212,42 @@ fun PidaiInsightCard(
                             tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                 }
-            }
-            controls?.invoke(this)
-            when (val o = state.outcome) {
-                is InsightOutcome.Ok -> {
-                    Column(Modifier.alpha(if (state.loading) 0.45f else 1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        content(o.json)
-                    }
-                    if (askPrompt != null && !state.loading) {
-                        PidaiChip("接着问屁岱", icon = Icons.AutoMirrored.Filled.Chat, onClick = {
-                            insights.ask(askPrompt(o.json), insightSnapshot(title, state.input, o.json))
-                        })
-                    }
-                }
-                InsightOutcome.Unavailable -> InsightHint("在屁岱页配好 API Key 后，这里由屁岱帮你挑重点。")
-                is InsightOutcome.Failed -> if (!state.loading) InsightHint("这次没看成：${o.message}")
-                null -> if (!state.loading) {
-                    if (idleHint.isNotBlank()) InsightHint(idleHint)
-                    if (idleAction != null) PidaiChip(idleAction, icon = Icons.Filled.AutoAwesome, emphasized = true, onClick = { state.refresh(force = false) })
+                Box(
+                    Modifier.size(40.dp).clip(CircleShape).clickable {
+                        collapsed = !collapsed
+                        visibilityStore.putBoolean(state.spec.id, collapsed)
+                    },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+                        contentDescription = if (collapsed) "展开精选卡片" else "折叠精选卡片",
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
                 }
             }
-            if (state.loading && ok == null) InsightShimmer()
+            if (!collapsed) {
+                controls?.invoke(this)
+                when (val o = state.outcome) {
+                    is InsightOutcome.Ok -> {
+                        Column(Modifier.alpha(if (state.loading) 0.45f else 1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            content(o.json)
+                        }
+                        if (askPrompt != null && !state.loading) {
+                            PidaiChip("接着问屁岱", icon = Icons.AutoMirrored.Filled.Chat, onClick = {
+                                insights.ask(askPrompt(o.json), insightSnapshot(title, state.input, o.json))
+                            })
+                        }
+                    }
+                    InsightOutcome.Unavailable -> InsightHint("在屁岱页配好 API Key 后，这里由屁岱帮你挑重点。")
+                    is InsightOutcome.Failed -> if (!state.loading) InsightHint("这次没看成：${o.message}")
+                    null -> if (!state.loading) {
+                        if (idleHint.isNotBlank()) InsightHint(idleHint)
+                        if (idleAction != null) PidaiChip(idleAction, icon = Icons.Filled.AutoAwesome, emphasized = true, onClick = { state.refresh(force = false) })
+                    }
+                }
+                if (state.loading && ok == null) InsightShimmer()
+            }
         }
     }
 }

@@ -99,10 +99,6 @@ sealed interface AppRoute : NavKey {
         override val id get() = "venue"
         override val loginType get() = LoginType.VENUE
     }
-    @Serializable data object DormPower : AppRoute {
-        override val id get() = "dorm_power"
-        override val loginType get() = LoginType.DORM_POWER
-    }
     @Serializable data object DownloadManager : AppRoute { override val id get() = "download_manager" }
 
     /** 思源学堂；课程及活动 ID 可用于从待办直达作业详情。 */
@@ -179,7 +175,7 @@ private val simpleRoutes: Map<String, AppRoute> = listOf(
     AppRoute.Main, AppRoute.Schedule, AppRoute.Agent, AppRoute.PaymentCode,
     AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge,
     AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
-    AppRoute.ScoreReport, AppRoute.Transcript, AppRoute.Venue, AppRoute.DormPower, AppRoute.DownloadManager,
+    AppRoute.ScoreReport, AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager,
     AppRoute.Jiaocai, AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar,
     AppRoute.YellowPage, AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox,
     AppRoute.Feedback, AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts,

@@ -55,7 +55,6 @@ object HomeIcons {
         AppRoute.Coupon -> Icons.Default.Restaurant
         AppRoute.SchoolCalendar -> Icons.AutoMirrored.Filled.EventNote
         AppRoute.Venue -> Icons.Default.Stadium
-        AppRoute.DormPower -> Icons.Default.Bolt
         AppRoute.Fitness -> Icons.AutoMirrored.Filled.DirectionsRun
         AppRoute.YellowPage -> Icons.Default.ContactPhone
         AppRoute.WebVpnConverter -> Icons.Default.VpnKey

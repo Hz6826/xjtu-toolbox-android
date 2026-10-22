@@ -255,8 +255,7 @@ fun MatchScreen(
                             item {
                                 SectionCard("读不到本地数据") {
                                     Text(
-                                        "$msg\n这个页面只读别的页面留下的缓存，不会自己联网。" +
-                                            "退出去重进一次；还是这样就是缓存坏了，去设置里清一次数据。",
+                                        "课表数据读取失败，请到日程页刷新后重试。",
                                         style = MiuixTheme.textStyles.footnote1,
                                         color = MiuixTheme.colorScheme.error,
                                     )
@@ -269,8 +268,7 @@ fun MatchScreen(
                             item {
                                 SectionCard("还没有可分享的数据") {
                                     Text(
-                                        "匹配靠的是你在别的页面留下的缓存：课表、考试、教材来自日程页，" +
-                                            "饭点和食堂来自校园卡页。先去转一圈，回来这里就有东西可对了。",
+                                        "先在日程页同步课表；要比较用餐习惯，也请刷新校园卡流水。",
                                         style = MiuixTheme.textStyles.footnote1,
                                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                     )
@@ -384,7 +382,7 @@ private fun MyCodeCard(
         value = when {
             // 本端没有 zlib / Base64：说清缺了什么，不当成「出错了」。
             !MatchProfile.codecAvailable -> QrState.Failed(
-                "这一端还没有分享码要用的压缩（zlib）与 Base64，生成不了码。" +
+                "当前版本暂不支持生成分享码。" +
                     "Android、桌面与浏览器三端都已经能用（见 :core 的 platform/Deflate.kt " +
                     "与 platform/Base64Url.kt）。"
             )
@@ -523,7 +521,7 @@ private fun TheirCodeCard(
             // 如实说明：这一端没有相机，也没有相册（桌面）。**不画**两颗点了只会失败的按钮，
             // 但也不能让人以为"这功能只能粘文字"是这个页面本来的样子。
             Text(
-                "这一端没有相机（也没有相册），扫不了码 —— 拿对方发来的那段文字码，粘到下面就行。" +
+                "当前版本不支持扫码，请粘贴对方的文字码。" +
                     "Android 上那两条路都在。",
                 style = MiuixTheme.textStyles.footnote1,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,

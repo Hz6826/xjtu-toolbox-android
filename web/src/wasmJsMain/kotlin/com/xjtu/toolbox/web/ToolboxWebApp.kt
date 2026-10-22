@@ -47,7 +47,6 @@ import com.xjtu.toolbox.card.CampusCardScreen
 import com.xjtu.toolbox.core.net.CampusCardNetApi
 import com.xjtu.toolbox.core.net.CampusAttendanceApi
 import com.xjtu.toolbox.core.net.CampusCouponApi
-import com.xjtu.toolbox.core.net.CampusDormPowerApi
 import com.xjtu.toolbox.core.net.CampusTranscriptApi
 import com.xjtu.toolbox.core.net.CampusInboxApi
 import com.xjtu.toolbox.core.net.CampusEmptyRoomApi
@@ -416,12 +415,7 @@ private fun AppPage(
             )
         } else {
             Column(Modifier.fillMaxSize()) {
-                WebGapNote(
-                    "这一屏只画得了「选类型」这一步：serve 契约 §5.5 只端了建单表单（GET /api/dzpz/transcript）。" +
-                        "学籍联动 / 生成预览 PDF / 两次提交 / 签章 / 取下载链接 / 下载 PDF 六步刻意不投影" +
-                        "（第二步的返回值里有学号，其余是写路径）⇒ 出 PDF 那半条链在浏览器里没有端点，" +
-                        "那一块不画按钮、只写缺口。要出 PDF 请在 App 或桌面端申请。",
-                )
+                WebGapNote("网页版暂不支持申请成绩单，请使用 App 或桌面版。")
                 Box(Modifier.weight(1f)) {
                     // 没有 saveSink：浏览器这一端没有「保存到下载目录 / 下载管理」那一档（也不会有 PDF 可存）
                     TranscriptScreen(
@@ -440,15 +434,7 @@ private fun AppPage(
             )
         } else {
             Column(Modifier.fillMaxSize()) {
-                WebGapNote(
-                    "三处如实不画：① 考勤**流水那一栏**的上课教师名（那一格是当堂上课的教师名，§5.2 的" +
-                        "例外清单里没有它 —— 红线）；②「统计」那一栏（getKqtjCurrentWeek / computeCourseStatsFromRecords " +
-                        "没有端点，本端也不拿流水在本机算第二份口径）；③「打卡流水」那一栏（打卡原始流水没有端点）。" +
-                        "本人姓名那一格同理不画（getStudentInfo 不端）。" +
-                        "请假那一族的**两类姓名已按 §5.2 例外 ④ 端出来**（审批人姓名、请假单里那节课的任课教师姓名）；" +
-                        "「请假」那一栏**已经真能用了**（窗口 / 审批人 / 列表 / 提交 / 撤回 / 销假六条端点）；" +
-                        "只有**附件**没端 —— 本端没有文件选择宿主，与桌面同一条（不发附件）。",
-                )
+                WebGapNote("网页版暂不支持打卡流水和出勤统计；请假暂不支持附件。")
                 Box(Modifier.weight(1f)) {
                     AttendanceScreen(
                         source = remember(client, mode) { CampusAttendanceApi(client, API_BASE, mode) },
@@ -467,12 +453,6 @@ private fun AppPage(
             )
         } else {
             Column(Modifier.fillMaxSize()) {
-                WebGapNote(
-                    "一处如实不画：券封面图 —— 那张图要带 egc 的 Authorization 才取得到，浏览器直接打开" +
-                        "那个 URL 会拿到登录页（契约里没有图片代理端点）⇒ 券卡退化成图标。金额一格单位是分" +
-                        "（屏自己除 100 显示，本端不换算）。「领取」按钮**照旧画**：领券已端" +
-                        "（POST /api/coupon/activate），失败会如实报（领券被上游拒 / 会话失效都落 502）。",
-                )
                 Box(Modifier.weight(1f)) {
                     CouponScreen(
                         source = remember(client, mode) { CampusCouponApi(client, API_BASE, mode) },
@@ -480,20 +460,6 @@ private fun AppPage(
                     )
                 }
             }
-        }
-
-        // 宿舍电费：用 `:web` 自己的读数页（`:core` 的 `DormPowerScreen` 只是缴费页浏览器，serve 没有那个端点）。
-        AppRoute.DormPower -> if (mode != ApiMode.SERVE) {
-            WebServeOnlyScreen(
-                title = "宿舍电费",
-                endpoints = "GET /api/dorm/rooms + /api/dorm/reading",
-                why = "宿舍电费走 `ssn` 站点的会话（`cid` 是登录时写进会话的）。",
-            )
-        } else {
-            WebDormPowerScreen(
-                source = remember(client, mode) { CampusDormPowerApi(client, API_BASE, mode) },
-                onBack = back,
-            )
         }
 
         // ── 第二批只读域（契约 §5.6）：非 serve 形态画 `WebServeOnlyScreen` ── ⚠️ 必须写 `is AppRoute.Lms`。
@@ -506,14 +472,7 @@ private fun AppPage(
         } else {
             val hintPrefs = remember { keyValueStore("feature_hints") }
             Column(Modifier.fillMaxSize()) {
-                WebGapNote(
-                    "四处如实不画：① 教师姓名 —— 契约不投影 `instructors`，课程卡上那一格显示「未知」；" +
-                        "② 附件的预览与下载、以及「批量下载」那一整档 —— 附件的三个地址都没有端点" +
-                        "（要站点会话，浏览器直接打开只会拿到登录页）；③ 回放与直播的**播放地址**、" +
-                        "作业的**提交记录** —— 也都不投影（提交记录里有提交人姓名与学号）。" +
-                        "详情正文是服务端端出的 HTML 原文，本端按纯文本近似显示（契约刻意不端「转纯文本」" +
-                        "那个纯函数）；「已提交」标签在详情打开过之后才画。",
-                )
+                WebGapNote("部分课程信息不完整；网页版暂不支持附件和回放下载。")
                 Box(Modifier.weight(1f)) {
                     LmsScreen(
                         source = remember(client, mode) { CampusLmsApi(client, API_BASE, mode) },
@@ -543,14 +502,7 @@ private fun AppPage(
             )
         } else {
             Column(Modifier.fillMaxSize()) {
-                WebGapNote(
-                    "这一屏真接上了两处（2026-10-14 批①收尾）：「查教材」那一栏与【本学期我的教材】那一段" +
-                        "（那一段的数据在**教务**的报表里，serve 契约 §5.8 已端出它：`GET /api/jwxt/textbooks`，" +
-                        "学号由服务端从会话里取 ⇒ 与日程屏的教材那一栏同一个端点）。「查教材」那一栏检索只有一个关键词输入：" +
-                        "没有院系/教师筛选，也没有翻页；结果里的书目号（ssno）在列表里恒为空，要它进详情才补。" +
-                        "全文阅读（`jiaocai1` 的页图与阅读器）是另一个域名、另一套会话，本轮没有端点 ⇒ 书架与" +
-                        "全文库两栏不画，各处的「读全文 / 阅读全文」入口也不画（拿了书目号只够显示「这本书有本地全文」）。",
-                )
+                WebGapNote("网页版暂不支持书架和全文阅读。")
                 Box(Modifier.weight(1f)) {
                     TextbookScreen(
                         source = remember(client, mode) { CampusJiaocaiApi(client, API_BASE, mode) },
@@ -577,13 +529,7 @@ private fun AppPage(
             )
         } else {
             Column(Modifier.fillMaxSize()) {
-                WebGapNote(
-                    "一处如实缺口：未评教名单与「按学号补的报表」那两路 —— 一个属评教那一侧、" +
-                        "一个要学号（红线），本端都不调（学号那一格传空串）。其余都真读：学期成绩 + GPA + " +
-                        "「点开一门课」的分项（`/api/jwapp/score-detail`，课程没有分项时出的是空明细而不是" +
-                        "「加载失败」）。成绩是两份上游拼的：移动教务的粗分 + 教务的精确成绩，**后者拿不到时" +
-                        "只出前一份**（那条端点的失败被屏的 VM 容忍），所以整屏照常可用。",
-                )
+                WebGapNote("未评教成绩和完整报表请在 App 或桌面版查看。")
                 Box(Modifier.weight(1f)) {
                     val scoreSource = remember(client, mode) { CampusJwappScoreApi(client, API_BASE, mode) }
                     JwappScoreScreen(
@@ -612,11 +558,6 @@ private fun AppPage(
             )
         } else {
             Column(Modifier.fillMaxSize()) {
-                WebGapNote(
-                    "这一屏与 App / 桌面**同一个屏、同三格**（时刻 / 地点 / 类型）：姓名与学号是红线、" +
-                        "契约不投影，屏上本来也不画。时间那一格是服务端时区的**墙上时间**（上游原文），" +
-                        "本端不做转换 —— 换成本地时区只会整体平移几个钟头。没有分页（上游是一天一枪）。",
-                )
                 Box(Modifier.weight(1f)) {
                     IclassfaceScreen(
                         source = remember(client, mode) { CampusIclassfaceApi(client, API_BASE, mode) },
@@ -635,13 +576,6 @@ private fun AppPage(
             )
         } else {
             Column(Modifier.fillMaxSize()) {
-                WebGapNote(
-                    "这一屏与 App / 桌面**同一个屏、同一张码**：二维码与 Code128 条形码在自己这一端算出来" +
-                        "（D12 ①：编码器在 `:core` 的 commonMain，与 Android 那份 zxing 逐模块相同）⇒ 手机上" +
-                        "扫出来就是下面那串付款码数字。加餐券的勾选**照旧真能勾**" +
-                        "（POST /api/pay/vouchers/select 真把「这一轮用哪几张」推给上游）。" +
-                        "⚠️ 这一屏显示的是**能付钱的东西**：`--host 0.0.0.0` 部署要先解决鉴权（§3.3）。",
-                )
                 Box(Modifier.weight(1f)) {
                     PaymentCodeScreen(
                         source = remember(client, mode) { CampusPayApi(client, API_BASE, mode) },
@@ -664,15 +598,7 @@ private fun AppPage(
             )
         } else {
             Column(Modifier.fillMaxSize()) {
-                WebGapNote(
-                    "三处如实缺口：① 这一族**不套会话** —— 反馈没有学校站点，所谓「登录」是服务端拿" +
-                        "`app_id` + `app_secret` 换一张租户令牌，所以本端没有「先登录校园账号」那一步；" +
-                        "② 提交要服务端配了那三个 `FEEDBACK_*` 环境变量：没配全时三条端点一律答 502（含提交那一枪），" +
-                        "而屏把取数失败吞掉了 ⇒「我提过的 / 大家在问」会显示成「没有新回复」；" +
-                        "③ 提交那一发在服务端**真的**往多维表格里加一行，而且工单号是**屏自己生成**的" +
-                        "（`FeedbackStore`，本端落在 localStorage ⇒ 换了浏览器就找不回旧工单）。" +
-                        "⚠️ 写的那一格只该走回环 + 令牌闸门：对外部署要先加反代 + 鉴权（§3.3）。",
-                )
+                WebGapNote("反馈记录保存在当前浏览器，清除浏览器数据后将无法查看。")
                 Box(Modifier.weight(1f)) {
                     FeedbackScreen(
                         source = remember(client, mode) { CampusFeedbackApi(client, API_BASE, mode) },
@@ -700,13 +626,7 @@ private fun AppPage(
             )
         } else {
             Column(Modifier.fillMaxSize()) {
-                WebGapNote(
-                    "两处如实缺口：① 转换是**一发 HTTP**（服务端那份 `WebVpnUtil` 算的，与 Android / " +
-                        "桌面注入的是同一个算法）⇒ 断网时转不了，而 Android / 桌面是本地纯函数；② 转换结果那颗" +
-                        "「用 WebVPN 打开」只做浏览器做得到的那一件：新标签打开那个网关地址 —— 网关自己的会话" +
-                        "不在这个浏览器里，所以要过它自己的登录页（`:app` 的免验证打开靠的是 App 内的 WebVPN 会话）。" +
-                        "这一族**不收会话**，所以本端没有「先登录」那一步。",
-                )
+                WebGapNote("转换链接需要联网。打开链接后，可能需要登录 WebVPN。")
                 Box(Modifier.weight(1f)) {
                     WebVpnConverterScreen(
                         codec = remember(client, mode) { CampusWebVpnApi(client, API_BASE, mode) },

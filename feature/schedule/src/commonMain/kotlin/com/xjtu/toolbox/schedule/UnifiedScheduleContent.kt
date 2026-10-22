@@ -252,7 +252,7 @@ private fun NoCourseTodayCard() {
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                "今天没课，后面几天的在下面",
+                "今天暂无安排，下面还有近期提醒",
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )

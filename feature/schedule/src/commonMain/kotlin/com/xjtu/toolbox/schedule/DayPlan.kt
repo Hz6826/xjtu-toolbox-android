@@ -48,20 +48,20 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 「一句话排今天」：照今天的课、考试、截止和用户一句话，排出从现在到睡前的安排和路线。 */
 private val DAY_PLAN = InsightSpec(
-    id = "day_plan",
+    id = "day_plan_v2",
     tools = setOf("get_schedule", "get_exam_schedule", "campus_map", "my_location", "get_empty_rooms", "get_library", "app_guide", "get_card_info"),
     ttlMs = 2 * 60 * 60 * 1000L,
     thinking = true,
     busyHint = "在排…",
     instruction = """
-任务：替用户排「目标日期」那一天的安排。目标是今天就从「现在」排到 23:00；是别的日子就从 7:30 排到 23:00。
-- 今天的课、考试、截止已经给你了；别的日子先用 get_schedule(date) 查那天的课，get_exam_schedule 看有没有考试。
-- 课和考试是固定的，原样排进去；中间的空当按他那句话和临近的截止、考试安排复习、作业、吃饭、运动、休息。
-- 今天且他没说在哪时，可以 my_location 看他现在在哪栋楼附近，从那儿出发。
-- 地点要具体：自习优先离下一节课近的空教室（get_empty_rooms）或图书馆（get_library 看空座）；吃饭推离当时所在楼近的食堂（campus_map 的 near=canteen，或 app_guide 查开放时间）。
-- 换地方时用 campus_map 算步行时间，留够路上的时间；赶不上就明说。
-- 图书馆约 23:00 闭馆，主楼约 22:30 关门；饭点见食堂开放时间。
-- 已经过去的时间不排；放假、周末照样排，只是没课。
+任务：整理用户明确要求的目标日期日程，保留原意、事项、时间、地点与约束，不自行扩展活动。
+- 固定安排以给定快照或工具结果为准；目标不是今天时，查询目标日期的课表和考试，不套用今日快照。
+- blocks 只包含已确认的课程、考试以及用户明确要求的事项。空闲时段保持空闲，不依据学籍、临近截止或生活惯例填满全天。
+- 用户未要求学习活动时，不添加学习活动。建议与已确认安排分开，只写进 tips；建议未经采纳不进入 blocks。
+- 执行所必需的时间或地点不明确时，在 tips 中说明待补充信息，不编造确定值。截止时间不等同于任务开始时间或持续时长。
+- 仅在用户要求地点推荐或路线安排时查询位置；画像校区和上课地点不能视为当前位置。无可靠当前位置时保持未知。
+- 确需跨地点移动时依据地图结果评估可达性，把时间冲突或尚未确认的路程写入 tips，不挪动用户指定的安排。
+- 目标是今天时省略已结束事项；没有符合条件的安排时 blocks 为空，summary 如实说明。
 只输出：
 {"summary":"不超过 30 字，这一天的主线","blocks":[{"start":"14:00","end":"15:50","title":"不超过 12 字","place":"楼名/食堂/图书馆区域，没有就空串","kind":"class|exam|study|meal|move|sport|rest|other","note":"不超过 20 字，可空"}],"tips":["最多两条，不超过 25 字"]}
     """.trimIndent(),
@@ -89,7 +89,7 @@ internal fun DayPlanCard(snapshot: String, today: LocalDate, modifier: Modifier 
         asked?.let { said ->
             buildString {
                 append("目标日期：$targetDate ${dayLabel(targetDate, today)}\n")
-                append("用户说：${said.ifBlank { "（没说，按常理排）" }}\n")
+                append("用户说：${said.ifBlank { "（仅整理已确认的固定安排）" }}\n")
                 if (targetDate != today) append("（那天的课和考试请自己查；下面是今天的情况，供参考）\n")
                 append(snapshot)
             }
@@ -105,7 +105,7 @@ internal fun DayPlanCard(snapshot: String, today: LocalDate, modifier: Modifier 
         title = "屁岱排日程",
         state = state,
         modifier = modifier,
-        subtitle = "选一天、说一句，按课表和校园地图排好",
+        subtitle = "选一天、说一句，按你的要求整理",
         askPrompt = { "你排的${dayLabel(targetDate, today)}这个安排，再帮我调一调。" },
         controls = {
             PidaiChipRow {

@@ -388,6 +388,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
             if (start >= 0) llmHistory = llmHistory.take(start).toMutableList()
         }
         currentJob = viewModelScope.launch {
+            var mfaJob: kotlinx.coroutines.Job? = null
             try {
                 // 首次调用时初始化，此后复用（loginFailedAt 冷却状态得以保留）
                 val accountNow = com.xjtu.toolbox.account.AccountContext.activeAccountId
@@ -401,18 +402,17 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                 // 工具层与传输层都是**端装配**（见 `:core` 的 [AgentHost]）：`:app` 交取数那些
                 // `*Api` + Android 能力，桌面交它能取到的那部分。没接的端 `honored` 为空，
                 // 那几档就不会画给模型（见 `AgentCapability`）。
-                val registry = tools ?: CompositeAgentTools(host.tools(config),
+                val registry = tools ?: CompositeAgentTools(host.interactiveTools(config),
                     if (config.mcpEnabled && host.supportsMcp) listOf(host.mcpTools(config, ::confirmExternalTool)) else emptyList()
                 ).also { tools = it }
                 registry.drainWidgets()   // 丢弃上一轮残留，确保本轮控件干净
                 val runner = AgentRunner(registry, host.transport())
 
-                // 系统提示**一段对话只生成一次**：对话里还没有它（新对话，或老数据缺了）才生成，
-                // 之后原样复用。名字、偏好、画像中途变了，都从下一个新对话起生效——
-                // 中途改写等于篡改上下文：前几轮按旧设定答的，前后人设对不上，前缀缓存也整段作废。
-                // 会变的时间和模型走每条消息头（nowTag），不在这里。
+                // 同一提示版本在会话内复用，升级提示规则时替换旧版本。
+                // 名字、偏好和画像的普通变更从新会话生效；时间和模型走每条消息头。
                 val hasSystem = llmHistory.size > 0 && runCatching {
-                    llmHistory[0].jsonObject.get("role")?.stringValue == "system"
+                    llmHistory[0].jsonObject.get("role")?.stringValue == "system" &&
+                        AgentPrompt.isCurrent(llmHistory[0].jsonObject.get("content")?.stringValue.orEmpty())
                 }.getOrDefault(false)
                 if (!hasSystem) {
                     // 联网补齐姓名/学院只在登录态变过之后再试：没登录时每个新对话都去撞一次网络，
@@ -472,7 +472,6 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                 // "需要登录验证" tool_event，让用户知道为什么对话卡住——不是 AI 在慢，是在校验。
                 // 协程在 run() 挂起期间仍存活，MFA 完成后我们再把这个事件标 isToolCall=false 让它收尾。
                 var mfaBubbleIdx = -1
-                var mfaJob: kotlinx.coroutines.Job? = null
                 val mfaFlow = host.mfaRequests
                 if (mfaFlow != null) {
                     mfaJob = launch {
@@ -583,12 +582,16 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                 }
                 throw e
             } catch (e: Exception) {
+                if (currentSessionId == turnSid) {
+                    toolBubbleIndices.forEach { settleToolAt(it, false, e.message ?: "调用已结束，请重试") }
+                    toolBubbleIndices.clear()
+                }
                 // 「登录态失效」是 `:core` 的标记接口（见 `error/SessionExpiredFailure`）——
                 // `catch` 抓不了接口，所以先抓 `Exception` 再判，与评教/成绩/校园卡/加餐券同一条缝。
                 if (e is com.xjtu.toolbox.error.SessionExpiredFailure) {
                     discardUnfinishedTurn()
                     if (currentSessionId == turnSid)
-                        messages.add(ChatMessage("assistant", "登录已失效，请返回并重新进入对应功能页面完成认证后再试。"))
+                        messages.add(ChatMessage("assistant", "登录未完成，请进入对应功能验证后重试。"))
                 } else {
                     // 兜底文案：异常 message 可能为 null（如某些 IO/解析异常），避免直接显示「出错了：null」
                     val detail = e.message?.takeIf { it.isNotBlank() }
@@ -601,8 +604,12 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                     }
                 }
             } finally {
+                mfaJob?.cancel()
                 flushStream()   // 出错路径上已收到的部分也要落到气泡里再持久化
                 if (currentSessionId == turnSid) {
+                    messages.indices.filter { messages[it].isToolCall }.forEach { index ->
+                        settleToolAt(index, false, "调用已结束")
+                    }
                     applyLoading(false)
                     persist(turnSid)   // 仅当仍在本会话才落盘，避免把新会话内容写到旧 id
                 }

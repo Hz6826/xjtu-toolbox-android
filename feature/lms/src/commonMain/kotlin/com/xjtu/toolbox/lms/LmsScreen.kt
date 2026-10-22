@@ -469,7 +469,7 @@ private fun LmsVideoUnavailable(request: VideoPlayRequest, onBack: () -> Unit) {
     ) {
         Text(request.title, color = MiuixTheme.colorScheme.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         Text(
-            "这一端没有视频播放器，播不了直播与回放。",
+            "当前版本暂不支持播放，请在思源学堂观看。",
             color = MiuixTheme.colorScheme.error,
             fontSize = 13.sp,
         )

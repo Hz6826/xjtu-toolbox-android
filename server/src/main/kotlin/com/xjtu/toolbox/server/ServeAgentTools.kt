@@ -247,6 +247,7 @@ internal class ServeAgentTools(
         lastSiteError = null
         session.sessionManager.ensureSite(type, silent = true)
     } catch (e: Throwable) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         lastSiteError = e
         null
     }
@@ -254,6 +255,7 @@ internal class ServeAgentTools(
         lastSiteError = null
         session.sessionManager.ensureSite(siteKey, silent = true)
     } catch (e: Throwable) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         lastSiteError = e
         null
     }

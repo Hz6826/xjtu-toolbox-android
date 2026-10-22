@@ -73,6 +73,7 @@ class AgentToolRegistry(
     private val memory: AgentMemory = AgentMemory(),
     /** 端上的能力槽位（见 `:core` 的 [AgentHost]）：闹钟、应用设置那几档由它接。 */
     private val host: AgentHost,
+    private val allowInteractiveLogin: Boolean = false,
 ) : AgentTools {
     // [AgentTools] 是 `:core` 调度循环（[AgentRunner]）要的三件事：工具清单 / 限流分组键 / 执行一次调用。
     // `memoryBlock()` 不在其中：它是系统提示那一侧要的，调用方是 ViewModel。
@@ -251,14 +252,13 @@ class AgentToolRegistry(
     /**
      * 取一个已登录的子系统会话。
      *
-     * **silent = true**：模型自己决定调工具时，不能在用户毫不知情的情况下触发一次
-     * 带凭据的认证并把短信验证码发到他手机上。撞上 MFA 就抛 MfaRequiredException，
-     * 由 [loginHint] 翻译成"你自己去那个页面登一次"。
+     * 对话中的查询允许宿主处理短信验证；自动卡片和后台任务保持静默。
      */
     private suspend fun ensureSite(type: LoginType): SiteSession? = try {
         lastSiteError = null
-        loginState.sessionManager?.ensureSite(type, silent = true)
+        loginState.sessionManager?.ensureSite(type, silent = !allowInteractiveLogin, userInitiated = allowInteractiveLogin)
     } catch (e: Throwable) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         lastSiteError = e
         null
     }
@@ -266,8 +266,9 @@ class AgentToolRegistry(
     /** 同 [ensureSite]，给不在 [LoginType] 里的站点（智慧教室等）用。 */
     private suspend fun ensureSiteKey(siteKey: String): SiteSession? = try {
         lastSiteError = null
-        loginState.sessionManager?.ensureSite(siteKey, silent = true)
+        loginState.sessionManager?.ensureSite(siteKey, silent = !allowInteractiveLogin, userInitiated = allowInteractiveLogin)
     } catch (e: Throwable) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         lastSiteError = e
         null
     }
@@ -1214,11 +1215,13 @@ class AgentToolRegistry(
             val scope = sources.joinToString("、") { it.displayName } +
                 if (source.isNullOrBlank()) "（按你的身份自动选）" else ""
             val api = com.xjtu.toolbox.notification.NotificationApi()
-            if (keyword != null) {
+            if (!keyword.isNullOrBlank()) {
                 // 站内搜索：查的是各站全站索引，不是本地已抓的那几页（见 NotificationApi.search）
                 val found = api.search(sources, keyword)
                 val hits = found.items.take(limit.coerceIn(1, 20))
-                if (hits.isEmpty()) return ToolReply.empty("notifications: $keyword（已查：$scope）")
+                if (hits.isEmpty()) return if (found.skipped.isNotEmpty()) {
+                    ToolReply.failed("get_notifications", "部分来源暂时搜索失败：${found.skipped.joinToString("、") { it.displayName }}；已完成的来源未找到匹配，不能认定全站没有结果。")
+                } else ToolReply.empty("notifications: $keyword（已查：$scope）")
                 return buildString {
                     append("「$keyword」站内搜索结果（${hits.size}条，按日期从新到旧")
                     if (found.skipped.isNotEmpty()) append("；${found.skipped.joinToString("、") { it.displayName }}这次没搜成")
