@@ -465,6 +465,8 @@ fun InboxBell(
     onClick: () -> Unit,
     clickable: Boolean = true,
     iconSize: Dp = 24.dp,
+    /** 非点击模式的容器边长；嵌在圆钮里时传圆钮的尺寸，角标才会和圆钮对齐。 */
+    containerSize: Dp = 48.dp,
 ) {
     val data = InboxStore.snapshot()
     val count = remember(data) { InboxRules.badge(data, Clock.System.now().toEpochMilliseconds()) }
@@ -479,7 +481,7 @@ fun InboxBell(
                 )
             }
         } else {
-            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(containerSize), contentAlignment = Alignment.Center) {
                 Icon(
                     Icons.Default.Notifications,
                     contentDescription = if (count > 0) "消息，$count 条未处理" else "消息",

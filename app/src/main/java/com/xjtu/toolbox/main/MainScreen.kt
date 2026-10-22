@@ -570,10 +570,10 @@ private fun HomeTopActions(onInbox: () -> Unit, onScan: () -> Unit, onSearch: ()
         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        HomeRoundAction(onClick = onSearch) {
+        HomeRoundAction(onClick = onSearch, size = HomeTopActionSize) {
             Icon(Icons.Outlined.Search, contentDescription = "搜索", tint = tint, modifier = Modifier.size(21.dp))
         }
-        HomeRoundAction(onClick = onScan) {
+        HomeRoundAction(onClick = onScan, size = HomeTopActionSize) {
             Icon(
                 androidx.compose.ui.res.painterResource(com.xjtu.toolbox.R.drawable.ic_scan),
                 contentDescription = "扫一扫",
@@ -581,11 +581,14 @@ private fun HomeTopActions(onInbox: () -> Unit, onScan: () -> Unit, onSearch: ()
                 modifier = Modifier.size(20.dp),
             )
         }
-        HomeRoundAction(onClick = onInbox) {
-            InboxBell(onInbox, clickable = false, iconSize = 22.dp)
+        HomeRoundAction(onClick = onInbox, size = HomeTopActionSize) {
+            InboxBell(onInbox, clickable = false, iconSize = 22.dp, containerSize = HomeTopActionSize)
         }
     }
 }
+
+/** 首页顶栏圆钮的直径：比原来的 40dp 略大，铃铛的角标才不会挤到圈外。 */
+private val HomeTopActionSize = 44.dp
 
 /**
  * 顶栏圆钮：半透明白底 + 常驻白色高光，直接透出下面的顶栏模糊，不再单独采样/模糊。
@@ -594,7 +597,7 @@ private fun HomeTopActions(onInbox: () -> Unit, onScan: () -> Unit, onSearch: ()
 @Composable
 private fun HomeRoundAction(
     onClick: (() -> Unit)?,
-    size: Dp = 40.dp,
+    size: Dp = HomeTopActionSize,
     content: @Composable () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
