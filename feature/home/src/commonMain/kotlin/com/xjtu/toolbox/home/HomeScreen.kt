@@ -2,7 +2,6 @@ package com.xjtu.toolbox.home
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,15 +35,15 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -61,9 +60,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.vibrancy
 import com.xjtu.toolbox.bulletin.BulletinNoticePanel
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.expandOriginSource
@@ -77,8 +80,6 @@ import com.xjtu.toolbox.ui.components.RollingNumberText
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.glass.LocalGlassStyle
-import com.xjtu.toolbox.ui.glass.glassBarSurface
-import com.xjtu.toolbox.ui.glass.glassBarTint
 import com.xjtu.toolbox.ui.isWideLayout
 import com.xjtu.toolbox.ui.theme.Editorial
 import com.xjtu.toolbox.ui.theme.EditorialRule
@@ -86,7 +87,6 @@ import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.theme.legacyColor
 import com.xjtu.toolbox.ui.theme.serviceColor
 import kotlin.math.abs
-import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
@@ -171,10 +171,11 @@ fun HomeScreen(
     val masthead = !isIconTheme && HomeCard.GREETING in honored
     val barPx = with(LocalDensity.current) { BAR_HEIGHT.toPx() }
     var mastheadPx by remember { mutableIntStateOf(0) }
-    // 刊头底边碰到顶栏底边时折叠完成；没有刊头时只让顶栏底色在一栏高度内浮出来
-    val rangePx = if (masthead && mastheadPx > 0) (mastheadPx - barPx).coerceAtLeast(barPx) else barPx
+    // 刊头先让出一栏高度、再画在顶栏下面，所以滑完整个刊头才算折叠完成
+    val rangePx = if (masthead && mastheadPx > 0) mastheadPx.toFloat().coerceAtLeast(barPx) else barPx
     val progress = { (scroll.value / rangePx).coerceIn(0f, 1f) }
-    if (collapsible) SnapCollapse(scroll, rangePx)
+    // 只要有内容越过顶栏底边，玻璃和红印就立刻出现，不再等滑过一段距离
+    val coverage = { if (scroll.value > 0) 1f else 0f }
     // 顶栏的玻璃采这一页自己的滚动层：顶栏本身在壳的采样层里，采壳的层会采到自己
     val pageBackdrop = rememberLayerBackdrop()
     val glass = LocalGlassStyle.current && collapsible
@@ -190,6 +191,8 @@ fun HomeScreen(
         ) {
             Spacer(Modifier.height(contentTopPadding))
             if (masthead) {
+                // 顶栏那一排按钮先占住最上面，刊头大字从它下面开始（对齐「小布记忆」的首屏）
+                if (collapsible) Spacer(Modifier.height(BAR_HEIGHT))
                 EditorialMasthead(
                     greeting = Greeting.of(),
                     name = host.greetingName,
@@ -197,8 +200,6 @@ fun HomeScreen(
                     weekNumber = if (HomeCard.WEEK_NUMBER in honored) host.weekNumber else 0,
                     status = host.statusLine,
                     onStatus = host::onOpenStatus,
-                    underBar = collapsible,
-                    progress = progress,
                     modifier = Modifier.enterOnce(0).onSizeChanged { mastheadPx = it.height },
                 )
             } else if (collapsible) {
@@ -280,6 +281,7 @@ fun HomeScreen(
             val scope = rememberCoroutineScope()
             HomeCollapsingBar(
                 progress = progress,
+                coverage = coverage,
                 topInset = contentTopPadding,
                 backdrop = if (glass) pageBackdrop else null,
                 onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
@@ -290,25 +292,14 @@ fun HomeScreen(
     }
 }
 
-/** 停手时折叠到一半的顶栏吸到最近的一端，和 MIUIX 大标题的手感一致。 */
-@Composable
-private fun SnapCollapse(scroll: ScrollState, rangePx: Float) {
-    LaunchedEffect(scroll, rangePx) {
-        snapshotFlow { scroll.isScrollInProgress }.collect { moving ->
-            val v = scroll.value
-            if (moving || v <= 0 || v >= rangePx || rangePx > scroll.maxValue) return@collect
-            scroll.animateScrollTo(if (v < rangePx / 2) 0 else rangePx.roundToInt())
-        }
-    }
-}
-
 /**
  * 首页的折叠顶栏，叠在滚动内容上面。三个圆钮一直在右上角；往上滑过刊头后，
- * 玻璃底色、底边发丝线和左边的方印一起浮出来，内容从它后面模糊着滑过。折叠后点空白处回到顶部。
+ * 玻璃底色和左边的方印一起浮出来，底边柔和淡出，内容从它后面模糊着滑过。折叠后点空白处回到顶部。
  */
 @Composable
 private fun HomeCollapsingBar(
     progress: () -> Float,
+    coverage: () -> Float,
     topInset: Dp,
     backdrop: LayerBackdrop?,
     onTapCollapsed: () -> Unit,
@@ -316,20 +307,36 @@ private fun HomeCollapsingBar(
     alignWithGreeting: Boolean = false,
 ) {
     val collapsed by remember { derivedStateOf { progress() > 0.5f } }
-    val tint = glassBarTint()
     val surface = MiuixTheme.colorScheme.surface
     Box(Modifier.fillMaxWidth().height(topInset + BAR_HEIGHT)) {
         Box(
             Modifier
                 .matchParentSize()
-                .graphicsLayer { alpha = ramp(progress(), 0.55f) }
-                .then(if (backdrop != null) Modifier.glassBarSurface(backdrop, tint) else Modifier.background(surface))
+                // 内容一越过顶栏底边就出现，不再等滑过一段刊头
+                .graphicsLayer { alpha = coverage() }
                 .then(
                     if (collapsed) Modifier.clickable(interactionSource = null, indication = null, onClick = onTapCollapsed)
                     else Modifier
                 ),
-        )
-        EditorialRule(Modifier.align(Alignment.BottomStart).graphicsLayer { alpha = ramp(progress(), 0.7f) })
+        ) {
+            if (backdrop != null) {
+                // 一层固定模糊（16dp）+ 平滑遮罩：底边完全透明，往上 smoothstep 到满强度，
+                // 40% 高度以上保持满强度。和 expo-backdrop 的 ProgressiveBlurView 同一套做法。
+                Box(
+                    Modifier.matchParentSize()
+                        .glassBarLayer(
+                            backdrop = backdrop,
+                            base = surface,
+                            blurRadius = 8.dp,
+                            mask = ProgressiveBlurMaskBrush,
+                        )
+                )
+                // 表面色像 iOS 26 顶栏那样：顶部最实，往下随模糊一起淡掉
+                Box(Modifier.matchParentSize().background(tintWash(surface)))
+            } else {
+                Box(Modifier.matchParentSize().background(surface))
+            }
+        }
         Row(
             Modifier.fillMaxWidth().padding(top = topInset).height(BAR_HEIGHT).padding(start = 20.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -338,7 +345,8 @@ private fun HomeCollapsingBar(
                 HomeSeal.Square,
                 contentDescription = "岱宗盒子",
                 modifier = Modifier.size(26.dp).graphicsLayer {
-                    val f = ramp(progress(), 0.6f)
+                    // 红印不跟着玻璃瞬现，随着上滑慢慢淡入、放大
+                    val f = progress()
                     alpha = f
                     scaleX = 0.78f + 0.22f * f
                     scaleY = scaleX
@@ -352,11 +360,63 @@ private fun HomeCollapsingBar(
     }
 }
 
+/**
+ * 一层玻璃：模糊后的页面 + 不透明的底，再用 [mask] 做 DstIn（画在 drawBackdrop 的
+ * onDrawFront 里，跟它自己的离屏层一起合成）。
+ * 返回值必须接上调用方的 Modifier；丢掉它会把尺寸/layout 约束一并丢掉，整层量成 0×0。
+ */
+@Composable
+private fun Modifier.glassBarLayer(
+    backdrop: Backdrop,
+    base: Color,
+    blurRadius: Dp,
+    mask: Brush,
+): Modifier {
+    val layer = remember(backdrop, base, blurRadius, mask) {
+        Modifier.drawBackdrop(
+            backdrop = backdrop,
+            shape = { RoundedCornerShape(0.dp) },
+            effects = {
+                padding = maxOf(padding, 24.dp.toPx())
+                vibrancy()
+                blur(blurRadius.toPx(), TileMode.Decal)
+            },
+            highlight = null,
+            shadow = null,
+            onDrawBehind = { drawRect(base.copy(alpha = 1f)) },
+            onDrawFront = { drawRect(brush = mask, blendMode = BlendMode.DstIn) },
+        )
+    }
+    return this then layer
+}
+
 /** 展开时圆钮比顶栏正中上移的距离：顶栏里圆钮上方正好留这么多，不会顶进状态栏。 */
 private val BUTTON_LIFT get() = (BAR_HEIGHT - 36.dp) / 2 - 2.dp
 
-/** [p] 从 [start] 走到 1 时线性地从 0 升到 1。 */
-private fun ramp(p: Float, start: Float): Float = ((p - start) / (1f - start)).coerceIn(0f, 1f)
+/**
+ * 渐进模糊的遮罩：0 = 顶栏顶边，1 = 底边。
+ * 顶部 0.95，40% 高度以上保持满强度，往下用 smoothstep 收到 0.5。
+ */
+private val ProgressiveBlurMaskBrush: Brush = Brush.verticalGradient(
+    0f to Color.Black.copy(alpha = 0.95f),
+    0.4f to Color.Black.copy(alpha = 0.95f),
+    0.5f to Color.Black.copy(alpha = 0.92f),
+    0.6f to Color.Black.copy(alpha = 0.83f),
+    0.7f to Color.Black.copy(alpha = 0.73f),
+    0.8f to Color.Black.copy(alpha = 0.62f),
+    0.9f to Color.Black.copy(alpha = 0.53f),
+    1f to Color.Black.copy(alpha = 0.50f),
+)
+
+/** 顶栏表面色：顶部 0.95，往下淡到底边 0.3。 */
+private fun tintWash(surface: Color): Brush = Brush.verticalGradient(
+    0f to surface.copy(alpha = 0.95f),
+    0.2f to surface.copy(alpha = 0.88f),
+    0.4f to surface.copy(alpha = 0.72f),
+    0.6f to surface.copy(alpha = 0.53f),
+    0.8f to surface.copy(alpha = 0.37f),
+    1f to surface.copy(alpha = 0.30f),
+)
 
 // ── 杂志版式（THEME_CARD）──
 
@@ -382,7 +442,7 @@ private fun Modifier.editorialPaper(
         .squircleBorder(0.6.dp, border, radius)
 }
 
-/** 刊头：印章跨两行；右边上行问候（与操作钮同高），下行日期、教学周与连接状态。 */
+/** 刊头：问候与名字合成一行大字（与操作钮同高），下行日期、教学周与连接状态。 */
 @Composable
 private fun EditorialMasthead(
     greeting: String,
@@ -391,44 +451,29 @@ private fun EditorialMasthead(
     weekNumber: Int,
     status: HomeStatusLine?,
     onStatus: () -> Unit,
-    underBar: Boolean,
-    progress: () -> Float,
     modifier: Modifier = Modifier,
 ) {
     val ink = MiuixTheme.colorScheme.onSurface
     val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val headline = if (name.isBlank()) greeting else "$greeting，$name"
     Row(
         modifier.fillMaxWidth()
             .padding(horizontal = 20.dp)
-            .padding(top = 8.dp, bottom = 20.dp)
-            .graphicsLayer {
-                val p = progress()
-                alpha = (1f - p * 1.35f).coerceIn(0f, 1f)
-                scaleX = 1f - 0.03f * p
-                scaleY = scaleX
-                transformOrigin = TransformOrigin(0.5f, 0f)
-            },
+            .padding(top = 8.dp, bottom = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Image(HomeSeal.Square, contentDescription = "岱宗盒子", modifier = Modifier.size(40.dp))
-        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Row(
-                Modifier.fillMaxWidth().height(36.dp)
-                    .padding(end = if (underBar) 132.dp else 0.dp),
+                Modifier.fillMaxWidth().height(40.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    greeting,
-                    style = Editorial.masthead.copy(fontSize = 26.sp, lineHeight = 34.sp),
+                    headline,
+                    style = Editorial.masthead.copy(fontSize = 30.sp, lineHeight = 38.sp),
                     color = ink,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                if (name.isNotBlank()) {
-                    Spacer(Modifier.width(8.dp))
-                    Text(name, fontSize = 13.sp, color = muted, maxLines = 1,
-                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                }
             }
             Spacer(Modifier.height(6.dp))
             Row(Modifier.fillMaxWidth().height(20.dp), verticalAlignment = Alignment.CenterVertically) {
