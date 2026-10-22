@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -51,14 +52,14 @@ object Editorial {
     val hairline: Dp = 0.6.dp
 }
 
-/** 一道发丝线，颜色取描边色的淡版，深浅色下都只是轻轻一划。 */
+/** 一道发丝线，颜色取描边色的淡版，深浅色下都只是轻轻一划；深色卡面上传 [color] 换成白线。 */
 @Composable
-fun EditorialRule(modifier: Modifier = Modifier) {
+fun EditorialRule(modifier: Modifier = Modifier, color: Color? = null) {
     Box(
         modifier
             .fillMaxWidth()
             .height(Editorial.hairline)
-            .background(MiuixTheme.colorScheme.outline.copy(alpha = 0.22f))
+            .background(color ?: MiuixTheme.colorScheme.outline.copy(alpha = 0.22f))
     )
 }
 

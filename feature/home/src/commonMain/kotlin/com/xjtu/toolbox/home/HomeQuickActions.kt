@@ -74,6 +74,8 @@ internal fun QuickActionsGrid(
     iconSize: Dp,
     solidIcon: Boolean,
     modifier: Modifier = Modifier,
+    /** 卡片是深色液体底时传白色，标题 / 「编辑」 / 功能名都跟着提亮；null 用主题色。 */
+    contentColor: Color? = null,
 ) {
     var editing by remember { mutableStateOf(false) }
     var picking by remember { mutableStateOf(false) }
@@ -97,13 +99,13 @@ internal fun QuickActionsGrid(
                 Text(
                     if (editing) "拖动排序，点 × 移除" else "常用功能",
                     style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    color = contentColor?.copy(alpha = 0.78f) ?: MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.weight(1f),
                 )
                 Text(
                     if (editing) "完成" else "编辑",
                     style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.primary,
+                    color = contentColor ?: MiuixTheme.colorScheme.primary,
                     modifier = Modifier.clip(RoundedCornerShape(8.dp))
                         .clickable { if (editing) editing = false else startEditing() }
                         .padding(horizontal = 8.dp, vertical = 4.dp),
@@ -149,6 +151,7 @@ internal fun QuickActionsGrid(
                             originKey = row.key.takeUnless { editing },
                             iconSize = iconSize,
                             solidIcon = solidIcon,
+                            labelColor = contentColor,
                         )
                         if (editing) {
                             Box(
@@ -167,9 +170,10 @@ internal fun QuickActionsGrid(
             }
             if (editable && (editing || shown.isEmpty()) && shown.size < MAX_QUICK) {
                 HomeQuickAction(
-                    Icons.Default.Add, "添加", MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    Icons.Default.Add, "添加", contentColor ?: MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     onClick = { picking = true },
                     iconSize = iconSize,
+                    labelColor = contentColor,
                 )
             }
         }
@@ -229,6 +233,7 @@ private fun HomeQuickAction(
     onLongClick: (() -> Unit)? = null,
     originKey: String? = null,
     solidIcon: Boolean = false,
+    labelColor: Color? = null,
 ) {
     val origin = rememberExpandOriginSource()
     val density = LocalDensity.current
@@ -253,7 +258,8 @@ private fun HomeQuickAction(
         if (solidIcon) GradientAppIcon(icon, color, size = iconSize, iconSize = iconSize * 0.5f)
         else ExpressiveIcon(icon = icon, color = color, size = iconSize, iconSize = iconSize * 0.5f)
         Spacer(Modifier.height(6.dp))
-        Text(label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, maxLines = 1)
+        Text(label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, maxLines = 1,
+            color = labelColor ?: MiuixTheme.colorScheme.onSurface)
     }
 }
 

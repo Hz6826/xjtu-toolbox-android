@@ -79,6 +79,8 @@ import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
 import com.xjtu.toolbox.ui.components.GradientAppIcon
+import com.xjtu.toolbox.ui.components.LiquidBackground
+import com.xjtu.toolbox.ui.components.LiquidColors
 import com.xjtu.toolbox.ui.components.MeshBackground
 import com.xjtu.toolbox.ui.components.RollingNumberText
 import com.xjtu.toolbox.ui.components.appCardShadow
@@ -147,9 +149,9 @@ fun HomeScreen(
     val quickRows = host.quickRoutes.mapNotNull { route ->
         catalog.firstOrNull { it.route == route }?.let { rowOf(it, null) }
     }
-    val quick: (@Composable (iconSize: Dp, solidIcon: Boolean) -> Unit)? =
+    val quick: (@Composable (iconSize: Dp, solidIcon: Boolean, contentColor: Color?) -> Unit)? =
         if (HomeCard.QUICK_ACTIONS in honored && (quickRows.isNotEmpty() || host.quickEditable)) {
-            { iconSize, solidIcon ->
+            { iconSize, solidIcon, contentColor ->
                 QuickActionsGrid(
                     pinned = quickRows,
                     all = catalog.filter { host.openableRouteIds?.contains(it.route.id) != false }.map { rowOf(it, null) },
@@ -157,6 +159,7 @@ fun HomeScreen(
                     onChange = { keys -> host.onQuickRoutesChange(keys.mapNotNull { k -> catalog.firstOrNull { it.route.id == k }?.route }) },
                     iconSize = iconSize,
                     solidIcon = solidIcon,
+                    contentColor = contentColor,
                 )
             }
         } else null
@@ -244,14 +247,14 @@ fun HomeScreen(
                         host = host,
                         dateLabel = host.dateLabel,
                         weekNumber = if (HomeCard.WEEK_NUMBER in honored) host.weekNumber else 0,
-                        quick = quick?.let { { it(44.dp, true) } },
+                        quick = quick?.let { { it(44.dp, true, null) } },
                     )
                 } else {
                     EditorialFrontPage(
                         modifier = Modifier.enterOnce(0),
                         host = host,
                         inbox = frontInbox,
-                        quick = quick?.let { { it(40.dp, false) } },
+                        quick = quick?.let { { it(40.dp, false, null) } },
                     )
                 }
             }
@@ -468,6 +471,14 @@ private fun Modifier.editorialPaper(
         .squircleBorder(0.6.dp, border, radius)
 }
 
+/**
+ * 首页头卡的液体底：只留圆角裁切，不描边也不投影。
+ * 着色器本体由 [LiquidBackground] 画，这一层只负责形状。
+ */
+@Composable
+private fun Modifier.liquidPaper(radius: Dp = EDITORIAL_RADIUS): Modifier =
+    squircleClip(radius)
+
 /** 刊头：问候与名字合成一行大字（与操作钮同高），下行日期、教学周与连接状态。 */
 @Composable
 private fun EditorialMasthead(
@@ -534,44 +545,60 @@ private fun EditorialFrontPage(
         ?.firstOrNull { it.route == AppRoute.Schedule }
     if (nextUp == null && inbox == null && exam == null && quick == null) return
 
-    Column(modifier.fillMaxWidth().editorialPaper(tinted = true)) {
-        nextUp?.let {
-            EditorialNextUpLead(it) { it.route?.let(host::onRoute) ?: host.onProfile() }
-        }
-        if (exam != null) {
-            if (nextUp != null) EditorialRule(Modifier.padding(horizontal = 18.dp))
-            Row(
-                Modifier.fillMaxWidth()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = SinkFeedback(),
-                        onClick = { host.onRoute(AppRoute.Schedule) },
-                    )
-                    .padding(horizontal = 18.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(exam.icon, null, tint = HomeSeal.Red, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(exam.label, fontSize = 12.sp, color = HomeSeal.Red)
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(exam.value, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    exam.caption?.takeIf { it.isNotBlank() }?.let {
-                        Text(it, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+    val ink = Color.White
+    val muted = Color.White.copy(alpha = 0.78f)
+    val hasLead = nextUp != null || exam != null || inbox != null
+    Column(modifier.fillMaxWidth()) {
+        if (hasLead) {
+            Box(Modifier.fillMaxWidth().liquidPaper()) {
+                LiquidBackground(colors = LiquidCardColors, modifier = Modifier.matchParentSize())
+                // 和站点面板同一层思路：亮部再压一道暗色，白字在流动的亮斑上也立得住。
+                Box(Modifier.matchParentSize().background(LiquidCardScrim))
+                Column(Modifier.fillMaxWidth()) {
+                    nextUp?.let {
+                        EditorialNextUpLead(it, ink, muted) { it.route?.let(host::onRoute) ?: host.onProfile() }
+                    }
+                    if (exam != null) {
+                        if (nextUp != null) EditorialRule(Modifier.padding(horizontal = 18.dp), LiquidCardRule)
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = SinkFeedback(),
+                                    onClick = { host.onRoute(AppRoute.Schedule) },
+                                )
+                                .padding(horizontal = 18.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(exam.icon, null, tint = LiquidCardAccent, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(exam.label, fontSize = 12.sp, color = muted)
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(exam.value, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = ink)
+                                exam.caption?.takeIf { it.isNotBlank() }?.let {
+                                    Text(it, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = muted)
+                                }
+                            }
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
+                                tint = muted.copy(alpha = 0.7f), modifier = Modifier.size(15.dp))
+                        }
+                    }
+                    if (inbox != null) {
+                        if (nextUp != null || exam != null) {
+                            EditorialRule(Modifier.padding(horizontal = 18.dp), LiquidCardRule)
+                        }
+                        InboxBrief(inbox, ink, muted) { host.onRoute(AppRoute.Inbox) }
                     }
                 }
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
-                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.size(15.dp))
             }
         }
-        if (inbox != null) {
-            if (nextUp != null || exam != null) EditorialRule(Modifier.padding(horizontal = 18.dp))
-            InboxBrief(inbox) { host.onRoute(AppRoute.Inbox) }
-        }
+        // 常用功能独立成一张白卡，和下面的分类卡同一套纸面。
         if (quick != null) {
-            if (nextUp != null || exam != null || inbox != null) EditorialRule(Modifier.padding(horizontal = 18.dp))
-            Box(Modifier.padding(horizontal = 8.dp, vertical = 10.dp)) { quick() }
+            if (hasLead) Spacer(Modifier.height(SECTION_GAP))
+            Box(Modifier.fillMaxWidth().editorialPaper()) {
+                Box(Modifier.padding(horizontal = 8.dp, vertical = 10.dp)) { quick() }
+            }
         }
     }
 }
@@ -579,10 +606,10 @@ private fun EditorialFrontPage(
 @Composable
 private fun EditorialNextUpLead(
     nextUp: HomeNextUp,
+    ink: Color,
+    muted: Color,
     onClick: () -> Unit,
 ) {
-    val ink = MiuixTheme.colorScheme.onSurface
-    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
     val timeLabel = nextUp.timeLabel
 
     Column(
@@ -603,7 +630,7 @@ private fun EditorialNextUpLead(
                 Modifier
                     .size(5.dp)
                     .background(
-                        if (timeLabel != null) HomeSeal.Red else muted.copy(alpha = 0.45f),
+                        if (timeLabel != null) LiquidCardAccent else muted.copy(alpha = 0.45f),
                         CircleShape,
                     )
             )
@@ -624,9 +651,9 @@ private fun EditorialNextUpLead(
                         lineHeight = 14.sp,
                         letterSpacing = 0.5.sp,
                     ),
-                    color = HomeSeal.Red,
+                    color = ink,
                     modifier = Modifier
-                        .background(HomeSeal.Red.copy(alpha = 0.09f), RoundedCornerShape(4.dp))
+                        .background(Color.White.copy(alpha = 0.14f), RoundedCornerShape(4.dp))
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
                 Spacer(Modifier.width(4.dp))
@@ -671,7 +698,7 @@ private fun EditorialNextUpLead(
                         .width(0.6.dp)
                         .fillMaxHeight()
                         .padding(vertical = 2.dp)
-                        .background(ink.copy(alpha = 0.12f))
+                        .background(ink.copy(alpha = 0.18f))
                 )
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
@@ -705,7 +732,7 @@ private fun EditorialNextUpLead(
                 Icon(
                     nextUp.icon,
                     contentDescription = null,
-                    tint = muted.copy(alpha = 0.75f),
+                    tint = muted.copy(alpha = 0.85f),
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(Modifier.width(10.dp))
@@ -740,9 +767,7 @@ private fun EditorialNextUpLead(
 }
 
 @Composable
-private fun InboxBrief(summary: HomeInboxSummary, onClick: () -> Unit) {
-    val ink = MiuixTheme.colorScheme.onSurface
-    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+private fun InboxBrief(summary: HomeInboxSummary, ink: Color, muted: Color, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -757,9 +782,9 @@ private fun InboxBrief(summary: HomeInboxSummary, onClick: () -> Unit) {
         Text(
             "待办",
             style = Editorial.kicker.copy(fontSize = 11.sp, letterSpacing = 1.5.sp),
-            color = HomeSeal.Red,
+            color = ink,
             modifier = Modifier
-                .border(0.6.dp, HomeSeal.Red.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                .border(0.6.dp, ink.copy(alpha = 0.55f), RoundedCornerShape(4.dp))
                 .padding(horizontal = 5.dp, vertical = 1.5.dp),
         )
         Spacer(Modifier.width(10.dp))
@@ -791,7 +816,7 @@ private fun InboxBrief(summary: HomeInboxSummary, onClick: () -> Unit) {
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
-            tint = muted.copy(alpha = 0.6f),
+            tint = muted.copy(alpha = 0.7f),
             modifier = Modifier.size(15.dp),
         )
     }
@@ -1453,6 +1478,29 @@ private fun Modifier.opensRow(row: HomeServiceRow, radius: Dp = 12.dp): Modifier
 
 /** 首页各卡之间统一的间距。 */
 private val SECTION_GAP = 14.dp
+
+/**
+ * 首页头卡的液体配色：站点 Midnight 三色压暗一档。
+ * 原配色最亮处接近 #A9D5FF，白字压上去只有 1.7:1；压到 #7DA4E0 再配 scrim，亮部也能到 4.5:1。
+ */
+private val LiquidCardColors = LiquidColors(
+    dark = Color(0xFF070D33),
+    mid = Color(0xFF1F5FD6),
+    light = Color(0xFF7DA4E0),
+)
+
+/** 液体卡上承托白字的暗色罩：顶部稍重、中间最透、底部再压回来。 */
+private val LiquidCardScrim = Brush.verticalGradient(
+    0f to Color.Black.copy(alpha = 0.34f),
+    0.45f to Color.Black.copy(alpha = 0.22f),
+    1f to Color.Black.copy(alpha = 0.38f),
+)
+
+/** 液体卡上的发丝线：白线，比主题描边亮一档。 */
+private val LiquidCardRule = Color.White.copy(alpha = 0.18f)
+
+/** 液体卡上的暖色点缀，只用在小圆点和考试图标上，不承字。 */
+private val LiquidCardAccent = Color(0xFFFFB4A6)
 
 /** 首页折叠顶栏（状态栏以下）的高度，三个 36dp 圆钮在里面居中。 */
 private val BAR_HEIGHT = 52.dp
