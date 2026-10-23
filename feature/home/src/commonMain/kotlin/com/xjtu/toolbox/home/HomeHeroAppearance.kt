@@ -29,6 +29,7 @@ import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.LiquidBackground
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import kotlin.random.Random
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.ColorPalette
@@ -47,17 +48,17 @@ internal data class HeroAppearance(
     val solidColor: Color get() = CourseColors.parseHex(colorHex) ?: Color(0xFF2F7CFF)
     val contentColor: Color get() = if (background == "solid" && solidColor.luminance() > 0.179f) Color.Black else Color.White
 
-    fun save(store: SettingsStore) {
+    fun save(store: SettingsStore, dark: Boolean) {
         store.heroBackground = background
         store.heroPalette = palette
-        store.heroColorHex = colorHex
+        store.setHeroColorHex(dark, colorHex)
         store.heroMotion = motion
         store.heroSeed = seed
     }
 
     companion object {
-        fun read(store: SettingsStore) = HeroAppearance(
-            store.heroPalette, store.heroColorHex, store.heroMotion, store.heroSeed, store.heroBackground,
+        fun read(store: SettingsStore, dark: Boolean) = HeroAppearance(
+            store.heroPalette, store.heroColorHex(dark), store.heroMotion, store.heroSeed, store.heroBackground,
         )
     }
 }
@@ -71,7 +72,8 @@ internal fun HeroAppearanceDialog(
     onDismiss: () -> Unit,
     onApply: (HeroAppearance) -> Unit,
 ) {
-    var draft by remember { mutableStateOf(current) }
+    val dark = LocalIsDarkTheme.current
+    var draft by remember(current, dark) { mutableStateOf(current) }
     val mood = rememberLiquidMood(nextUp, examSoon, draft)
     WindowDialog(
         show = true,
@@ -104,7 +106,7 @@ internal fun HeroAppearanceDialog(
                     AppFilterChip(selected = draft.background == "liquid", onClick = { draft = draft.copy(background = "liquid") }, label = "流动背景")
                     AppFilterChip(selected = draft.background == "solid", onClick = { draft = draft.copy(background = "solid") }, label = "纯色背景")
                 }
-                Text("颜色", style = MiuixTheme.textStyles.body2)
+                Text(if (dark) "颜色 · 深色模式" else "颜色 · 浅色模式", style = MiuixTheme.textStyles.body2)
                 if (draft.background == "liquid") {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(

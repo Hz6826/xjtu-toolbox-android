@@ -517,7 +517,8 @@ private fun EditorialFrontPage(
 
     val hasLead = nextUp != null || exam != null || inbox != null
     val appearanceStore = remember { SettingsStore() }
-    var appearance by remember { mutableStateOf(HeroAppearance.read(appearanceStore)) }
+    val dark = LocalIsDarkTheme.current
+    var appearance by remember(dark) { mutableStateOf(HeroAppearance.read(appearanceStore, dark)) }
     var showAppearance by remember { mutableStateOf(false) }
     val configure = { showAppearance = true }
     val ink = appearance.contentColor
@@ -594,7 +595,7 @@ private fun EditorialFrontPage(
             examSoon = exam != null,
             onDismiss = { showAppearance = false },
             onApply = {
-                it.save(appearanceStore)
+                it.save(appearanceStore, dark)
                 appearance = it
                 showAppearance = false
             },

@@ -68,6 +68,13 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = normalizeThemeColor(store.getString("hero_color_hex").orEmpty()).ifEmpty { "#2F7CFF" }
         set(value) = store.putString("hero_color_hex", normalizeThemeColor(value))
 
+    fun heroColorHex(dark: Boolean): String =
+        normalizeThemeColor(store.getString(if (dark) "hero_color_hex_dark" else "hero_color_hex_light").orEmpty())
+            .ifEmpty { heroColorHex }
+
+    fun setHeroColorHex(dark: Boolean, value: String) =
+        store.putString(if (dark) "hero_color_hex_dark" else "hero_color_hex_light", normalizeThemeColor(value))
+
     var heroMotion: String
         get() = store.getString("hero_motion")?.takeIf { it in HERO_MOTIONS } ?: "auto"
         set(value) = store.putString("hero_motion", value.takeIf { it in HERO_MOTIONS } ?: "auto")
