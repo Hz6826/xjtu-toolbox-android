@@ -5,7 +5,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import com.xjtu.toolbox.settings.SettingsStore
+import com.xjtu.toolbox.ui.HapticsPrefs
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.Colors
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -49,7 +53,9 @@ fun XJTUToolBoxTheme(
         else -> systemDark
     }
     if (applySystemBars) PlatformSystemBars(darkTheme)
-    CompositionLocalProvider(LocalIsDarkTheme provides darkTheme) {
+    val platformHaptics = LocalHapticFeedback.current
+    val gatedHaptics = remember(platformHaptics) { GatedHapticFeedback(platformHaptics) }
+    CompositionLocalProvider(LocalIsDarkTheme provides darkTheme, LocalHapticFeedback provides gatedHaptics) {
         MiuixTheme(controller = controller) {
             val colors = if (monet) {
                 remapMonetColorsToMiuix(MiuixTheme.colorScheme, darkTheme)
@@ -61,6 +67,16 @@ fun XJTUToolBoxTheme(
                 content = content,
             )
         }
+    }
+}
+
+/**
+ * 系统触感先过设置里的「触感反馈」开关。miuix 的开关、滑条、下拉刷新、滚到底的回弹
+ * 都直接调 LocalHapticFeedback，不经 [com.xjtu.toolbox.ui.rememberHaptics]，不拦就关不掉。
+ */
+private class GatedHapticFeedback(private val inner: HapticFeedback) : HapticFeedback {
+    override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
+        if (HapticsPrefs.isEnabled()) inner.performHapticFeedback(hapticFeedbackType)
     }
 }
 
