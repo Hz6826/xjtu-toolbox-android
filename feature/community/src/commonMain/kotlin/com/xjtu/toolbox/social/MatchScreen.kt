@@ -1131,7 +1131,7 @@ private fun TagChip(label: String, accent: Boolean = false) {
             .padding(vertical = 3.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(
-                if (accent) MiuixTheme.colorScheme.tertiaryContainer
+                if (accent) MiuixTheme.colorScheme.primaryContainer
                 else MiuixTheme.colorScheme.secondaryContainer
             )
             .padding(horizontal = 10.dp, vertical = 5.dp)
@@ -1139,7 +1139,7 @@ private fun TagChip(label: String, accent: Boolean = false) {
         Text(
             label,
             style = MiuixTheme.textStyles.footnote1,
-            color = if (accent) MiuixTheme.colorScheme.onTertiaryContainer
+            color = if (accent) MiuixTheme.colorScheme.onPrimaryContainer
             else MiuixTheme.colorScheme.onSecondaryContainer,
         )
     }

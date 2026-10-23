@@ -651,7 +651,7 @@ fun EmptyRoomScreen(
                 vm.staleNote?.let { note ->
                     fullLineItem(key = "stale") {
                         Surface(
-                            color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
+                            color = MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                             shape = RoundedCornerShape(16.dp),
                         ) {

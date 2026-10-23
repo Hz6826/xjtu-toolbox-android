@@ -149,7 +149,7 @@ fun NotificationScreen(
             val skippedNoticeBanner: @Composable (Modifier) -> Unit = { m ->
               bannerText?.let { msg ->
                 Surface(
-                    color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
+                    color = MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
                     modifier = m.fillMaxWidth(),
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
                 ) {

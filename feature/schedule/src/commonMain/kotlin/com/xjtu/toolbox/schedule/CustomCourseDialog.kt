@@ -22,6 +22,7 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -470,7 +471,7 @@ private fun TimeColumn(
 @Composable
 private fun WeekPresetChip(text: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     Surface(
-        modifier = modifier.heightIn(min = 34.dp).clickable { onClick() },
+        modifier = modifier.heightIn(min = 34.dp).clip(RoundedCornerShape(12.dp)).clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
         color = if (selected) MiuixTheme.colorScheme.primary.copy(alpha = 0.14f)
         else MiuixTheme.colorScheme.secondaryContainer
@@ -519,6 +520,7 @@ private fun WeekdaySelectorRow(dayOfWeek: Int, onDaySelect: (Int) -> Unit) {
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(min = 44.dp)
+                    .clip(RoundedCornerShape(14.dp))
                     .clickable { onDaySelect(day) },
                 shape = RoundedCornerShape(14.dp),
                 color = if (isSelected) MiuixTheme.colorScheme.primary
@@ -547,7 +549,7 @@ private fun WeekCheckboxGrid(totalWeeks: Int, selectedWeeks: Set<Int>, onToggle:
                 for (week in row) {
                     val isSelected = week in selectedWeeks
                     Surface(
-                        modifier = Modifier.weight(1f).heightIn(min = 34.dp).clickable { onToggle(week) },
+                        modifier = Modifier.weight(1f).heightIn(min = 34.dp).clip(RoundedCornerShape(10.dp)).clickable { onToggle(week) },
                         shape = RoundedCornerShape(10.dp),
                         color = if (isSelected) MiuixTheme.colorScheme.primary
                         else MiuixTheme.colorScheme.secondaryContainer,

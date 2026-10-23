@@ -185,7 +185,7 @@ private fun OrderCard(
     }
 
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onDetail),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).clickable(onClick = onDetail),
         cornerRadius = 20.dp,
         colors = CardDefaults.defaultColors(color = AppCardColor),
     ) {

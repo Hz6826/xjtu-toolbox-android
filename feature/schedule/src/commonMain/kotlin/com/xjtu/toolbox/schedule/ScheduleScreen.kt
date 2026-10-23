@@ -521,7 +521,7 @@ fun ScheduleScreen(
             // 缓存数据提示：刷新失败但有缓存时，顶部一条小 banner 告知用户「这可能是旧数据」
             if (vm.showingStaleData && !vm.isLoading) {
                 Surface(
-                    color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
+                    color = MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 6.dp),
@@ -956,13 +956,13 @@ private fun ScheduleTabContent(
             Surface(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
                 shape = RoundedCornerShape(8.dp),
-                color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+                color = MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
             ) {
                 Text(
                     weekNote,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onTertiaryContainer
+                    color = MiuixTheme.colorScheme.onPrimaryContainer
                 )
             }
         }

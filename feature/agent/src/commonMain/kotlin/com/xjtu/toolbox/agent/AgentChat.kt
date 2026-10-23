@@ -248,6 +248,7 @@ internal fun ChatPanel(
                 modifier = Modifier
                     .padding(horizontal = 16.dp, vertical = 8.dp)
                     .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
                     .clickable { onOpenConfig() },
             ) {
                 Row(
@@ -443,6 +444,7 @@ private fun AgentTraceCard(
         color = MiuixTheme.colorScheme.surfaceVariant,
         modifier = modifier
             .widthIn(max = 340.dp)
+            .clip(RoundedCornerShape(12.dp))
             .then(if (expandable) Modifier.clickable(onClick = onToggle) else Modifier),
     ) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
@@ -588,6 +590,7 @@ private fun MessageBubble(
                         color = MiuixTheme.colorScheme.primary,
                         modifier = Modifier
                             .widthIn(max = 300.dp)
+                            .clip(RoundedCornerShape(20.dp, 6.dp, 20.dp, 20.dp))
                             .then(
                                 if (canEdit) Modifier.combinedClickable(
                                     onClick = {},
