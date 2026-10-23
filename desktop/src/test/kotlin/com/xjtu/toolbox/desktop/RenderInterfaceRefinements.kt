@@ -59,6 +59,8 @@ fun main(args: Array<String>) {
     val host = object : AgentHost by AgentHost.None {
         override fun loadConfig() = AgentConfig(apiKey = "offline-fixture", showReasoning = true)
     }
+    val sentPrompts = mutableListOf<String>()
+    var newSessions = 0
     val chat = object : AgentChatSession {
         override val messages = mutableStateListOf(ChatMessage("user", "帮我查一下", timestamp = 1), ChatMessage("assistant", "", reasoningContent = "想", timestamp = 2))
         override var isLoading by mutableStateOf(true)
@@ -70,12 +72,16 @@ fun main(args: Array<String>) {
         override val currentSessionId = "offline"
         override fun consumeContextExhaustedTrigger() = false
         override fun bind(store: AgentSessionPersistence) {}
-        override fun newSession() {}
+        override fun newSession() { newSessions++; messages.clear() }
         override fun switchSession(id: String) {}
         override fun deleteSession(id: String) {}
         override fun stop() { isLoading = false }
         override fun replaceLastUserAndSend(newText: String, config: AgentConfig) {}
-        override fun sendMessage(userText: String, config: AgentConfig, llmAnnex: String?, images: List<String>) {}
+        override fun sendMessage(userText: String, config: AgentConfig, llmAnnex: String?, images: List<String>) {
+            sentPrompts += userText
+            messages += ChatMessage("user", userText)
+            isLoading = false
+        }
     }
     val trace = scene { AgentScreen(host, session = chat) }
     var reference: androidx.compose.ui.geometry.Rect? = null
@@ -93,6 +99,19 @@ fun main(args: Array<String>) {
     settle(trace)
     save(trace, "reasoning-expanded.png")
     SwingUtilities.invokeAndWait { trace.close() }
+
+    val articlePrompt = "请阅读这篇文章，概括主要内容和要点：\nhttps://example.com/article"
+    SwingUtilities.invokeAndWait { AgentPendingPrompt.set(articlePrompt) }
+    val article = scene { AgentScreen(host, session = chat) }
+    settle(article)
+    check(sentPrompts == listOf(articlePrompt) && newSessions == 1)
+    save(article, "article-read-request.png")
+    settle(article)
+    check(sentPrompts.size == 1)
+    SwingUtilities.invokeAndWait { article.close(); AgentPendingPrompt.set("普通深链草稿", draftOnly = true) }
+    val draft = scene { AgentScreen(host, session = chat) }
+    check(sentPrompts.size == 1 && newSessions == 2)
+    SwingUtilities.invokeAndWait { draft.close() }
 
     val widgets = scene {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

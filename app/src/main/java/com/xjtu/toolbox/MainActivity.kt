@@ -69,7 +69,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         applyOrientationPolicy(resources.configuration)
         com.xjtu.toolbox.agent.AgentLocation.register(this)
-        consumeLaunchIntent(intent)
+        if (savedInstanceState == null) consumeLaunchIntent(intent)
         // 导航条全透明：默认样式在 API 29–34 上会加一层半透明 scrim，三键导航由系统自己保证对比度
         enableEdgeToEdge(
             navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
@@ -109,15 +109,10 @@ class MainActivity : ComponentActivity() {
         consumeLaunchIntent(intent)
     }
 
-    /**
-     * 解析启动意图：深链优先；认不出的路由当作没有；深链带的话只填进屁岱的输入框。
-     *
-     * 网页能用 `intent://…;S.extra_launch_route=…;end` 往 xjtu:// 深链里塞任意 extra，
-     * 所以带 data 的意图只认链接本身，extra 只认小组件、通知、快捷方式这类不带 data 的。
-     */
+    /** 文章入口自动阅读，普通深链保留草稿；控件路由取自无 data 的内部入口。 */
     private fun consumeLaunchIntent(intent: Intent?) {
         val deepLink = intent?.let(DeepLinkRouter::resolve)
-        val extras = intent?.takeIf { it.data == null }
+        val extras = intent?.takeIf { it.data == null && it.component?.className != DeepLinkRouter.PIDAI_LINK_ALIAS }
         launchRoute.value = deepLink?.route
             ?: extras?.getStringExtra(EXTRA_LAUNCH_ROUTE)?.let(::appRouteOf)
         // 从系统通知点进来：收纳里同一件事一并算看过，不然通知点了、收纳的红点还在
@@ -128,8 +123,7 @@ class MainActivity : ComponentActivity() {
         }
         launchTab.value = extras?.getStringExtra(EXTRA_LAUNCH_TAB)
             ?.let { name -> BottomTab.entries.firstOrNull { it.name == name } }
-        // 外部链接的话不能替用户发出去：发出去模型就能调全部工具，回复里的图片一渲染就把数据带走了
-        deepLink?.prompt?.let { AgentPendingPrompt.set(it, draftOnly = true) }
+        deepLink?.prompt?.let { AgentPendingPrompt.set(it, draftOnly = !deepLink.autoSend) }
     }
 
     /**

@@ -5,7 +5,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import kotlin.concurrent.Volatile
 
-/** 「从提醒气泡进来」那一条路的中转站：屁岱这一屏下次组合时把它当第一条用户消息发出去。 */
+/** 页外请求在屁岱页新开对话，或仅填入草稿。 */
 object AgentPendingPrompt {
 
     data class Pending(
