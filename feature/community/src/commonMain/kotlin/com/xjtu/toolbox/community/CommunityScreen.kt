@@ -43,13 +43,10 @@ fun CommunityScreen(
     deviceAuth: GithubDeviceAuthRepository,
     onBack: () -> Unit,
     onOpenLegacyFeedback: () -> Unit,
-    imageStorage: CommunityImageStorage? = null,
 ) {
     // MIUIX 的 OverlayDialog 只在某个 Scaffold 底下才渲染得出来：账号弹窗、删除确认、放弃编辑这些
     // 都写在各页 Scaffold 的外面，这一层外壳给它们兜底，弹窗也就铺满全屏
-    CompositionLocalProvider(LocalCommunityImageStorage provides imageStorage) {
-        Scaffold { _ -> CommunityContent(session, deviceAuth, onBack, onOpenLegacyFeedback) }
-    }
+    Scaffold { _ -> CommunityContent(session, deviceAuth, onBack, onOpenLegacyFeedback) }
 }
 
 @Composable
