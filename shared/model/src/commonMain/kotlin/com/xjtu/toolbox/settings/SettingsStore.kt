@@ -55,6 +55,28 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getString("pinned_quick_routes")?.split('\n')?.filter { it.isNotBlank() }
         set(value) = store.putString("pinned_quick_routes", value?.joinToString("\n"))
 
+    /** 首页头卡外观；auto 保留随时间、主题和日程变化的默认效果。 */
+    var heroBackground: String
+        get() = if (store.getString("hero_background") == "solid") "solid" else "liquid"
+        set(value) = store.putString("hero_background", if (value == "solid") "solid" else "liquid")
+
+    var heroPalette: String
+        get() = store.getString("hero_palette")?.takeIf { it in HERO_PALETTES } ?: "auto"
+        set(value) = store.putString("hero_palette", value.takeIf { it in HERO_PALETTES } ?: "auto")
+
+    var heroColorHex: String
+        get() = normalizeThemeColor(store.getString("hero_color_hex").orEmpty()).ifEmpty { "#2F7CFF" }
+        set(value) = store.putString("hero_color_hex", normalizeThemeColor(value))
+
+    var heroMotion: String
+        get() = store.getString("hero_motion")?.takeIf { it in HERO_MOTIONS } ?: "auto"
+        set(value) = store.putString("hero_motion", value.takeIf { it in HERO_MOTIONS } ?: "auto")
+
+    /** -1 每天自动换形状，其余值固定形状。 */
+    var heroSeed: Int
+        get() = store.getInt("hero_seed", -1).coerceIn(-1, 9999)
+        set(value) = store.putInt("hero_seed", value.coerceIn(-1, 9999))
+
     /** 场馆滑块验证码自动识别开关。 */
     var venueAutoSolveCaptchaEnabled: Boolean
         get() = store.getBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, true)
@@ -71,6 +93,8 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         set(value) = store.putString(KEY_SCHEDULE_SOURCE, value)
 
     companion object {
+        private val HERO_PALETTES = setOf("auto", "midnight", "orchid", "blossom", "lagoon", "honey", "custom")
+        private val HERO_MOTIONS = setOf("auto", "gentle", "flowing", "lively", "still")
         fun normalizeThemeColor(value: String): String {
             val hex = value.trim().removePrefix("#")
             if (hex.length !in listOf(3, 6) || !hex.all { it in "0123456789abcdefABCDEF" }) return ""

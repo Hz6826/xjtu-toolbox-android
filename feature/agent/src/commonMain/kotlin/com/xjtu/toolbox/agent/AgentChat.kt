@@ -15,6 +15,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -444,11 +446,12 @@ private fun AgentTraceCard(
         color = MiuixTheme.colorScheme.surfaceVariant,
         modifier = modifier
             .widthIn(max = 340.dp)
+            .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .then(if (expandable) Modifier.clickable(onClick = onToggle) else Modifier),
     ) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 22.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 leading()
                 Text(label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, color = accent)
                 if (!expanded && summary.isNotBlank()) {
@@ -458,9 +461,9 @@ private fun AgentTraceCard(
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.weight(1f),
                     )
-                }
+                } else Spacer(Modifier.weight(1f))
                 trailing()
                 if (expandable) {
                     Icon(
@@ -488,19 +491,27 @@ private fun ReasoningBar(
     var expanded by rememberSaveable { mutableStateOf(false) }
     AgentTraceCard(
         label = "思考",
-        summary = text.replace(Regex("\\s+"), " ").trim(),
+        summary = text.take(240).replace(Regex("\\s+"), " ").trim(),
         accent = MiuixTheme.colorScheme.primary,
         expandable = text.isNotBlank(),
         expanded = expanded,
         onToggle = { expanded = !expanded },
-        trailing = { if (streaming) ThinkingDots() },
+        trailing = {
+            Box(Modifier.width(31.dp).height(10.dp), contentAlignment = Alignment.Center) {
+                if (streaming) ThinkingDots()
+            }
+        },
         details = {
-            MarkdownText(
-                text = text,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                images = images,
-                onLink = { url -> onNavigate(AppRoute.Browser(url)) },
-            )
+            Column(Modifier.fillMaxWidth().heightIn(max = 240.dp).verticalScroll(rememberScrollState())) {
+                // 流式 Markdown 的未闭合列表、代码块会反复重排；生成时用稳定文本，结束后再排版。
+                if (streaming) Text(text, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                else MarkdownText(
+                    text = text,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    images = images,
+                    onLink = { url -> onNavigate(AppRoute.Browser(url)) },
+                )
+            }
         },
     )
 }

@@ -93,8 +93,8 @@ class ServeAgentToolCopyDriftTest {
             ),
         ),
         Seam(
-            listOf("EmptyRoomDirectQuery(directClient, EmptyRoomCache(context)).queryDay(targetCampus, b, dateStr)"),
-            listOf("EmptyRoomDirectQuery(directClient, null).queryDay(targetCampus, b, dateStr)"),
+            listOf("EmptyRoomDirectQuery(directClient, EmptyRoomCache(context))"),
+            listOf("EmptyRoomDirectQuery(directClient, null)"),
         ),
         // 5. 校历那一格：`:app` 自己 new，serve 收一格注入
         Seam(

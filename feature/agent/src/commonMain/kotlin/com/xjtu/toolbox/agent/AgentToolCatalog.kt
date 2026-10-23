@@ -2,6 +2,8 @@ package com.xjtu.toolbox.agent
 
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** 送给模型的工具清单（OpenAI function calling 的那一份 JSON 串）。 */
 fun agentToolDefinitions(honored: Set<AgentCapability>): String {
@@ -41,12 +43,15 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             agentShow(),
         )))
     arr.add(agentTool("get_empty_rooms",
-        "空闲教室。今天且不给节次（或给的就是当前节）时返回此刻实时状态：空闲、其它使用（没排课但有人，附人数）、上课中；其余按课表逐节。",
+        "空闲教室。status 返回此刻状态，slots 返回全天课表节次，both 合并两者；节次条件自动查询课表。",
         agentParams(
             "campus"   to agentEnumProp("缺省：兴庆校区。实时状态只有兴庆、雁塔、创新港。", "兴庆校区", "雁塔校区", "曲江校区", "创新港校区"),
             "building" to agentStrProp("楼名，如 主楼A、1号巨构。缺省：全校区。"),
-            "section"  to agentIntProp("节次 1–11。缺省：此刻（今天）/全天（其他日期）。"),
+            "section"  to agentIntProp("按课表筛选该节空闲的教室，1–11。"),
             "date"     to agentStrProp("今天/明天/yyyy-MM-dd。缺省：今天。"),
+            "view" to agentEnumProp("auto 自动选择；slots 全天课表空闲条；status 此刻实时状态；both 同时查询。未来日期仅支持 slots。", "auto", "slots", "status", "both"),
+            "sections" to buildJsonObject { put("type", "array"); put("description", "要求全部空闲的节次 1–11；自动查询课表。明确要坐到晚上时传覆盖该时段的节次。"); put("items", buildJsonObject { put("type", "integer") }) },
+            "min_free_sections" to agentIntProp("至少连续空闲几节，1–11；不代表从现在一直空到晚上，需要具体时段时用 sections。"),
             agentShow(),
         )))
     arr.add(agentTool("get_attendance",
@@ -197,5 +202,5 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
     arr.add(agentTool("calculate",
         "计算表达式：+ - * / ^ 与括号。",
         agentParams("expression" to agentStrProp("如 (3.7*4+4.0*3)/(4+3)。"), required = listOf("expression"))))
-    return JsonArray(arr).toString()
+    return JsonArray(arr.map(AgentWidgetPresentation::decorate)).toString()
 }

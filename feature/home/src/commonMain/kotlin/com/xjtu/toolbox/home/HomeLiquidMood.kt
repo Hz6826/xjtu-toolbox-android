@@ -15,7 +15,13 @@ import kotlin.random.Random
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 首页头卡液体的参数，对应 [com.xjtu.toolbox.ui.components.LiquidBackground] 的同名参数。 */
-internal class LiquidMood(val colors: LiquidColors, val seed: Float, val speed: Float, val crease: Float)
+internal data class LiquidMood(
+    val colors: LiquidColors,
+    val seed: Float,
+    val speed: Float,
+    val crease: Float,
+    val animated: Boolean = true,
+)
 
 /**
  * 颜色以一天时段的配色为底、掺一部分主题主色，再按深浅模式和天色明暗压；
@@ -23,10 +29,14 @@ internal class LiquidMood(val colors: LiquidColors, val seed: Float, val speed: 
  * 形状每天换一种，流速再带一点当天的随机。
  */
 @Composable
-internal fun rememberLiquidMood(nextUp: HomeNextUp?, examSoon: Boolean): LiquidMood {
+internal fun rememberLiquidMood(
+    nextUp: HomeNextUp?,
+    examSoon: Boolean,
+    appearance: HeroAppearance = HeroAppearance(),
+): LiquidMood {
     val primary = MiuixTheme.colorScheme.primary
     val dark = LocalIsDarkTheme.current
-    return remember(primary, dark, nextUp?.startAt, examSoon) {
+    val automatic = remember(primary, dark, nextUp?.startAt, examSoon) {
         val now = nowOnCampus()
         val hour = now.hour + now.minute / 60f
         // 6 点到 22 点之间按正弦升落，正午 1，夜里 0
@@ -56,6 +66,41 @@ internal fun rememberLiquidMood(nextUp: HomeNextUp?, examSoon: Boolean): LiquidM
             crease = 0.5f + 0.9f * tension,
         )
     }
+    return remember(automatic, appearance) { appearance.applyTo(automatic) }
+}
+
+internal fun HeroAppearance.applyTo(automatic: LiquidMood): LiquidMood {
+    val palette = when (palette) {
+        "midnight" -> LiquidPalettes.Midnight
+        "orchid" -> LiquidPalettes.Orchid
+        "blossom" -> LiquidPalettes.Blossom
+        "lagoon" -> LiquidPalettes.Lagoon
+        "honey" -> LiquidPalettes.Honey
+        "custom" -> {
+            val color = com.xjtu.toolbox.schedule.CourseColors.parseHex(colorHex) ?: LiquidPalettes.Midnight.mid
+            LiquidColors(lerp(color, Color.Black, 0.7f), color, lerp(color, Color.White, 0.6f))
+        }
+        else -> null
+    }
+    return automatic.copy(
+        colors = palette?.let {
+            LiquidColors(it.dark.capLuminance(0.06f), it.mid.capLuminance(0.2f), it.light.capLuminance(0.36f))
+        } ?: automatic.colors,
+        seed = if (seed < 0) automatic.seed else seed / 100f,
+        speed = when (motion) {
+            "gentle" -> 0.35f
+            "flowing" -> 0.85f
+            "lively" -> 1.6f
+            else -> automatic.speed
+        },
+        crease = when (motion) {
+            "gentle" -> 0.25f
+            "flowing" -> 0.65f
+            "lively" -> 1.25f
+            else -> automatic.crease
+        },
+        animated = motion != "still",
+    )
 }
 
 /** 一天里的底色：夜里午夜蓝，清晨蜜橙，上午湖绿，午后回到蓝，傍晚粉，入夜紫。相邻两档之间渐变。 */

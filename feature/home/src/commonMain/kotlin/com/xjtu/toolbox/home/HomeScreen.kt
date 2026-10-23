@@ -1,9 +1,11 @@
 package com.xjtu.toolbox.home
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -67,6 +70,7 @@ import com.xjtu.toolbox.bulletin.BulletinNoticePanel
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
+import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.LiquidBackground
 import com.xjtu.toolbox.ui.components.appCardShadow
@@ -494,6 +498,7 @@ private fun EditorialMasthead(
 
 /** 今日安排只放时间相关的信息；所有功能及其状态统一放在下面的服务区。 */
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun EditorialFrontPage(
     modifier: Modifier = Modifier,
     host: HomeHost,
@@ -510,36 +515,48 @@ private fun EditorialFrontPage(
         ?.firstOrNull { it.route == AppRoute.Schedule }
     if (nextUp == null && inbox == null && exam == null && quick == null) return
 
-    val ink = Color.White
-    val muted = Color.White.copy(alpha = 0.78f)
     val hasLead = nextUp != null || exam != null || inbox != null
-    val mood = rememberLiquidMood(nextUp, examSoon = exam != null)
+    val appearanceStore = remember { SettingsStore() }
+    var appearance by remember { mutableStateOf(HeroAppearance.read(appearanceStore)) }
+    var showAppearance by remember { mutableStateOf(false) }
+    val configure = { showAppearance = true }
+    val ink = appearance.contentColor
+    val muted = ink.copy(alpha = 0.78f)
+    val accent = if (ink == Color.White) LiquidCardAccent else ink.copy(alpha = 0.8f)
+    val rule = ink.copy(alpha = 0.18f)
+    val mood = rememberLiquidMood(nextUp, examSoon = exam != null, appearance = appearance)
     Column(modifier.fillMaxWidth()) {
         if (hasLead) {
             Box(Modifier.fillMaxWidth().liquidPaper()) {
-                LiquidBackground(
-                    colors = mood.colors, seed = mood.seed, speed = mood.speed, crease = mood.crease,
-                    modifier = Modifier.matchParentSize(),
-                )
-                // 和站点面板同一层思路：亮部再压一道暗色，白字在流动的亮斑上也立得住。
-                Box(Modifier.matchParentSize().background(LiquidCardScrim))
+                if (appearance.background == "solid") {
+                    Box(Modifier.matchParentSize().background(appearance.solidColor))
+                } else {
+                    LiquidBackground(
+                        colors = mood.colors, seed = mood.seed, speed = mood.speed, crease = mood.crease,
+                        animated = mood.animated && !showAppearance,
+                        modifier = Modifier.matchParentSize(),
+                    )
+                    Box(Modifier.matchParentSize().background(LiquidCardScrim))
+                }
                 Column(Modifier.fillMaxWidth()) {
                     nextUp?.let {
-                        EditorialNextUpLead(it, ink, muted) { it.route?.let(host::onRoute) ?: host.onProfile() }
+                        EditorialNextUpLead(it, ink, muted, accent, onLongClick = configure) { it.route?.let(host::onRoute) ?: host.onProfile() }
                     }
                     if (exam != null) {
-                        if (nextUp != null) EditorialRule(Modifier.padding(horizontal = 18.dp), LiquidCardRule)
+                        if (nextUp != null) EditorialRule(Modifier.padding(horizontal = 18.dp), rule)
                         Row(
                             Modifier.fillMaxWidth()
-                                .clickable(
+                                .combinedClickable(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = SinkFeedback(),
                                     onClick = { host.onRoute(AppRoute.Schedule) },
+                                    onLongClick = configure,
+                                    onLongClickLabel = "设置卡片外观",
                                 )
                                 .padding(horizontal = 18.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(exam.icon, null, tint = LiquidCardAccent, modifier = Modifier.size(16.dp))
+                            Icon(exam.icon, null, tint = accent, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(exam.label, fontSize = 12.sp, color = muted)
                             Spacer(Modifier.width(10.dp))
@@ -555,9 +572,9 @@ private fun EditorialFrontPage(
                     }
                     if (inbox != null) {
                         if (nextUp != null || exam != null) {
-                            EditorialRule(Modifier.padding(horizontal = 18.dp), LiquidCardRule)
+                            EditorialRule(Modifier.padding(horizontal = 18.dp), rule)
                         }
-                        InboxBrief(inbox, ink, muted) { host.onRoute(AppRoute.Inbox) }
+                        InboxBrief(inbox, ink, muted, onLongClick = configure) { host.onRoute(AppRoute.Inbox) }
                     }
                 }
             }
@@ -570,13 +587,29 @@ private fun EditorialFrontPage(
             }
         }
     }
+    if (showAppearance) {
+        HeroAppearanceDialog(
+            current = appearance,
+            nextUp = nextUp,
+            examSoon = exam != null,
+            onDismiss = { showAppearance = false },
+            onApply = {
+                it.save(appearanceStore)
+                appearance = it
+                showAppearance = false
+            },
+        )
+    }
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun EditorialNextUpLead(
     nextUp: HomeNextUp,
     ink: Color,
     muted: Color,
+    accent: Color,
+    onLongClick: () -> Unit,
     onClick: () -> Unit,
 ) {
     val timeLabel = nextUp.timeLabel
@@ -584,10 +617,12 @@ private fun EditorialNextUpLead(
     Column(
         Modifier
             .fillMaxWidth()
-            .clickable(
+            .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
                 onClick = onClick,
+                onLongClick = onLongClick,
+                onLongClickLabel = "设置卡片外观",
             )
             .padding(horizontal = 16.dp, vertical = 15.dp),
     ) {
@@ -599,7 +634,7 @@ private fun EditorialNextUpLead(
                 Modifier
                     .size(5.dp)
                     .background(
-                        if (timeLabel != null) LiquidCardAccent else muted.copy(alpha = 0.45f),
+                        if (timeLabel != null) accent else muted.copy(alpha = 0.45f),
                         CircleShape,
                     )
             )
@@ -733,14 +768,17 @@ private fun EditorialNextUpLead(
 }
 
 @Composable
-private fun InboxBrief(summary: HomeInboxSummary, ink: Color, muted: Color, onClick: () -> Unit) {
+@OptIn(ExperimentalFoundationApi::class)
+private fun InboxBrief(summary: HomeInboxSummary, ink: Color, muted: Color, onLongClick: () -> Unit, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(
+            .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
                 onClick = onClick,
+                onLongClick = onLongClick,
+                onLongClickLabel = "设置卡片外观",
             )
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1023,7 +1061,6 @@ private val LiquidCardScrim = Brush.verticalGradient(
 )
 
 /** 液体卡上的发丝线：白线，比主题描边亮一档。 */
-private val LiquidCardRule = Color.White.copy(alpha = 0.18f)
 
 /** 液体卡上的暖色点缀，只用在小圆点和考试图标上，不承字。 */
 private val LiquidCardAccent = Color(0xFFFFB4A6)

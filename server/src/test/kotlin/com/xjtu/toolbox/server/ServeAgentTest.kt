@@ -699,7 +699,7 @@ class ServeAgentTest {
                 .arrOf("messages").map { it.jsonObject }
             assertEquals(2, messages.size)
             assertEquals("user", messages[0].optString("role"))
-            assertEquals("（已停止）", messages[1].optString("content"))
+            assertEquals("[用户打断]", messages[1].optString("content"))
         }
     }
 

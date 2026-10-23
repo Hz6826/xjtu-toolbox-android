@@ -8,6 +8,35 @@ import kotlin.test.assertTrue
 /** 设置偏好的键名与默认值。 */
 class SettingsStoreTest {
     @Test
+    fun `头卡外观跨实例保留且无效偏好回退`() {
+        val raw = freshStore()
+        val settings = SettingsStore(raw)
+        assertEquals("auto", settings.heroPalette)
+        assertEquals("auto", settings.heroMotion)
+        assertEquals(-1, settings.heroSeed)
+        assertEquals("liquid", settings.heroBackground)
+        settings.heroBackground = "solid"
+        settings.heroPalette = "custom"
+        settings.heroColorHex = " #a2f "
+        settings.heroMotion = "still"
+        settings.heroSeed = 347
+        val reopened = SettingsStore(raw)
+        assertEquals("custom", reopened.heroPalette)
+        assertEquals("#AA22FF", reopened.heroColorHex)
+        assertEquals("still", reopened.heroMotion)
+        assertEquals(347, reopened.heroSeed)
+        assertEquals("solid", reopened.heroBackground)
+        raw.putString("hero_palette", "unknown")
+        raw.putString("hero_motion", "unknown")
+        raw.putString("hero_color_hex", "not a color")
+        raw.putInt("hero_seed", -100)
+        assertEquals("auto", reopened.heroPalette)
+        assertEquals("auto", reopened.heroMotion)
+        assertEquals("#2F7CFF", reopened.heroColorHex)
+        assertEquals(-1, reopened.heroSeed)
+    }
+
+    @Test
     fun `自定义颜色规范化并保留旧取色偏好`() {
         val raw = freshStore()
         raw.putBoolean("dynamic_color", true)

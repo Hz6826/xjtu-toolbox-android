@@ -12,6 +12,7 @@ import kotlinx.serialization.json.jsonObject
 
 /** 一次工具调用的执行中文案。 */
 fun agentToolLabel(name: String): String = when (name) {
+    "present_result"        -> "整理结果卡片…"
     "get_calendar"          -> "查询时间与校历…"
     "get_schedule"          -> "查询课表…"
     "get_exam_schedule"     -> "查询考试安排…"

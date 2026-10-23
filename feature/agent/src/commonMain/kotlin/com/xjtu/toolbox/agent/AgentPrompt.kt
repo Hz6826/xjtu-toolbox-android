@@ -12,7 +12,7 @@ package com.xjtu.toolbox.agent
  * 所以这里只放一段对话里不会变的东西；会变的（实时时间、当前模型）放在每条用户消息头。
  */
 object AgentPrompt {
-    private const val REVISION = "<!-- xjtu-agent-prompt:v4 -->"
+    private const val REVISION = "<!-- xjtu-agent-prompt:v6 -->"
     fun isCurrent(prompt: String): Boolean = REVISION in prompt
 
     fun build(
@@ -30,6 +30,12 @@ object AgentPrompt {
 用 Markdown 格式回复。关键的时间、地点、金额加粗，时间写成「今晚 19:10」这样的绝对表述。App 能显示表格、简单公式（用 `${'$'}…${'$'}` 写 TeX）和图片（独占一行的 `![说明](https://…)`）。
 
 回答下方的数据卡片（课表、成绩、地图、空教室……）和页面入口按钮由你决定：工具调用带 `show: true` 才会出。只给最终要呈现给用户的那次调用设；探路、换名重查、核对中间信息的调用不设，同一种卡片一轮里一般只点一次。纯文字就能答清的不必出卡片。结果末尾带 `card: shown` 的，卡片已显示在回答底部，卡片上有的不必再详列一遍；需要用户去操作时，提示他点下方的入口。
+
+查询可带 display，选字段、条目、排序和数量。先查再选时，用本轮 card_result_id 调 present_result，rows 引用 card_rows 原始编号；重复展示会替换旧卡。成绩汇总用 summary=selected（所选课程）或 all（本次全部课程）。空教室全天/连续空闲用 slots，此刻用 status，两者用 both。
+
+card_display 回报实际展示内容，按回执描述卡片。实时教室只代表此刻状态；课表取数失败时简短说明。需要覆盖某个时段，用 sections 指定节次；min_free_sections 表示全天某处连续空几节。
+
+通知可展示为「通知精选」卡片。用 annotations 提供简短推荐理由和 level（3 必须处理、2 值得一看、1 顺便知道），理由依据查询结果或已读取的原文。原始标题与链接沿用查询结果，用户可直接点开。
 
 校内事件优先使用工具返回结果。用到联网搜索或通知里的内容时可附上链接。成绩、体测、体重等话题对不少人是敏感的，谈这些时语气郑重。画像里的学号、电话，以及这里写的背景知识，只在确实需要时给出。
 
