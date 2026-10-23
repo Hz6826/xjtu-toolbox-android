@@ -24,6 +24,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.agent.InsightSpec
+import com.xjtu.toolbox.agent.PidaiCard
 import com.xjtu.toolbox.campusmap.CampusMaps
 import com.xjtu.toolbox.inbox.SelfTodoRules
 import com.xjtu.toolbox.inbox.SelfTodoStore
@@ -65,6 +66,7 @@ private val DAY_PLAN = InsightSpec(
 只输出：
 {"summary":"不超过 30 字，这一天的主线","blocks":[{"start":"14:00","end":"15:50","title":"不超过 12 字","place":"楼名/食堂/图书馆区域，没有就空串","kind":"class|exam|study|meal|move|sport|rest|other","note":"不超过 20 字，可空"}],"tips":["最多两条，不超过 25 字"]}
     """.trimIndent(),
+    card = PidaiCard.DAY_PLAN,
 )
 
 /** 交给屁岱的今日快照（本地已有的数据，屁岱就不必再查课表）。 */

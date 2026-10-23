@@ -1,7 +1,5 @@
 package com.xjtu.toolbox.home
 
-import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.bulletin.Bulletin
@@ -78,9 +76,6 @@ interface HomeHost {
     /** 这一端当前身份。目录（[AppServices]）按它筛：研究生看不到成绩单那几项。 */
     val audience: AccountType
 
-    /** 首页外观：`SettingsStore.THEME_CARD` / `THEME_ICON`。 */
-    val homeTheme: String
-
     /** 问候里的名字（空 = 只问候，不写名字）。 */
     val greetingName: String
 
@@ -117,9 +112,6 @@ interface HomeHost {
 
     /** 这一端真能打开的路由 id；`null` = 不筛（每一项都能打开）。 */
     val openableRouteIds: Set<String>? get() = null
-
-    /** Hero 右上角那张插画（各端自己的资源）；null = 不画。 */
-    val heroArt: (@Composable BoxScope.() -> Unit)? get() = null
 
     /** 打开某个入口。 */
     fun onRoute(route: AppRoute) {}

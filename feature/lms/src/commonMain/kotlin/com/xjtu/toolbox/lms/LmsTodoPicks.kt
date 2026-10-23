@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.agent.InsightSpec
+import com.xjtu.toolbox.agent.PidaiCard
 import com.xjtu.toolbox.inbox.SelfTodoRules
 import com.xjtu.toolbox.inbox.SelfTodoStore
 import com.xjtu.toolbox.ui.components.AppInsetColor
@@ -63,6 +64,7 @@ private val LMS_TODOS = InsightSpec(
 {"summary":"不超过 30 字","items":[{"course":"课程名","title":"原标题","kind":"作业|测试|公告","due":"yyyy-MM-dd HH:mm 或 null","priority":3,"advice":"不超过 25 字","course_id":0}]}
 priority：3 先做，2 这几天做，1 知道就行。最多 8 项；什么都没有就 items 为空。
     """.trimIndent(),
+    card = PidaiCard.LMS,
 )
 
 /** 只整理当前学期课程；历史课程和查询失败单独标明，避免误判没有待办。 */

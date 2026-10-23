@@ -114,6 +114,8 @@ fun InboxScreen(
     onOpen: (String) -> Unit,
     /** 收纳是**按账号**存的；null = 当前账号（:core 的 AccountContext）。 */
     account: String? = null,
+    /** 屁岱消息弹窗里的「接着问屁岱」：宿主把这条消息当快照带进对话。null = 只按路由打开屁岱页。 */
+    onAskPidai: ((InboxItem) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
@@ -166,7 +168,9 @@ fun InboxScreen(
 
     fun open(item: InboxItem, ids: List<String> = listOf(item.id)) {
         InboxStore.markRead(ids)
-        item.resolvedRouteId()?.let(onOpen) ?: run { detail = item }
+        // 屁岱的简报正文就是全部内容，屁岱页里没有它：先弹窗看全文，想接着聊再进屁岱
+        val route = item.resolvedRouteId()
+        if (route == null || item.category == InboxCategories.PIDAI) detail = item else onOpen(route)
     }
 
     Scaffold(
@@ -285,7 +289,12 @@ fun InboxScreen(
         InboxSettingsSheet(showSettings, data) { showSettings = false }
     }
 
-    detail?.let { d -> InboxDetailDialog(d) { detail = null } }
+    detail?.let { d ->
+        val ask: (() -> Unit)? = if (d.category != InboxCategories.PIDAI) null else {
+            { onAskPidai?.invoke(d) ?: d.resolvedRouteId()?.let(onOpen) }
+        }
+        InboxDetailDialog(d, onAskPidai = ask) { detail = null }
+    }
     actions?.let { a -> RowActionsDialog(a) { actions = null } }
     if (showAdd) AddTodoDialog { showAdd = false }
 }
@@ -669,7 +678,7 @@ private fun SettingsGroup(title: String, categories: List<InboxCategory>, data: 
 }
 
 @Composable
-private fun InboxDetailDialog(item: InboxItem, onDismiss: () -> Unit) {
+private fun InboxDetailDialog(item: InboxItem, onAskPidai: (() -> Unit)? = null, onDismiss: () -> Unit) {
     WindowDialog(show = true, title = item.title, summary = "${item.source} · ${timeLabel(item.time)}", onDismissRequest = onDismiss) {
         Column {
             Text(
@@ -677,7 +686,20 @@ private fun InboxDetailDialog(item: InboxItem, onDismiss: () -> Unit) {
                 style = MiuixTheme.textStyles.body2,
                 modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
             )
-            TextButton(text = "知道了", onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), colors = ButtonDefaults.textButtonColorsPrimary())
+            if (onAskPidai == null) {
+                TextButton(text = "知道了", onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), colors = ButtonDefaults.textButtonColorsPrimary())
+            } else {
+                Row(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                    TextButton(text = "知道了", onClick = onDismiss, modifier = Modifier.weight(1f))
+                    Spacer(Modifier.width(12.dp))
+                    TextButton(
+                        text = "接着问屁岱",
+                        onClick = { onDismiss(); onAskPidai() },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                    )
+                }
+            }
         }
     }
 }

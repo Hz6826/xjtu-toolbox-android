@@ -209,8 +209,7 @@ private fun WebAgentMemorySection(session: WebAgentSession) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("记住的偏好", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
             Text(
-                "存在运行 serve 的那台机器上，与模型用的是同一份。最多 ${AgentMemory.MAX_ITEMS} 条，" +
-                    "增删从下一个新对话起生效。",
+                "存在 serve 主机上，最多 ${AgentMemory.MAX_ITEMS} 条，新对话起生效。",
                 style = MiuixTheme.textStyles.footnote1,
                 color = cs.onSurfaceVariantSummary,
             )

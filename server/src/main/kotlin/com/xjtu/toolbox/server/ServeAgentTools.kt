@@ -101,8 +101,7 @@ internal class ServeAgentTools(
         val args = runCatching { AppJson.parseToJsonElement(argsJson).jsonObject }
             .getOrDefault(JsonObject(emptyMap()))
 
-        val widgetsBefore = pendingWidgets.size
-        val result = when (name) {
+        when (name) {
             // 当前时间、节次、教学周和校历本是同一件事，合成一个工具
             "get_calendar" -> getCurrentTime() + "\n\n" + getSchoolCalendar(args.argStr("term"))
             "get_schedule" -> getSchedule(args.argStr("date"), args.argStr("term"))
@@ -134,7 +133,6 @@ internal class ServeAgentTools(
             // 工具表里没画的档回 not_found：模型可能凭旧对话里的记忆调过来（那段历史是在别的端上生成的）
             else -> ToolReply.notFound("tool", name)
         }
-        if (pendingWidgets.size > widgetsBefore) result + "\n" + ToolReply.CARD_SHOWN else result
     }
 
     // ── 取数（这一端自己的那几件：黄页 / 教师检索，与 DesktopAgentTools 同形）────────────

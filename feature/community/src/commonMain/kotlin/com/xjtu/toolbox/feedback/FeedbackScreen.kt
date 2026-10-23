@@ -487,7 +487,7 @@ fun FeedbackScreen(
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "构建时没带上反馈后端，没法在这里直接发送。去 GitHub 提 Issue 就行，效果一样。",
+                            "此版本不能直接发送，请去 GitHub 提 Issue。",
                             style = MiuixTheme.textStyles.body2,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )

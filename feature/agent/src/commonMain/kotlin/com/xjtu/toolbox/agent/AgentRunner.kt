@@ -101,6 +101,10 @@ class AgentRunner(
     /** 站点 -> 上次调用时刻，用于按站点限流。 */
     private val lastCallAt = mutableMapOf<String, Long>()
 
+    /** 模型用 [ToolShow] 点名展示的卡片，以及那几次调用的工具名（出页面入口用）。 */
+    val shownWidgets = mutableListOf<AgentWidget>()
+    val shownTools = mutableListOf<String>()
+
 
     /**
      * 执行一次用户消息的 agent 循环。
@@ -224,11 +228,18 @@ class AgentRunner(
                     lastCallAt[site] = Clock.System.now().toEpochMilliseconds()
                 }
                 val toolResult = runCatching { tools.execute(tc.name, tc.arguments) }
-                val result: String
+                // 这次调用顺手产出的卡片：模型点名 show 才留，否则丢掉
+                val made = tools.drainWidgets()
+                var result: String
                 val toolErrorMsg: String?
                 if (toolResult.isSuccess) {
                     result = toolResult.getOrThrow() as String
                     toolErrorMsg = null
+                    if (ToolShow.requested(tc.arguments)) {
+                        shownWidgets += made
+                        shownTools += tc.name
+                        if (made.isNotEmpty()) result += "\n" + ToolReply.CARD_SHOWN
+                    }
                 } else {
                     val e = toolResult.exceptionOrNull()
                     // 用户点了停止：取消不是工具出错，不能记成一次失败塞进历史，原样往上抛

@@ -733,7 +733,7 @@ private class OaNoticeCrawler(
         val title = a.attr("title").ifBlank { a.text() }.trim()
         if (title.length < 4) return null
         val id = DETAIL_ID_RE.find(a.attr("onclick"))?.groupValues?.get(1) ?: return null
-        val link = "$DETAIL_URL?processInsId=${URLEncoder.encode(id, StandardCharsets.UTF_8)}"
+        val link = "$DETAIL_URL?processInsId=${URLEncoder.encode(id, "UTF-8")}"
         val meta = a.closest("tr")
             ?.selectFirst("td.timedate1")
             ?.text()
@@ -798,7 +798,7 @@ internal object SiteSearch {
     fun searchVsb(client: OkHttpClient, source: NotificationSource, action: String, keyword: String, page: Int): VsbResult {
         val origin = originOf(source.baseUrl) ?: return VsbResult(NotificationPage(emptyList(), false), 0)
         val key = java.util.Base64.getEncoder().encodeToString(keyword.toByteArray(StandardCharsets.UTF_8))
-        val url = "$origin/$action&searchScope=0&currentnum=$page&newskeycode2=${URLEncoder.encode(key, StandardCharsets.UTF_8)}"
+        val url = "$origin/$action&searchScope=0&currentnum=$page&newskeycode2=${URLEncoder.encode(key, "UTF-8")}"
         return parseVsb(fetchDocumentWithChallenge(client, url), source, page)
     }
 

@@ -230,7 +230,7 @@ fun ZyxfBrowseScreen(
                             Alignment.Center,
                         ) {
                             if (stateText == null) {
-                                com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
+                                com.xjtu.toolbox.ui.components.LoadingState(message = null)
                             } else {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Icon(

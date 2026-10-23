@@ -18,6 +18,7 @@ import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Recent
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Theme
+import com.xjtu.toolbox.home.BottomBarTabs
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -87,10 +88,10 @@ fun SettingsScreen(
 
     val showDarkMode = SettingsRow.DARK_MODE in host.honoredRows
     val showDynamicColor = SettingsRow.DYNAMIC_COLOR in host.honoredRows
-    val showHomeTheme = SettingsRow.HOME_THEME in host.honoredRows
     val showQuickActions = SettingsRow.QUICK_ACTIONS in host.honoredRows
     val showNavStyle = SettingsRow.NAV_STYLE in host.honoredRows
     val showDefaultTab = SettingsRow.DEFAULT_TAB in host.honoredRows
+    val showBottomTabs = SettingsRow.BOTTOM_TABS in host.honoredRows
     val showHaptics = SettingsRow.HAPTICS in host.honoredRows
     val showNetworkMode = SettingsRow.NETWORK_MODE in host.honoredRows && host.onNetworkModeChanged != null
     val scheduleOptions = if (SettingsRow.SCHEDULE_SOURCE in host.honoredRows) host.scheduleSourceOptions else emptyList()
@@ -104,9 +105,11 @@ fun SettingsScreen(
     var customColorEnabled by remember { mutableStateOf(store.customColorEnabled) }
     var customColorHex by remember { mutableStateOf(store.customColorHex) }
     var showThemeColor by remember { mutableStateOf(false) }
-    var defaultTab by remember { mutableStateOf(store.defaultTab) }
+    val accountType = com.xjtu.toolbox.account.AccountContext.activeAccountType
+    var bottomTabs by remember { mutableStateOf(BottomBarTabs.barIds(store.bottomBar, accountType)) }
+    var defaultTab by remember { mutableStateOf(BottomBarTabs.defaultTab(store.defaultTab, bottomTabs)) }
+    var showBottomBarDialog by remember { mutableStateOf(false) }
     var networkMode by remember { mutableStateOf(store.networkMode) }
-    var theme by remember { mutableStateOf(store.homeTheme) }
     var showQuickActionsOn by remember { mutableStateOf(store.showQuickActions) }
     var attendanceBadge by remember { mutableStateOf(store.scheduleAttendanceBadge) }
     var scheduleSource by remember { mutableStateOf(store.scheduleSource) }
@@ -126,6 +129,20 @@ fun SettingsScreen(
                 store.dynamicColor = false
                 host.onAppearanceChanged()
                 showThemeColor = false
+            },
+        )
+    }
+    if (showBottomBarDialog) {
+        BottomBarDialog(
+            candidates = BottomBarTabs.candidates(accountType),
+            initial = BottomBarTabs.middleOf(store.bottomBar, accountType),
+            icon = host.serviceIcon,
+            onDismiss = { showBottomBarDialog = false },
+            onConfirm = { middle ->
+                store.bottomBar = BottomBarTabs.encode(middle)
+                bottomTabs = BottomBarTabs.barIds(store.bottomBar, accountType)
+                defaultTab = BottomBarTabs.defaultTab(store.defaultTab, bottomTabs)
+                showBottomBarDialog = false
             },
         )
     }
@@ -151,24 +168,14 @@ fun SettingsScreen(
         SettingsStore.DARK_MODE_LIGHT,
         SettingsStore.DARK_MODE_DARK
     )
-    val themeOptions = listOf("卡片主题", "图标主题")
-    val themeValues = listOf(
-        SettingsStore.THEME_CARD,
-        SettingsStore.THEME_ICON
-    )
     val navStyleOptions = listOf("玻璃（默认）", "经典")
     val navStyleValues = listOf(
         SettingsStore.NAV_STYLE_FLOATING,
         SettingsStore.NAV_STYLE_CLASSIC
     )
-    val tabOptions = listOf("首页", "日程", "屁岱", "学辅", "我的")
-    val tabValues = listOf(
-        SettingsStore.TAB_HOME,
-        SettingsStore.TAB_COURSES,
-        SettingsStore.TAB_PIDAI,
-        SettingsStore.TAB_TOOLS,
-        SettingsStore.TAB_PROFILE
-    )
+    // 启动页只能选底栏上有的格子
+    val tabValues = bottomTabs
+    val tabOptions = tabValues.map(BottomBarTabs::labelOf)
     val networkOptions = listOf("自动检测", "强制直连", "强制 WebVPN")
     val networkValues = listOf(
         SettingsStore.NETWORK_AUTO,
@@ -245,22 +252,7 @@ fun SettingsScreen(
                         )
                     }
                 }
-                if (showHomeTheme) {
-                    OverlayDropdownPreference(
-                        title = "主题",
-                        items = themeOptions,
-                        summary = if (theme == SettingsStore.THEME_CARD) "今日安排与分类面板" else "分类宫格彩虹图标",
-                        selectedIndex = themeValues.indexOf(theme).coerceAtLeast(0),
-                        startAction = { SettingsIcon(MiuixIcons.Theme, cOrange) },
-                        onSelectedIndexChange = { idx ->
-                            val v = themeValues[idx]
-                            theme = v
-                            store.homeTheme = v
-                            host.onAppearanceChanged()
-                        }
-                    )
-                }
-                if (showHomeTheme && showQuickActions) {
+                if (showQuickActions) {
                     SwitchPreference(
                         title = "显示常用功能",
                         summary = "在首页长按常用功能可排序和增删",
@@ -286,6 +278,14 @@ fun SettingsScreen(
                             store.navBarStyle = v
                             host.onAppearanceChanged()
                         }
+                    )
+                }
+                if (showBottomTabs) {
+                    ArrowPreference(
+                        title = "底栏",
+                        summary = tabOptions.joinToString(" · "),
+                        startAction = { SettingsIcon(Icons.Default.Tab, cIndigo) },
+                        onClick = { showBottomBarDialog = true },
                     )
                 }
             }
@@ -455,7 +455,7 @@ fun SettingsScreen(
 
         // 组的顺序与标题（宽屏左栏就是这一列）。宿主没有那一组时整条不出现。
         val groups = buildList {
-            if (showDarkMode || showDynamicColor || showHomeTheme || showQuickActions || showNavStyle) {
+            if (showDarkMode || showDynamicColor || showQuickActions || showNavStyle || showBottomTabs) {
                 add(SettingsGroup("外观", Icons.Default.Palette, cPurple, appearanceGroup))
             }
             if (showDefaultTab || showHaptics || showNetworkMode) {

@@ -139,6 +139,8 @@ fun LibraryScreen(
     }
     val seatPicks = com.xjtu.toolbox.ui.components.rememberInsight(seatPicksSpec, seatPicksData?.first, auto = false)
     val pickedSeatIds = seatPickIds(seatPicks)
+    val seatPicksShown = com.xjtu.toolbox.agent.AgentInsightHub.insights.available &&
+        com.xjtu.toolbox.agent.PidaiCard.LIBRARY !in com.xjtu.toolbox.agent.PidaiCards.off.collectAsState().value
     LaunchedEffect(pickedSeatIds) { seatPlanUi.heatOn.value = pickedSeatIds.isNotEmpty() }
     val floors = remember(campus) { campus.floorCodes.map { campus.floorLabel(it) } }
     // 只滤掉明确关闭（有统计且 total=0）的区域；统计没到或学校没给的照常列出
@@ -678,7 +680,7 @@ fun LibraryScreen(
                     }
 
                     planMode -> {
-                      if (seatPicksData != null && com.xjtu.toolbox.agent.AgentInsightHub.insights.available) {
+                      if (seatPicksData != null && seatPicksShown) {
                         fullSpan("seat_picks") {
                             LibrarySeatPicksCard(
                                 state = seatPicks,

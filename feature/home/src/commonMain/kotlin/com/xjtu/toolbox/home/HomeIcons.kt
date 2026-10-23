@@ -47,6 +47,7 @@ object HomeIcons {
         AppRoute.Jiaocai -> Icons.AutoMirrored.Filled.MenuBook
         AppRoute.Jiaocai1 -> Icons.AutoMirrored.Filled.LibraryBooks
         AppRoute.Library -> Icons.Default.Chair
+        AppRoute.Zyxf -> Icons.AutoMirrored.Filled.LibraryBooks
         AppRoute.Transcript -> Icons.Default.Description
         AppRoute.Notification -> Icons.Default.Notifications
         AppRoute.Faculty -> Icons.Default.PersonSearch

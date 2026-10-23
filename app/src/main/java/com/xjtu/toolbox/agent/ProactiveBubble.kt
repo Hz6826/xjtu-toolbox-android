@@ -485,8 +485,11 @@ object ProactiveRules {
             .joinToString("\n")
 }
 
-/** 气泡尖角朝向。底栏屁岱在气泡正下方 → [Bottom]；侧栏屁岱在气泡左边 → [Start]。 */
-enum class BubbleArrowSide { Bottom, Start }
+/**
+ * 气泡尖角朝向。底栏屁岱在气泡正下方 → [Bottom]；侧栏屁岱在气泡左边 → [Start]；
+ * 屁岱不在底栏上（没有可指的）→ [None]，浮在底栏上方的圆角卡片。
+ */
+enum class BubbleArrowSide { Bottom, Start, None }
 
 /** 尖角的伸出深度与底宽，外形与布局内边距都按它算，两处必须一致。 */
 private val ArrowDepth = 7.dp
@@ -543,6 +546,12 @@ private class BubbleShape(
                     lineTo(bodyLeft, cy + arrowW / 2)
                     close()
                 }
+                BubbleArrowSide.None -> addRoundRect(
+                    androidx.compose.ui.geometry.RoundRect(
+                        left = 0f, top = 0f, right = size.width, bottom = size.height,
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+                    )
+                )
             }
         }
         return Outline.Generic(path)
@@ -565,7 +574,7 @@ fun ProactiveBubbleView(
     onOpen: () -> Unit,
     onDismiss: () -> Unit,
     onTimeout: () -> Unit,
-    /** 尖角朝向。默认朝下（底栏屁岱在气泡正下方）。 */
+    /** 尖角朝向。默认朝下（底栏屁岱在气泡正下方）；[BubbleArrowSide.None] 不画尖角。 */
     arrowSide: BubbleArrowSide = BubbleArrowSide.Bottom,
     /** [BubbleArrowSide.Bottom] 时尖角距起始边的距离；null = 气泡自身水平中心。 */
     arrowFromStart: androidx.compose.ui.unit.Dp? = null,
@@ -585,6 +594,7 @@ fun ProactiveBubbleView(
     val arrowOffset = when (arrowSide) {
         BubbleArrowSide.Bottom -> arrowFromStart
         BubbleArrowSide.Start -> arrowFromTop
+        BubbleArrowSide.None -> null
     }
     // visible 只管"气泡在不在"，**不跟着文案走**。
     //
@@ -602,7 +612,7 @@ fun ProactiveBubbleView(
         delay(200)
         onTimeout()
     }
-    // 缩放锚点跟着尖角走：尖角在哪，气泡就从哪「长出来」。
+    // 缩放锚点跟着尖角走：尖角在哪，气泡就从哪「长出来」；没有尖角时从底边中点长出来。
     val pivot = when {
         arrowSide == BubbleArrowSide.Start -> TransformOrigin(0f, 0.5f)
         arrowOffset == null -> TransformOrigin(0.5f, 1f)
@@ -629,7 +639,9 @@ fun ProactiveBubbleView(
                 transformOrigin = pivot,
                 animationSpec = tween(160),
             ),
-        modifier = modifier.wrapContentWidth(),
+        // 没有尖角时把尖角那段高度留成空隙，卡片底边与有尖角时的气泡主体同高，不贴着底栏
+        modifier = modifier.wrapContentWidth()
+            .then(if (arrowSide == BubbleArrowSide.None) Modifier.padding(bottom = ArrowDepth) else Modifier),
     ) {
         AnimatedContent(
             targetState = message,

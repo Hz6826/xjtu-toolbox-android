@@ -1,7 +1,6 @@
 package com.xjtu.toolbox.library
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.shape.CircleShape
@@ -33,6 +32,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -666,7 +670,7 @@ fun SeatPlanPanel(
                     var fullscreen by ui.fullscreen
                     // 卡片里和全屏里是同一套：图 + 信息条，选中座位共用
                     @Composable
-                    fun MapAndBar(mapModifier: Modifier, barOnlyForSeat: Boolean = false) {
+                    fun MapAndBar(mapModifier: Modifier) {
                         androidx.compose.foundation.layout.Box(mapModifier) {
                             SeatPlanView(
                                 layout = layout,
@@ -678,15 +682,8 @@ fun SeatPlanPanel(
                                 heat = heat,
                                 modifier = Modifier.fillMaxSize().clipToBounds().background(Color(0xFF8A6A45)),
                             )
-                            // 全屏没有卡片头，开关浮在图的左上角
-                            if (barOnlyForSeat) HeatToggle(
-                                heatOn,
-                                Modifier.align(Alignment.TopStart).padding(10.dp),
-                                onImage = true,
-                            ) { heatOn = !heatOn }
                         }
-                        // 全屏只看图，选了座（或开着热力有推荐）才出信息条
-                        if (!barOnlyForSeat || selectedSeat != null || heat != null) PlanInfoBar(
+                        PlanInfoBar(
                             areaName = areaName,
                             freeText = freeText,
                             seat = selectedSeat,
@@ -704,14 +701,13 @@ fun SeatPlanPanel(
                         Column { MapAndBar(Modifier.fillMaxWidth().height(mapHeight)) }
                         PlanCornerButton(Icons.Default.Fullscreen, "全屏", Modifier.align(Alignment.TopEnd)) { fullscreen = true }
                     }
-                    if (fullscreen && hostFullscreen) PlanFullscreen(
-                        landscape = images.origWidth > images.origHeight,
-                        onClose = { fullscreen = false },
-                        landscapeLock = landscapeLock,
-                        properties = fullscreenDialogProperties,
-                    ) {
-                        MapAndBar(Modifier.fillMaxWidth().weight(1f), barOnlyForSeat = true)
-                    }
+                    if (hostFullscreen) SeatPlanFullscreenOverlay(
+                        state = ui, layout = layout, images = images,
+                        areaName = areaName, freeText = freeText, favorites = favorites,
+                        agentPicks = agentPicks, canBook = canBook, isBooking = isBooking,
+                        loading = loading, onBook = onBook, onToggleFavorite = onToggleFavorite,
+                        landscapeLock = landscapeLock, properties = fullscreenDialogProperties,
+                    )
                 }
             }
         }
@@ -737,6 +733,28 @@ fun SeatPlanFullscreenOverlay(
     properties: DialogProperties,
 ) {
     if (!state.fullscreen.value || layout == null || images == null) return
+    PlanFullscreen(images.origWidth > images.origHeight, { state.fullscreen.value = false }, landscapeLock, properties) {
+        SeatPlanFullscreenContent(state, layout, images, areaName, freeText, favorites,
+            agentPicks, canBook, isBooking, loading, onBook, onToggleFavorite)
+    }
+}
+
+/** 全屏内容与窗口分开，右侧操作区始终占位，选座时地图不跳动。 */
+@Composable
+fun SeatPlanFullscreenContent(
+    state: SeatPlanUiState,
+    layout: SeatLayout,
+    images: PlanImages,
+    areaName: String,
+    freeText: String?,
+    favorites: Set<String>,
+    agentPicks: List<String>,
+    canBook: Boolean,
+    isBooking: Boolean,
+    loading: Boolean,
+    onBook: (String) -> Unit,
+    onToggleFavorite: (String) -> Unit,
+) {
     var selected by state.selected
     var heatOn by state.heatOn
     val seat = layout.seats.firstOrNull { it.seatId == selected }
@@ -747,16 +765,78 @@ fun SeatPlanFullscreenOverlay(
             SeatHeat(comfort, picks.ifEmpty { SeatComfort.best(layout.seats, comfort) }, SeatComfort.zones(layout.seats))
         }
     }
-    PlanFullscreen(images.origWidth > images.origHeight, { state.fullscreen.value = false }, landscapeLock, properties) {
-        androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().weight(1f)) {
-            SeatPlanView(layout, images, selected, favorites, { selected = it?.seatId }, onToggleFavorite,
-                heat = heat, modifier = Modifier.fillMaxSize().clipToBounds())
-            HeatToggle(heatOn, Modifier.align(Alignment.TopStart).padding(10.dp), onImage = true) { heatOn = !heatOn }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val sidebarWidth = (maxWidth * 0.25f).coerceIn(148.dp, 240.dp)
+        Row(Modifier.fillMaxSize()) {
+            androidx.compose.foundation.layout.Box(Modifier.weight(1f).fillMaxHeight()) {
+                SeatPlanView(layout, images, selected, favorites, { selected = it?.seatId }, onToggleFavorite,
+                    heat = heat, modifier = Modifier.fillMaxSize().clipToBounds())
+                HeatToggle(heatOn, Modifier.align(Alignment.TopStart).padding(10.dp), onImage = true) { heatOn = !heatOn }
+            }
+            androidx.compose.foundation.layout.Box(Modifier.width(1.dp).fillMaxHeight()
+                .background(MiuixTheme.colorScheme.outline.copy(alpha = 0.15f)))
+            PlanInfoSidebar(areaName, freeText, seat, seat?.seatId in favorites, canBook,
+                !isBooking && !loading, isBooking, onBook, heat, { selected = it },
+                Modifier.width(sidebarWidth).fillMaxHeight())
         }
-        if (seat != null || heat != null) PlanInfoBar(
-            areaName, freeText, seat, seat?.seatId in favorites, canBook, !isBooking && !loading,
-            isBooking, onBook, heat, { selected = it }, Modifier.height(58.dp),
-        )
+        PlanCornerButton(Icons.Default.FullscreenExit, "退出全屏", Modifier.align(Alignment.TopEnd)) {
+            state.fullscreen.value = false
+        }
+    }
+}
+
+@Composable
+private fun PlanInfoSidebar(
+    areaName: String,
+    freeText: String?,
+    seat: PlanSeat?,
+    favorite: Boolean,
+    canBook: Boolean,
+    enabled: Boolean,
+    isBooking: Boolean,
+    onBook: (String) -> Unit,
+    heat: SeatHeat?,
+    onPick: (String) -> Unit,
+    modifier: Modifier,
+) {
+    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    Column(modifier.background(com.xjtu.toolbox.ui.components.AppCardColor).padding(14.dp)) {
+        // 右上角留给退出全屏按钮。
+        Text(areaName, modifier = Modifier.padding(end = 30.dp), style = MiuixTheme.textStyles.body2,
+            fontWeight = FontWeight.Bold, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        if (freeText != null) Text(freeText, style = MiuixTheme.textStyles.footnote1, color = muted,
+            modifier = Modifier.padding(top = 4.dp))
+        Spacer(Modifier.height(12.dp))
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().height(1.dp)
+            .background(MiuixTheme.colorScheme.outline.copy(alpha = 0.15f)))
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (seat != null) {
+                Text(seat.seatId + if (favorite) " ★" else "", style = MiuixTheme.textStyles.title2,
+                    fontWeight = FontWeight.Bold, maxLines = 2)
+                Text(planStatusLabel(seat.status), style = MiuixTheme.textStyles.body2,
+                    color = if (seat.available) MiuixTheme.colorScheme.primary else muted)
+                heat?.comfort?.get(seat.seatId)?.takeIf { seat.available }?.let {
+                    Text(it.label, style = MiuixTheme.textStyles.footnote1, color = HEAT_GOOD)
+                }
+            } else {
+                Text("点选座位", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
+                Text("双指缩放地图", style = MiuixTheme.textStyles.footnote1, color = muted)
+                heat?.picks?.take(3)?.forEach { pick ->
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                        .background(HEAT_GOOD.copy(alpha = 0.10f)).clickable { onPick(pick.seatId) }.padding(10.dp)) {
+                        Text("推荐 ${pick.seatId}", style = MiuixTheme.textStyles.body2, color = HEAT_GOOD, fontWeight = FontWeight.Bold)
+                        heat.comfort[pick.seatId]?.let { Text(it.label, style = MiuixTheme.textStyles.footnote1, color = muted) }
+                    }
+                }
+            }
+        }
+        if (seat != null && seat.available && canBook) {
+            Button(onClick = { onBook(seat.seatId) }, enabled = enabled,
+                modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColorsPrimary()) {
+                Text(if (isBooking) "提交中…" else "预约", color = MiuixTheme.colorScheme.onPrimary)
+            }
+        }
     }
 }
 
@@ -824,7 +904,7 @@ private fun PlanFullscreen(
     onClose: () -> Unit,
     landscapeLock: (@Composable (Boolean) -> Unit)?,
     properties: DialogProperties,
-    content: @Composable ColumnScope.() -> Unit,
+    content: @Composable () -> Unit,
 ) {
     val lock = landscapeLock
     if (lock != null) lock(landscape)
@@ -832,8 +912,7 @@ private fun PlanFullscreen(
         androidx.compose.foundation.layout.Box(
             Modifier.fillMaxSize().background(com.xjtu.toolbox.ui.components.AppCardColor).systemBarsPadding(),
         ) {
-            Column(Modifier.fillMaxSize(), content = content)
-            PlanCornerButton(Icons.Default.FullscreenExit, "退出全屏", Modifier.align(Alignment.TopEnd), onClick = onClose)
+            content()
         }
     }
 }

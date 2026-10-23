@@ -117,12 +117,7 @@ internal fun JiaocaiSearchContent(
                 modifier = Modifier.weight(1f),
             ) { (isLoading, errorMsg, books) ->
                 when {
-                    isLoading -> Box(
-                        Modifier.fillMaxWidth().padding(vertical = 48.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
-                    }
+                    isLoading -> com.xjtu.toolbox.ui.components.LoadingState(message = null)
                     errorMsg != null -> Text(
                         errorMsg!!,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,

@@ -56,9 +56,9 @@ fun agentCompleteToolLabel(running: String): String {
     return if (base.startsWith("已")) base else "已$base"
 }
 
-/** 本轮涉及的工具 → 回复下方那排跳转按钮，`List<Pair<显示文字, [AppRoute.id]>>`。 */
-fun agentNavSuggestions(calledTools: List<String>): List<Pair<String, String>> =
-    calledTools.mapNotNull { toolName ->
+/** 本轮模型用 show 点名展示的工具 → 回复下方那排跳转按钮，`List<Pair<显示文字, [AppRoute.id]>>`。 */
+fun agentNavSuggestions(shownTools: List<String>): List<Pair<String, String>> =
+    shownTools.mapNotNull { toolName ->
         when (toolName) {
             "get_schedule", "get_exam_schedule", "add_schedule_event" -> "查看课表" to AppRoute.Schedule
             "add_todo", "get_todos", "complete_todo" -> "查看待办" to AppRoute.Inbox

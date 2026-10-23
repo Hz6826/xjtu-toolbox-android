@@ -51,7 +51,6 @@ fun main(args: Array<String>) {
     val fixture = object : HomeHost {
         override val honoredCards = HomeCard.entries.toSet()
         override val audience = AccountType.UNDERGRADUATE
-        override val homeTheme = SettingsStore.THEME_CARD
         override val greetingName = ""
         override val dateLabel = "10月21日 · 周三"
         override val weekNumber = 8

@@ -361,8 +361,7 @@ class AgentToolRegistry(
         // （那一段历史是在别的端上生成的）。
         if (!honors(name)) return@withContext ToolReply.notFound("tool", name)
 
-        val widgetsBefore = pendingWidgets.size
-        val result = when (name) {
+        when (name) {
             // 当前时间、节次、教学周和校历本是同一件事，合成一个工具
             "get_calendar" -> getCurrentTime() + "\n\n" + getSchoolCalendar(args.argStr("term"))
             "get_schedule" -> getSchedule(args.argStr("date"), args.argStr("term"))
@@ -472,8 +471,6 @@ class AgentToolRegistry(
             "app_guide" -> agentGuideText(args.argStr("topic"))
             else -> ToolReply.notFound("tool", name)
         }
-        // 这次调用生成了卡片（课表、成绩、空教室……）就明确告诉模型：用户已经看到了
-        if (pendingWidgets.size > widgetsBefore) result + "\n" + ToolReply.CARD_SHOWN else result
     }
 
     // ── 实现 ──────────────────────────────────────────────────────────────

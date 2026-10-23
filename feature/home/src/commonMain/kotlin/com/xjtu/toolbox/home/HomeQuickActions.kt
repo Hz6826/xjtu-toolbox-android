@@ -54,7 +54,6 @@ import androidx.compose.ui.zIndex
 import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
-import com.xjtu.toolbox.ui.components.GradientAppIcon
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -72,7 +71,6 @@ internal fun QuickActionsGrid(
     editable: Boolean,
     onChange: (List<String>) -> Unit,
     iconSize: Dp,
-    solidIcon: Boolean,
     modifier: Modifier = Modifier,
     /** 卡片是深色液体底时传白色，标题 / 「编辑」 / 功能名都跟着提亮；null 用主题色。 */
     contentColor: Color? = null,
@@ -150,7 +148,6 @@ internal fun QuickActionsGrid(
                             onLongClick = if (editable && !editing) ::startEditing else null,
                             originKey = row.key.takeUnless { editing },
                             iconSize = iconSize,
-                            solidIcon = solidIcon,
                             labelColor = contentColor,
                         )
                         if (editing) {
@@ -232,16 +229,14 @@ private fun HomeQuickAction(
     iconSize: Dp,
     onLongClick: (() -> Unit)? = null,
     originKey: String? = null,
-    solidIcon: Boolean = false,
     labelColor: Color? = null,
 ) {
     val origin = rememberExpandOriginSource()
     val density = LocalDensity.current
-    val iconRadius = iconSize * (if (solidIcon) 0.3f else 0.31f)
+    val iconRadius = iconSize * 0.31f
     val snapshot: @Composable (Modifier) -> Unit = { m ->
         Box(m, contentAlignment = Alignment.Center) {
-            if (solidIcon) GradientAppIcon(icon, color, size = iconSize, iconSize = iconSize * 0.5f)
-            else ExpressiveIcon(icon = icon, color = color, size = iconSize, iconSize = iconSize * 0.5f)
+            ExpressiveIcon(icon = icon, color = color, size = iconSize, iconSize = iconSize * 0.5f)
         }
     }
     Column(
@@ -263,8 +258,7 @@ private fun HomeQuickAction(
     ) {
         // 转场从图标本身长出来：坐标取图标方块，不含下面的名称。
         Box(if (originKey != null) Modifier.expandOriginSource(origin) else Modifier) {
-            if (solidIcon) GradientAppIcon(icon, color, size = iconSize, iconSize = iconSize * 0.5f)
-            else ExpressiveIcon(icon = icon, color = color, size = iconSize, iconSize = iconSize * 0.5f)
+            ExpressiveIcon(icon = icon, color = color, size = iconSize, iconSize = iconSize * 0.5f)
         }
         Spacer(Modifier.height(6.dp))
         Text(label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, maxLines = 1,

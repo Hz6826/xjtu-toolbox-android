@@ -2,9 +2,6 @@ package com.xjtu.toolbox.main
 
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -49,17 +46,14 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -73,11 +67,6 @@ import com.xjtu.toolbox.agent.AgentInsightEngine
 import com.xjtu.toolbox.agent.AgentInsightHub
 import com.xjtu.toolbox.agent.AgentPendingPrompt
 import com.xjtu.toolbox.agent.AndroidAgentHost
-import com.xjtu.toolbox.agent.AndroidPidaiHero
-import com.xjtu.toolbox.agent.AndroidPokeWhisper
-import com.xjtu.toolbox.agent.PidaiAppearancePanel
-import com.xjtu.toolbox.agent.rememberAndroidAgentImagePicker
-import com.xjtu.toolbox.agent.AgentScreen
 import com.xjtu.toolbox.agent.BubbleArrowSide
 import com.xjtu.toolbox.agent.ProactiveBubbleHost
 import com.xjtu.toolbox.agent.ProactiveBubbleView
@@ -98,6 +87,8 @@ import com.xjtu.toolbox.home.HomeTab
 import com.xjtu.toolbox.library.LibraryFocus
 import com.xjtu.toolbox.library.LibraryQrArea
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.AppPageAsTab
+import com.xjtu.toolbox.nav.AppPageDeps
 import com.xjtu.toolbox.inbox.InboxBell
 import com.xjtu.toolbox.profile.ProfileTab
 import com.xjtu.toolbox.qrlogin.QrLoginScreen
@@ -110,6 +101,7 @@ import com.xjtu.toolbox.shell.ShellAccountBadge
 import com.xjtu.toolbox.shell.ShellHandles
 import com.xjtu.toolbox.shell.ShellNavState
 import com.xjtu.toolbox.shell.ShellTab
+import com.xjtu.toolbox.ui.components.pressScale
 import com.xjtu.toolbox.ui.glass.LocalAppBackdrop
 import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
 import com.xjtu.toolbox.ui.glass.glassBarSurface
@@ -137,11 +129,13 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.time.Duration
 import java.time.LocalDateTime
 
-/** 主界面（返回栈栈底）：底栏 / 宽屏侧栏 + 五个 tab。 */
+/** 主界面（返回栈栈底）：底栏 / 宽屏侧栏 + 用户选的那几格（见 BottomBarTabs）。 */
 @Composable
 internal fun MainScreen(
     router: AppRouter,
     tabs: MainTabState,
+    /** 放到底栏上的子页用它画（见 AppPageAsTab）。 */
+    pageDeps: AppPageDeps,
     loginState: AppLoginState,
     credentialStore: CredentialStore,
     accountManager: AccountManager,
@@ -155,8 +149,12 @@ internal fun MainScreen(
     val context = LocalContext.current
     val appearance = AppearanceSettings.get(context)
     val navBarStyle by appearance.navBarStyle.collectAsStateWithLifecycle()
-    val homeTheme by appearance.homeTheme.collectAsStateWithLifecycle()
     val showQuickActions by appearance.showQuickActions.collectAsStateWithLifecycle()
+    val barIds by appearance.bottomTabs.collectAsStateWithLifecycle()
+    val bar = remember(barIds) { BarTab.barOf(barIds) }
+    val shellTabs = remember(bar) { androidShellTabs(bar) }
+    val pidaiInBar = bar.any { it.core == BottomTab.PIDAI }
+    LaunchedEffect(bar) { tabs.bar = bar }
 
     // 各页的屁岱卡（通知精选、荐座……）都走这一个入口；「接着问屁岱」切到屁岱 tab
     remember(loginState) {
@@ -166,7 +164,11 @@ internal fun MainScreen(
         }
     }
 
-    val selectedTab = tabs.selected
+    // 刚把当前这格移出底栏时回首页（画面先按首页画，状态随后跟上）
+    val selectedBarTab = bar.firstOrNull { it.id == tabs.selectedId } ?: bar.first()
+    LaunchedEffect(selectedBarTab.id) { tabs.selectedId = selectedBarTab.id }
+    /** 选中的原生格；选中的是放上来的子页时为 null。 */
+    val selectedTab: BottomTab? = selectedBarTab.core
     val navAccountCount = remember(loginState.accountId) { accountManager.accountList().size }
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
     var showGlobalSearch by remember { mutableStateOf(false) }
@@ -247,7 +249,7 @@ internal fun MainScreen(
     // 点屁岱：切 tab，并让它在首屏说句闲话（底栏上的闲话气泡收掉，正事气泡保留）
     val onPidaiTap: () -> Unit = {
         if (selectedTab != BottomTab.PIDAI) haptics.tick()
-        tabs.selected = BottomTab.PIDAI
+        tabs.select(BottomTab.PIDAI)
         if (ProactiveBubbleHost.message?.id == ProactiveRules.CHATTER_ID) ProactiveBubbleHost.clear()
         ProactiveRules.pickOnTap(context)?.let { line ->
             ProactiveRules.markTapped(context, line)
@@ -260,26 +262,26 @@ internal fun MainScreen(
         if (tab.id == BottomTab.PIDAI.name) {
             onPidaiTap()
         } else {
-            if (tab.id != selectedTab.name) haptics.tick()
+            if (tab.id != selectedBarTab.id) haptics.tick()
             ProactiveBubbleHost.clear()
-            tabs.selected = BottomTab.entries.firstOrNull { it.name == tab.id } ?: BottomTab.HOME
+            tabs.selectedId = tab.id
         }
     }
 
-    // 屁岱那一格的自绘（会动的机器人 + 宽屏气泡的锚点）
+    // 屁岱那一格的自绘（会动的机器人 + 气泡的锚点）；屁岱不在栏上时锚点作废
     var pidaiAnchor by remember { mutableStateOf<Rect?>(null) }
-    val tabArt = remember(ANDROID_SHELL_TABS) {
+    val tabArt = remember(shellTabs) {
         AndroidShellTabArt(
-            tabs = ANDROID_SHELL_TABS,
+            tabs = shellTabs,
             pidai = PIDAI_TAB,
             onPidaiBoundsChange = { pidaiAnchor = it },
         )
     }
 
     val navState = ShellNavState(
-        tabs = ANDROID_SHELL_TABS,
-        // 当前页 = 选中的那一格指向的那一页（这一端五格与五屏一一对应，见 BottomTab.shellTab）
-        target = selectedTab.shellTab().target,
+        tabs = shellTabs,
+        // 当前页 = 选中的那一格指向的那一页（每格与一屏一一对应，见 BarTab.shellTab）
+        target = selectedBarTab.shellTab().target,
         onSelect = onSelectTab,
         accountBadge = ShellAccountBadge.of(navAccountCount, loginState.isLoggedIn),
     )
@@ -292,13 +294,14 @@ internal fun MainScreen(
 
     // 屁岱提醒气泡，底栏版和侧栏版共用这一份，各自只管定位。玻璃采样层从共享壳手里拿
     // （见 `ShellHandles`）：尖角伸到底栏上时采「页面 + 底栏」的合成层。
-    val bubbleView: @Composable (ShellHandles, ProactiveMessage, BubbleArrowSide, Dp) -> Unit =
-        { handles, msg, arrowSide, maxWidth ->
+    val bubbleView: @Composable (ShellHandles, ProactiveMessage, BubbleArrowSide, Dp, Dp?) -> Unit =
+        { handles, msg, arrowSide, maxWidth, arrowFromStart ->
             ProactiveBubbleView(
                 message = msg,
                 arrowSide = arrowSide,
+                arrowFromStart = arrowFromStart,
                 maxWidth = maxWidth,
-                backdrop = if (arrowSide == BubbleArrowSide.Bottom && handles.glassBarPresent) {
+                backdrop = if (arrowSide != BubbleArrowSide.Start && handles.glassBarPresent) {
                     handles.combinedBackdrop
                 } else {
                     handles.contentBackdrop
@@ -314,9 +317,9 @@ internal fun MainScreen(
                         route != null -> router.open(route)
                         msg.prompt.isNotBlank() -> {
                             AgentPendingPrompt.set(msg.prompt, msg.eventSnapshot)
-                            tabs.selected = BottomTab.PIDAI
+                            router.selectTab(BottomTab.PIDAI)
                         }
-                        else -> tabs.selected = BottomTab.PIDAI
+                        else -> router.selectTab(BottomTab.PIDAI)
                     }
                 },
                 onDismiss = {
@@ -358,7 +361,7 @@ internal fun MainScreen(
                 glassStyle = glassStyle,
                 backdrop = handles.contentBackdrop,
                 scrollBehavior = when (selectedTab) {
-                    BottomTab.HOME -> homeScrollBehavior
+                    BottomTab.HOME, null -> homeScrollBehavior
                     BottomTab.COURSES -> coursesScrollBehavior
                     BottomTab.PIDAI -> agentScrollBehavior
                     BottomTab.TOOLS -> toolsScrollBehavior
@@ -375,30 +378,23 @@ internal fun MainScreen(
                 onInbox = { ProactiveBubbleHost.clear(); router.open(AppRoute.Inbox) },
             )
         },
-        // 零高度 layout 往上溢出绘制：气泡出现不撑高底栏，页面不跳
         barBubble = { handles ->
             val msg = ProactiveBubbleHost.message
             if (msg != null && selectedTab != BottomTab.PIDAI) {
                 val screenWidth = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .layout { measurable, constraints ->
-                            val placeable = measurable.measure(constraints)
-                            layout(placeable.width, 0) { placeable.place(0, -placeable.height) }
-                        },
-                    contentAlignment = Alignment.TopCenter,
-                ) {
-                    bubbleView(handles, msg, BubbleArrowSide.Bottom, (screenWidth - 32.dp).coerceAtLeast(200.dp))
+                // 屁岱不在底栏上时没有可指的，气泡不画尖角
+                val side = if (pidaiInBar) BubbleArrowSide.Bottom else BubbleArrowSide.None
+                BarBubbleSlot(anchorX = pidaiAnchor?.center?.x?.takeIf { pidaiInBar }) { arrowFromStart ->
+                    bubbleView(handles, msg, side, (screenWidth - 32.dp).coerceAtLeast(200.dp), arrowFromStart)
                 }
             }
         },
         // 宽屏侧栏屁岱旁的气泡（侧栏内部会裁掉溢出内容，所以做成并列的覆盖层）
         railOverlay = { handles ->
             RailProactiveBubble(
-                anchor = { pidaiAnchor },
+                anchor = { pidaiAnchor?.takeIf { pidaiInBar } },
                 overlayOrigin = { overlayOrigin },
-                bubbleView = { msg, side, maxWidth -> bubbleView(handles, msg, side, maxWidth) },
+                bubbleView = { msg, side, maxWidth -> bubbleView(handles, msg, side, maxWidth, null) },
             )
         },
         // 搜索、扫一扫是盖满整屏的浮层：共享壳把它们放在最外层，不放进 Scaffold 的内容区
@@ -455,7 +451,7 @@ internal fun MainScreen(
             when {
                 showQrLogin -> showQrLogin = false
                 showGlobalSearch -> showGlobalSearch = false
-                selectedTab != BottomTab.HOME -> tabs.selected = BottomTab.HOME
+                selectedTab != BottomTab.HOME -> tabs.select(BottomTab.HOME)
                 else -> {
                     val now = System.currentTimeMillis()
                     if (now - lastBackPressTime < 2000) {
@@ -478,19 +474,18 @@ internal fun MainScreen(
                     }
                 }
             }) {
-                // 这一端每格一个分支（判据是格 id：BottomTab 是存盘与启动意图按它认的那个名字）；
-                // `shellPage.tab` 在 Android 上不会为 null（当前页就是选中的那一格），`else` 收「我的」那一格
+                // 原生五格各一个分支（判据是格 id：BottomTab 是存盘与启动意图按它认的那个名字），
+                // 其余是用户放上来的子页（`else`）。`shellPage.tab` 在 Android 上不会为 null
                 when (shellPage.tab?.id) {
                     BottomTab.HOME.name -> HomeTab(
                         loginState,
                         isRestoring = isRestoring,
                         onNavigate = router::open,
-                        onNavigateToProfile = { tabs.selected = BottomTab.PROFILE },
-                        onNavigateToCourses = { tabs.selected = BottomTab.COURSES },
+                        onNavigateToProfile = { tabs.select(BottomTab.PROFILE) },
+                        onNavigateToCourses = { router.selectTab(BottomTab.COURSES) },
                         // 首页不要顶栏，也就没有大标题的展开折叠
                         scrollBehavior = null,
                         extraBottomPadding = insets.bottomBarReserve,
-                        homeTheme = homeTheme,
                         showQuickActions = showQuickActions,
                         bulletins = heroBulletins,
                         onBulletinTap = onHeroBulletinTap,
@@ -505,25 +500,17 @@ internal fun MainScreen(
                         },
                     )
 
-                    BottomTab.PIDAI.name -> AgentScreen(
-                        // 端装配与端上资源：`:core` 的屁岱只认这条缝（见 AgentHost）
-                        host = remember { AndroidAgentHost(context, loginState) },
-                        // 系统相册挑图（`:app` 的适配器）：`:core` 拿不到 ActivityResultLauncher
-                        imagePicker = rememberAndroidAgentImagePicker(),
-                        // 屁岱形象那三块（首屏问候头、戳一下的回应气泡、形象选择）都还在这一端：
-                        // 它们认 `ProactiveBubbleHost` / 形象设置 / `PidaiPokes`，桌面没有那几样。
-                        hero = { title, facts, now -> AndroidPidaiHero(title, facts, now) },
-                        pokeWhisper = { AndroidPokeWhisper(it) },
-                        appearanceSection = { PidaiAppearancePanel() },
+                    BottomTab.PIDAI.name -> AndroidAgentScreen(
+                        loginState = loginState,
+                        onNavigate = router::open,
                         // 输入栏钉在底边，要让开浮在上面的底栏
                         extraBottomPadding = insets.bottomBarReserve,
                         hostBottomPadding = insets.scaffoldBottomPadding,
+                        contentTopPadding = insets.contentTopPadding,
                         scrollBehavior = agentScrollBehavior,
                         onTitleChange = { agentTitle = it },
                         onActionsChange = { agentHeaderActions = it },
                         onNavIconChange = { agentHeaderNavIcon = it },
-                        onNavigate = router::open,
-                        contentTopPadding = insets.contentTopPadding,
                     )
 
                     BottomTab.COURSES.name -> CoursesTab(
@@ -543,7 +530,7 @@ internal fun MainScreen(
                         contentTopPadding = insets.contentTopPadding,
                     )
 
-                    else -> ProfileTab(
+                    BottomTab.PROFILE.name -> ProfileTab(
                         loginState,
                         credentialStore,
                         accountManager,
@@ -553,6 +540,12 @@ internal fun MainScreen(
                         onWarmupRequest = onWarmupRequest,
                         contentTopPadding = insets.contentTopPadding,
                     )
+
+                    else -> bar.firstOrNull { it.id == shellPage.tab?.id }?.route?.let { route ->
+                        RouteTabPage(route, insets, glassStyle, loginState) {
+                            AppPageAsTab(route, pageDeps, onBack = { tabs.select(BottomTab.HOME) })
+                        }
+                    }
                 }
             }
         },
@@ -592,7 +585,7 @@ private val HomeTopActionSize = 44.dp
 
 /**
  * 顶栏圆钮：半透明白底 + 常驻白色高光，直接透出下面的顶栏模糊，不再单独采样/模糊。
- * 按压缩小后带阻尼回弹；onClick 为 null 时只画底，不接管点击。
+ * 按压用共享的 [pressScale]（小圆钮压深一点）；onClick 为 null 时只画底，不接管点击。
  */
 @Composable
 private fun HomeRoundAction(
@@ -601,15 +594,6 @@ private fun HomeRoundAction(
     content: @Composable () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed && onClick != null) 0.92f else 1f,
-        animationSpec = spring(
-            dampingRatio = 0.62f,
-            stiffness = Spring.StiffnessMedium,
-        ),
-        label = "home-round-action-press",
-    )
     val isDark = LocalIsDarkTheme.current
     val fill = MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (isDark) 0.52f else 0.6f)
     val ring = Brush.verticalGradient(
@@ -620,10 +604,7 @@ private fun HomeRoundAction(
     Box(
         Modifier
             .size(size)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
+            .pressScale(interaction, pressed = 0.92f)
             .shadow(
                 elevation = 10.dp,
                 shape = CircleShape,
@@ -647,7 +628,8 @@ private fun HomeRoundAction(
 /** 主界面顶栏，玻璃风格下采样 tab 内容区。 */
 @Composable
 private fun MainTopBar(
-    selectedTab: BottomTab,
+    /** null = 选中的是放上来的子页（自带顶栏）。 */
+    selectedTab: BottomTab?,
     glassStyle: Boolean,
     backdrop: LayerBackdrop,
     scrollBehavior: ScrollBehavior,
@@ -664,8 +646,9 @@ private fun MainTopBar(
     val tint = glassBarTint()
     val color = if (glassStyle) Color.Transparent else MiuixTheme.colorScheme.surface
     val modifier = if (glassStyle) Modifier.glassBarSurface(backdrop, tint) else Modifier
-    // 首页没有顶栏（标题「岱宗盒子」没有信息量）：按钮挪进首页内容里，状态栏留白由 Scaffold 的 insets 给
-    if (selectedTab == BottomTab.HOME) return
+    // 首页没有顶栏（标题「岱宗盒子」没有信息量）：按钮挪进首页内容里，状态栏留白由 Scaffold 的 insets 给；
+    // 放到底栏上的子页自带顶栏
+    if (selectedTab == null || selectedTab == BottomTab.HOME) return
     // 屁岱是自下而上的聊天，只用小标题
     if (selectedTab == BottomTab.PIDAI) {
         SmallTopAppBar(
@@ -679,11 +662,9 @@ private fun MainTopBar(
         return
     }
     val title = when (selectedTab) {
-        BottomTab.HOME -> "岱宗盒子"
-        BottomTab.COURSES -> "日程"
         BottomTab.PIDAI -> agentTitle
-        BottomTab.TOOLS -> "仲英学辅资料站"
-        BottomTab.PROFILE -> "我的"
+        BottomTab.TOOLS -> ZYXF_TITLE
+        else -> selectedTab.label
     }
     TopAppBar(
         color = color,
@@ -764,9 +745,9 @@ private fun ProactiveReminderLoop(loginState: AppLoginState) {
     }
 }
 
-/** 日程 tab：副标题、按钮、标签行由日程页送上来挂到主顶栏。 */
+/** 日程页：副标题、按钮、标签行由日程页送上来，挂到宿主的顶栏（主顶栏或压栈页自己的）。 */
 @Composable
-private fun CoursesTab(
+internal fun CoursesTab(
     loginState: AppLoginState,
     onNavigate: (AppRoute) -> Unit,
     scrollBehavior: ScrollBehavior,

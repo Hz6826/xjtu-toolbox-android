@@ -70,7 +70,7 @@ class DesktopSettingsJvmTest {
         val host = DesktopSettingsHost { ticked++ }
 
         assertEquals(
-            setOf(SettingsRow.DARK_MODE, SettingsRow.DYNAMIC_COLOR, SettingsRow.HOME_THEME),
+            setOf(SettingsRow.DARK_MODE, SettingsRow.DYNAMIC_COLOR),
             host.honoredRows,
             "桌面外壳接了深色模式 / 取色 / 首页主题（见 DesktopSettingsHost 的 KDoc）",
         )

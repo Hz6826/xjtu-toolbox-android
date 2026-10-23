@@ -75,7 +75,7 @@ internal fun CommunityImageActions(enabled: Boolean, onInsert: (String) -> Unit,
                     })
                     TextButton(text = "图片上传设置", onClick = { showConfig = !showConfig })
                     if (showConfig) {
-                        Text("使用你自己的公开 GitHub 图片仓库。另建仅授权该仓库 Contents 读写的细粒度令牌；社区登录授权无需更改。令牌只保存在本机安全存储。")
+                        Text("用你自己的公开 GitHub 仓库存图，令牌只需该仓库 Contents 读写，仅存本机。")
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(text = "创建图片仓库", modifier = Modifier.weight(1f), onClick = { uriHandler.openUri("https://github.com/new") })
                             TextButton(text = "管理专用令牌", modifier = Modifier.weight(1f), onClick = { uriHandler.openUri("https://github.com/settings/personal-access-tokens") })

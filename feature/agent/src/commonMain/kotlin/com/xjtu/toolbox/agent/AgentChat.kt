@@ -9,11 +9,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -334,30 +329,20 @@ internal fun ChatPanel(
         }
     }
 }
-/** 三个依次明灭的小圆点，替代静态"思考中…"，让等待更有生气。 */
+/** 三个依次明灭的小圆点（共享的呼吸节奏，逐个错开相位），替代静态"思考中…"。 */
 @Composable
 private fun ThinkingDots() {
-    val transition = rememberInfiniteTransition(label = "thinking")
+    val phase = com.xjtu.toolbox.ui.components.rememberLoopPhase()
+    val dotColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         repeat(3) { i ->
-            // 拿 State 本身，只在绘制阶段读：三个点闪烁时不每帧重组
-            val alpha = transition.animateFloat(
-                initialValue = 0.25f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(600, delayMillis = i * 180),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "dot$i"
-            )
-            val dotColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
             Box(
                 Modifier
                     .size(7.dp)
-                    .graphicsLayer { this.alpha = alpha.value }
+                    .graphicsLayer { alpha = com.xjtu.toolbox.ui.components.breath(phase.value, low = 0.25f, offset = i * 0.15f) }
                     .background(dotColor, RoundedCornerShape(50))
             )
         }

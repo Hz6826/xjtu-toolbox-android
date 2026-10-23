@@ -136,7 +136,7 @@ internal class AndroidAgentHost(
 
     /** `app_setting` 只认这几项：改名/新增都要两边一起动（工具表的 enum 与这里）。 */
     private val writableSettingKeys = listOf(
-        "dark_mode", "dynamic_color", "home_theme", "nav_bar_style", "show_quick_actions",
+        "dark_mode", "dynamic_color", "nav_bar_style", "show_quick_actions",
         "default_tab", "network_mode", "account_type", "venue_auto_solve_captcha",
         "update_channel", "receive_preview_updates",
     )
@@ -147,10 +147,9 @@ internal class AndroidAgentHost(
             append("当前应用设置：\n")
             append("• dark_mode（深色模式）：${cs.darkMode}　可选 system/light/dark\n")
             append("• dynamic_color（跟随系统取色）：${cs.dynamicColor}　可选 true/false\n")
-            append("• home_theme（首页主题）：${cs.homeTheme}　可选 card/icon\n")
             append("• nav_bar_style（界面风格）：${cs.navBarStyle}　可选 floating（玻璃，默认）/classic（经典，不透明、更省电）\n")
             append("• show_quick_actions（首页常用功能）：${cs.showQuickActions}　可选 true/false\n")
-            append("• default_tab（启动页）：${cs.defaultTab}　可选 HOME/COURSES/TOOLS/PROFILE\n")
+            append("• default_tab（启动页）：${cs.defaultTab}　可选当前底栏上的格子 ${cs.bottomTabs.joinToString("/")}（底栏组成在 设置 → 外观 → 底栏 里改）\n")
             append("• network_mode（网络模式）：${cs.networkMode}　可选 auto/direct/vpn\n")
             append("• account_type（账号类型）：${cs.accountType.key}　可选 undergraduate/postgraduate\n")
             append("• venue_auto_solve_captcha（场馆验证码自动识别）：${cs.venueAutoSolveCaptchaEnabled}　可选 true/false\n")
@@ -175,15 +174,6 @@ internal class AndroidAgentHost(
                 cs.dynamicColor = b
                 "已${if (b) "开启" else "关闭"}跟随系统取色（已即时生效）。"
             }
-            "home_theme" -> {
-                val v = when (value.trim().lowercase()) {
-                    "card", "卡片", "卡片主题" -> CredentialStore.THEME_CARD
-                    "icon", "图标", "图标主题" -> CredentialStore.THEME_ICON
-                    else -> return ToolReply.badValue("home_theme", "card/icon")
-                }
-                cs.homeTheme = v
-                "已将首页主题设为 $v（已即时生效）。"
-            }
             "nav_bar_style" -> {
                 val v = when (value.trim().lowercase()) {
                     "floating", "悬浮", "悬浮胶囊", "玻璃", "液态玻璃" -> CredentialStore.NAV_STYLE_FLOATING
@@ -200,7 +190,7 @@ internal class AndroidAgentHost(
             }
             "default_tab" -> {
                 val v = value.trim().uppercase()
-                if (v !in listOf("HOME", "COURSES", "TOOLS", "PROFILE")) ToolReply.badValue("default_tab", "HOME/COURSES/TOOLS/PROFILE")
+                if (v !in cs.bottomTabs) ToolReply.badValue("default_tab", cs.bottomTabs.joinToString("/"))
                 else { cs.defaultTab = v; "已将启动页设为 $v（下次冷启动生效）。" }
             }
             "network_mode" -> {

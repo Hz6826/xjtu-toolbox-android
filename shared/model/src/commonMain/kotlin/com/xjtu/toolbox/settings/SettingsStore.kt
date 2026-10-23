@@ -32,18 +32,19 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
     /** 主题实际采用的种子色：未启用自定义时为空串。 */
     val themeSeedHex: String get() = if (customColorEnabled) customColorHex else ""
 
-    /** 默认启动 tab。 */
+    /** 默认启动 tab。不在底栏上时由读的一方回首页（`BottomBarTabs.defaultTab`）。 */
     var defaultTab: String
         get() = store.getString(KEY_DEFAULT_TAB) ?: TAB_COURSES
         set(value) = store.putString(KEY_DEFAULT_TAB, value)
 
+    /** 底栏中间那几格的路由 id，逗号分隔；null = 没改过。解析见 `BottomBarTabs`。 */
+    var bottomBar: String?
+        get() = store.getString(KEY_BOTTOM_BAR)
+        set(value) = store.putString(KEY_BOTTOM_BAR, value)
+
     var networkMode: String
         get() = store.getString(KEY_NETWORK_MODE) ?: NETWORK_AUTO
         set(value) = store.putString(KEY_NETWORK_MODE, value)
-
-    var homeTheme: String
-        get() = store.getString(KEY_HOME_THEME) ?: THEME_CARD
-        set(value) = store.putString(KEY_HOME_THEME, value)
 
     var showQuickActions: Boolean
         get() = store.getBoolean(KEY_SHOW_QUICK_ACTIONS, true)
@@ -82,8 +83,8 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         private const val KEY_DARK_MODE = "dark_mode"
         private const val KEY_DYNAMIC_COLOR = "dynamic_color"
         private const val KEY_DEFAULT_TAB = "default_tab"
+        private const val KEY_BOTTOM_BAR = "bottom_bar_tabs"
         private const val KEY_NETWORK_MODE = "network_mode"
-        private const val KEY_HOME_THEME = "home_theme"
         private const val KEY_SHOW_QUICK_ACTIONS = "show_quick_actions"
         private const val KEY_VENUE_AUTO_SOLVE_CAPTCHA = "venue_auto_solve_captcha"
         private const val KEY_SCHEDULE_ATTENDANCE_BADGE = "schedule_attendance_badge"
@@ -98,8 +99,6 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         const val DARK_MODE_SYSTEM = "system"
         const val DARK_MODE_LIGHT = "light"
         const val DARK_MODE_DARK = "dark"
-        const val THEME_CARD = "card"
-        const val THEME_ICON = "icon"
         const val TAB_HOME = "HOME"
         const val TAB_COURSES = "COURSES"
         const val TAB_PIDAI = "PIDAI"

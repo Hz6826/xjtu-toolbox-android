@@ -94,7 +94,7 @@ class EmptyRoomApiJvmTest {
             val missing = assertFailsWith<NoDataException> {
                 EmptyRoomApi().getEmptyRoomsMulti(LIVE_CAMPUS, setOf(BUILDING_A), NO_DATA_DATE)
             }
-            assertEquals("当天暂无空闲教室数据，请稍后再试", missing.message)
+            assertEquals("明天的数据一般中午过后才生成，可以晚点再看", missing.message)
 
             val unknownCampus = assertFailsWith<NoDataException> {
                 EmptyRoomApi().getEmptyRoomsMulti("曲江校区", setOf(BUILDING_A), DATE)

@@ -96,7 +96,10 @@ import com.xjtu.toolbox.lms.AppLmsCache
 import com.xjtu.toolbox.lms.AppLmsSink
 import com.xjtu.toolbox.lms.AppLmsSource
 import com.xjtu.toolbox.lms.LmsScreen
+import com.xjtu.toolbox.main.AgentRoutePage
 import com.xjtu.toolbox.main.AppRouter
+import com.xjtu.toolbox.main.ScheduleRoutePage
+import com.xjtu.toolbox.main.ZyxfRoutePage
 import com.xjtu.toolbox.media.AndroidVideoPlayerHost
 import com.xjtu.toolbox.media.AppDownloadManagerScreen
 import com.xjtu.toolbox.notification.AppNoticeSource
@@ -124,35 +127,72 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.nav.core.NavBackStack
 import top.yukonga.miuix.kmp.nav.core.NavDisplay
+import top.yukonga.miuix.kmp.nav.core.NavEntryBuilder
+import top.yukonga.miuix.kmp.nav.core.navBackStackOf
 import top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius
 import top.yukonga.miuix.kmp.nav.transition.NavSwipeDirection
 import top.yukonga.miuix.kmp.nav.transition.NavTransition
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.reflect.KClass
 
+/** 画子页要用的那几样（压栈与放到底栏上共用）。 */
+class AppPageDeps(
+    val router: AppRouter,
+    val loginState: AppLoginState,
+    val credentialStore: CredentialStore,
+    val accountManager: AccountManager,
+    /** WebVPN 转换页「用 WebVPN 打开」。 */
+    val onOpenWithWebVpn: (String) -> Unit,
+)
+
 /**
- * 返回栈里每种页面画什么；跳转一律交给 [router]。转场用 miuix-nav 默认，首页格子进来的页面从那一格放大。
+ * 返回栈：栈底是主界面，其余子页见 [appPageEntries]。转场用 miuix-nav 默认，首页格子进来的页面从那一格放大。
  *
  * @param mainContent 栈底的主界面
- * @param onOpenWithWebVpn WebVPN 转换页「用 WebVPN 打开」
  */
 @Composable
 fun AppNavHost(
     backStack: NavBackStack,
-    router: AppRouter,
-    loginState: AppLoginState,
-    credentialStore: CredentialStore,
-    accountManager: AccountManager,
-    onOpenWithWebVpn: (String) -> Unit,
+    deps: AppPageDeps,
     mainContent: @Composable () -> Unit,
 ) {
     // 放大转场按页面类型缓存，每次重组换新对象会让页面元数据跟着变
     val screenCornerPx = with(LocalDensity.current) { rememberNavSystemCornerRadius().toPx() }
     val expandTransitions = remember(screenCornerPx) { mutableMapOf<KClass<out AppRoute>, NavTransition>() }
-    fun expand(type: KClass<out AppRoute>): NavTransition =
-        expandTransitions.getOrPut(type) { expandFromOrigin(type, screenCornerPx) }
+    val back: () -> Unit = deps.router::back
+    Box(Modifier.fillMaxSize()) {
+        NavDisplay(backStack = backStack, onBack = back) {
+            entry<AppRoute.Main> { mainContent() }
+            appPageEntries(deps, back) { type -> expandTransitions.getOrPut(type) { expandFromOrigin(type, screenCornerPx) } }
+        }
+        ExpandOriginPopOverlay(screenCornerPx)
+    }
+}
 
-    val back: () -> Unit = router::back
+/**
+ * 把子页 [route] 挂到底栏上画：与压栈用同一份条目（[appPageEntries]），所以任何子页都能放进底栏。
+ * [onBack]（页面里的返回、会话丢了的退回）改为回首页；返回键本身由 `LocalTabRoot` 藏掉。
+ */
+@Composable
+fun AppPageAsTab(route: AppRoute, deps: AppPageDeps, onBack: () -> Unit) {
+    // 只有一页的返回栈：miuix 不公开单独取条目的接口
+    val stack = remember(route) { navBackStackOf(route) }
+    NavDisplay(backStack = stack, onBack = onBack) {
+        appPageEntries(deps, onBack) { expandFromOrigin(it, 0f) }
+    }
+}
+
+/** 返回栈里每种子页画什么；跳转一律交给 router。[back] 是页面要退回时调的。 */
+fun NavEntryBuilder.appPageEntries(
+    deps: AppPageDeps,
+    back: () -> Unit,
+    expand: (KClass<out AppRoute>) -> NavTransition,
+) {
+    val router = deps.router
+    val loginState = deps.loginState
+    val credentialStore = deps.credentialStore
+    val accountManager = deps.accountManager
+    val onOpenWithWebVpn = deps.onOpenWithWebVpn
 
     /** 拿站点会话，拿不到（被清掉、切了账号）就退回。 */
     @Composable
@@ -161,13 +201,20 @@ fun AppNavHost(
         if (site != null) content(site) else LaunchedEffect(Unit) { back() }
     }
 
-    Box(Modifier.fillMaxSize()) {
-    NavDisplay(backStack = backStack, onBack = back) {
-        entry<AppRoute.Main> { mainContent() }
+    run {
+        // 底栏那几格被用户移出底栏后，作为普通页压栈
+        entry<AppRoute.Schedule>(transition = expand(AppRoute.Schedule::class)) {
+            ScheduleRoutePage(loginState, onNavigate = router::open, onBack = back)
+        }
+        entry<AppRoute.Agent>(transition = expand(AppRoute.Agent::class)) {
+            AgentRoutePage(loginState, onNavigate = router::open, onBack = back)
+        }
+        entry<AppRoute.Zyxf>(transition = expand(AppRoute.Zyxf::class)) {
+            ZyxfRoutePage(onBack = back)
+        }
 
         entry<AppRoute.EmptyRoom>(transition = expand(AppRoute.EmptyRoom::class)) {
             val context = LocalContext.current
-            val credentialStore = remember(context) { CredentialStore(context) }
             EmptyRoomScreen(
                 source = remember { AppEmptyRoomSource(loginState.sessionManager, EmptyRoomCache(context)) },
                 accountType = remember { credentialStore.accountType },
@@ -478,6 +525,13 @@ fun AppNavHost(
                 onBack = back,
                 onOpen = { router.open(it) },
                 account = loginState.accountId.ifEmpty { null },
+                onAskPidai = { item ->
+                    com.xjtu.toolbox.agent.AgentPendingPrompt.set(
+                        "展开说说「${item.title}」",
+                        snapshot = "用户从消息收纳里你发的这条消息点进来：\n${item.title}\n${item.body}",
+                    )
+                    router.open(AppRoute.Agent)
+                },
             )
         }
         entry<AppRoute.Community>(transition = expand(AppRoute.Community::class)) {
@@ -561,9 +615,7 @@ fun AppNavHost(
                 onOpenApply = { router.open(AppRoute.Browser(com.xjtu.toolbox.webvpn.WebVpnDenied.APPLY_URL)) },
             )
         }
-        // 日程、屁岱是底栏 tab，付款码是覆盖层，都不进返回栈（见 AppRouter.open）
-    }
-    ExpandOriginPopOverlay(screenCornerPx)
+        // 付款码是覆盖层，不进返回栈（见 AppRouter.open）
     }
 }
 

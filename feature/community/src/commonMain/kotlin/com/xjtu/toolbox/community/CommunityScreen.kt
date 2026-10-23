@@ -8,6 +8,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -91,6 +92,8 @@ private fun CommunityForum(
     }
     val state by vm.state.collectAsStateWithLifecycle()
     var open by remember { mutableStateOf<GithubDiscussion?>(null) }
+    // 列表页在 AnimatedContent 里，进帖子会被销毁；滚动位置放在这层，返回时还在原处
+    val listState = rememberLazyListState()
     var accountDialog by remember { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current
     // 发帖成功直接进新帖
@@ -141,6 +144,7 @@ private fun CommunityForum(
                 onFilter = vm::selectFilter,
                 onAccount = { accountDialog = true },
                 onLegacyFeedback = onOpenLegacyFeedback,
+                listState = listState,
             )
         }
     }

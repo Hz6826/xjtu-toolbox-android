@@ -200,7 +200,6 @@ class ServeAgent(
         val ui = persisted.messages.toMutableList()
 
         val tools = toolTable(config)
-        tools.drainWidgets()   // 丢弃上一轮残留，确保本轮控件干净
         val runner = AgentRunner(tools, transport())
 
         if (history.firstOrNull()?.jsonObject?.get("role")?.stringValue != "system") {
@@ -230,7 +229,6 @@ class ServeAgent(
         val unfinishedFrom = history.size - 1
 
         val toolLines = mutableListOf<ToolLine>()
-        val calledTools = mutableListOf<String>()
         val reasoning = StringBuilder()
         var reply: String? = null
         var failure: AgentStreamEvent.Error? = null
@@ -257,7 +255,6 @@ class ServeAgent(
                     emit(AgentStreamEvent.Reasoning(frag))
                 },
                 onToolCall = { name ->
-                    calledTools.add(name)
                     toolLines.add(ToolLine(agentToolLabel(name)))
                     emit(AgentStreamEvent.ToolCall(name))
                 },
@@ -301,8 +298,8 @@ class ServeAgent(
             return
         }
 
-        val widgets = tools.drainWidgets()
-        val nav = agentNavSuggestions(calledTools)
+        val widgets = runner.shownWidgets.toList()
+        val nav = agentNavSuggestions(runner.shownTools)
         emit(AgentStreamEvent.Widgets(widgets.map { it.toStored() }))
         emit(AgentStreamEvent.Nav(nav))
         val title = persist(

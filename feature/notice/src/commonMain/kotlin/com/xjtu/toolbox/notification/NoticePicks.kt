@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.agent.InsightSpec
+import com.xjtu.toolbox.agent.PidaiCard
 import com.xjtu.toolbox.inbox.SelfTodoRules
 import com.xjtu.toolbox.inbox.SelfTodoStore
 import com.xjtu.toolbox.platform.keyValueStore
@@ -60,6 +61,7 @@ internal val NOTICE_PICKS = InsightSpec(
 {"summary":"不超过 30 字的总括","picks":[{"title":"原标题","source":"来源名","date":"yyyy-MM-dd","link":"原链接","why":"不超过 25 字：为什么跟他有关","due":"报名或截止时间 yyyy-MM-dd 或 yyyy-MM-dd HH:mm，没有就 null","level":3}]}
 level：3 必须处理，2 值得一看，1 顺便知道。没有值得看的就 picks 为空，summary 说一声。
     """.trimIndent(),
+    card = PidaiCard.NOTICE,
 )
 
 /** 精选的范围设置：按账号记在本机。 */

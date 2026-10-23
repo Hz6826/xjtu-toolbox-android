@@ -2,7 +2,6 @@ package com.xjtu.toolbox.schedule
 
 import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -309,10 +308,7 @@ private fun TimelineRow(
             onClick = { e.course?.let(onCourseClick) },
         ) {
             // 正在上的课：卡底从左到右铺一层更深的颜色表示已上的部分，进场时长出来
-            val grown = remember { androidx.compose.animation.core.Animatable(0f) }
-            LaunchedEffect(progress) {
-                grown.animateTo(progress ?: 0f, androidx.compose.animation.core.tween(700))
-            }
+            val grown = com.xjtu.toolbox.ui.components.rememberRollingValue((progress ?: 0f).toDouble(), 700)
             Column(
                 Modifier
                     .fillMaxWidth()

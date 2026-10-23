@@ -108,6 +108,34 @@ class AgentRunnerTest {
     }
 
     @Test
+    fun 卡片只留模型点名show的那次() = runBlocking {
+        val transport = FakeTransport(
+            listOf(
+                reply("", listOf(call("c1", "get_grades"), call("c2", "get_grades", """{"show":true}""")), finish = "tool_calls"),
+                reply("好了"),
+            )
+        )
+        val tools = object : AgentTools {
+            private val pending = mutableListOf<AgentWidget>()
+            override val toolDefinitions: String = """[{"type":"function","function":{"name":"get_grades"}}]"""
+            override fun rateLimitKeyOf(toolName: String): String? = null
+            override suspend fun execute(name: String, argsJson: String): String {
+                pending += GradeWidget()
+                return "成绩"
+            }
+            override fun drainWidgets(): List<AgentWidget> = pending.toList().also { pending.clear() }
+        }
+        val messages = messages()
+        val runner = AgentRunner(tools, transport)
+        runner.run(messages, AgentConfig())
+
+        assertEquals(1, runner.shownWidgets.size)
+        assertEquals(listOf("get_grades"), runner.shownTools)
+        val results = messages.filter { it.role() == "tool" }.map { it.jsonObject.text("content") }
+        assertEquals(listOf("成绩", "成绩\n" + ToolReply.CARD_SHOWN), results)
+    }
+
+    @Test
     fun 工具一轮把调用与结果成对写回历史() = runBlocking {
         val transport = FakeTransport(
             listOf(

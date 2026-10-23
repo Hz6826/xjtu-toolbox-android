@@ -32,7 +32,7 @@ sealed interface AppRoute : NavKey {
 
     @Serializable data object Main : AppRoute { override val id get() = "main" }
 
-    // ── 底栏 tab：不进返回栈，导航层把它们转成「切到那个 tab」 ──
+    // ── 默认在底栏上的页：在底栏上时导航层转成「切到那个 tab」，用户从底栏移走后才压栈 ──
 
     @Serializable data object Schedule : AppRoute {
         override val id get() = "schedule"
@@ -40,8 +40,11 @@ sealed interface AppRoute : NavKey {
         override val offlineCapable get() = true
     }
 
-    /** 屁岱 tab，没网也能进。 */
+    /** 屁岱，没网也能进。 */
     @Serializable data object Agent : AppRoute { override val id get() = "agent" }
+
+    /** 仲英学辅资料站。 */
+    @Serializable data object Zyxf : AppRoute { override val id get() = "zyxf" }
 
     // ── 覆盖层：付款码盖在当前页上面，不进返回栈 ──
 
@@ -172,7 +175,7 @@ sealed interface AppRoute : NavKey {
 
 /** 不带参数的路由：字符串和对象一一对应。 */
 private val simpleRoutes: Map<String, AppRoute> = listOf(
-    AppRoute.Main, AppRoute.Schedule, AppRoute.Agent, AppRoute.PaymentCode,
+    AppRoute.Main, AppRoute.Schedule, AppRoute.Agent, AppRoute.Zyxf, AppRoute.PaymentCode,
     AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge,
     AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
     AppRoute.ScoreReport, AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager,

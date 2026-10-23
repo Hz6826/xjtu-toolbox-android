@@ -4,6 +4,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import com.xjtu.toolbox.library.*
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.Modifier
@@ -31,7 +37,7 @@ fun main(args: Array<String>) {
             (root.config.getOrNull(SemanticsProperties.Text).orEmpty().any { it.text == text } ||
                 text in root.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty())) root
         else root.children.firstNotNullOfOrNull { find(it, text) }
-    fun capture(name: String, width: Int, height: Int, dark: Boolean = false, clicks: List<String> = emptyList(), content: @Composable () -> Unit) {
+    fun capture(name: String, width: Int, height: Int, dark: Boolean = false, clicks: List<String> = emptyList(), verifyBook: Boolean = false, content: @Composable () -> Unit) {
         lateinit var scene: ImageComposeScene
         SwingUtilities.invokeAndWait {
             scene = ImageComposeScene(width, height, Density(1f)) {
@@ -57,6 +63,11 @@ fun main(args: Array<String>) {
         }
         SwingUtilities.invokeAndWait {
             File(output, name).writeBytes(requireNotNull(scene.render(3_000_000_000L + clicks.size * 1_000_000_000L).encodeToData()).bytes)
+            if (verifyBook) {
+                val button = requireNotNull(find(scene.semanticsOwners.first().rootSemanticsNode, "预约"))
+                check(button.boundsInRoot.left >= width - (width * 0.25f).coerceIn(148f, 240f)) { "Booking button must be in the right sidebar" }
+                button.config.getOrNull(SemanticsActions.OnClick)!!.action!!.invoke()
+            }
             scene.close()
         }
     }
@@ -81,6 +92,27 @@ fun main(args: Array<String>) {
     capture("sources-dark.png", 412, 915, dark = true, clicks = listOf("选择通知来源")) { NotificationScreen(source, onBack = {}) }
     capture("sources-merged.png", 412, 915, clicks = listOf("选择通知来源", "研究生院")) { NotificationScreen(source, onBack = {}) }
     capture("sources-applied.png", 412, 915, clicks = listOf("选择通知来源", "研究生院", "查看 2 个来源")) { NotificationScreen(source, onBack = {}) }
+    val seats = (0 until 60).map { index ->
+        PlanSeat("A${(index + 1).toString().padStart(3, '0')}", 65f + index % 12 * 72f,
+            55f + index / 12 * 94f, 28f, 32f, if (index % 7 == 0) PlanSeat.BOOKED else PlanSeat.FREE)
+    }
+    val bitmap = ImageBitmap(960, 540)
+    val canvas = androidx.compose.ui.graphics.Canvas(bitmap)
+    canvas.drawRect(Rect(0f, 0f, 960f, 540f), Paint().apply { color = Color(0xFFF0EADF) })
+    seats.forEach { seat -> canvas.drawRect(Rect(seat.left, seat.top, seat.right, seat.bottom),
+        Paint().apply { color = Color(0xFFB8A68A) }) }
+    val plan = PlanImages(bitmap, 960, 540, emptyMap())
+    var booked: String? = null
+    val seatPreview: @Composable () -> Unit = {
+        val state = remember { SeatPlanUiState().apply { selected.value = "A012"; fullscreen.value = true } }
+        SeatPlanFullscreenContent(state, SeatLayout(seats), plan, "三楼北区", "空闲 51 / 60",
+            setOf("A012"), emptyList(), true, false, false, { booked = it }, {})
+    }
+    capture("seats-landscape.png", 915, 412, verifyBook = true, content = seatPreview)
+    check(booked == "A012")
+    capture("seats-compact.png", 740, 320, verifyBook = true, content = seatPreview)
+    capture("seats-dark.png", 915, 412, dark = true, verifyBook = true, content = seatPreview)
+    capture("seats-portrait.png", 412, 915, verifyBook = true, content = seatPreview)
     println("Previews: ${output.absolutePath}")
     exitProcess(0)
 }

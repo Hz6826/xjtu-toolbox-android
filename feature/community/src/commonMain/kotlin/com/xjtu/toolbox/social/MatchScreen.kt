@@ -197,11 +197,7 @@ fun MatchScreen(
                     color = glassBarColor(glass),
                     modifier = Modifier.glassTopBar(glass),
                     scrollBehavior = scrollBehavior,
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(MiuixIcons.Back, "返回")
-                        }
-                    },
+                    navigationIcon = { com.xjtu.toolbox.ui.components.BackButton(onBack) },
                 )
             },
         ) { padding ->
@@ -310,8 +306,7 @@ fun MatchScreen(
                                 item {
                                     SectionCard("匹配结果会出现在这里") {
                                         Text(
-                                            "把你的码给对方扫，或者在左边扫对方的码、粘贴对方的文字码，" +
-                                                "点「算一算」就能看到你们的课表重合、共同的老师和考试。",
+                                            "互扫或粘贴文字码，点「算一算」看课表重合、共同老师和考试。",
                                             style = MiuixTheme.textStyles.footnote1,
                                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                         )
@@ -381,11 +376,7 @@ private fun MyCodeCard(
         value = QrState.Loading
         value = when {
             // 本端没有 zlib / Base64：说清缺了什么，不当成「出错了」。
-            !MatchProfile.codecAvailable -> QrState.Failed(
-                "当前版本暂不支持生成分享码。" +
-                    "Android、桌面与浏览器三端都已经能用（见 :core 的 platform/Deflate.kt " +
-                    "与 platform/Base64Url.kt）。"
-            )
+            !MatchProfile.codecAvailable -> QrState.Failed("当前版本暂不支持生成分享码。")
 
             // 正常不会走到：encode 至少会带版本号。但空串喂给 zxing 是直接抛异常，
             // 与其让它炸在协程里变成永远的加载态，不如在这说清楚。
@@ -521,8 +512,7 @@ private fun TheirCodeCard(
             // 如实说明：这一端没有相机，也没有相册（桌面）。**不画**两颗点了只会失败的按钮，
             // 但也不能让人以为"这功能只能粘文字"是这个页面本来的样子。
             Text(
-                "当前版本不支持扫码，请粘贴对方的文字码。" +
-                    "Android 上那两条路都在。",
+                "当前版本不支持扫码，请粘贴对方的文字码。",
                 style = MiuixTheme.textStyles.footnote1,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )

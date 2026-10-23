@@ -405,7 +405,6 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                 val registry = tools ?: CompositeAgentTools(host.interactiveTools(config),
                     if (config.mcpEnabled && host.supportsMcp) listOf(host.mcpTools(config, ::confirmExternalTool)) else emptyList()
                 ).also { tools = it }
-                registry.drainWidgets()   // 丢弃上一轮残留，确保本轮控件干净
                 val runner = AgentRunner(registry, host.transport())
 
                 // 同一提示版本在会话内复用，升级提示规则时替换旧版本。
@@ -449,7 +448,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                     if (!llmAnnex.isNullOrBlank()) {
                         append("[App 快照]\n")
                         append("用户从 App 里的提醒或屁岱卡片点进来，快照是他当时在看的东西，接着它聊。")
-                        append("缺的字段不要编；要完整、最新或清单仍调工具。\n")
+                        append("快照够用就直接用，别再查一遍；用户要最新情况、完整清单或快照里没有的内容时才调工具。缺的字段不要编。\n")
                         append(llmAnnex.trim())
                         append("\n\n")
                     }
@@ -465,8 +464,6 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                 sanitizeHistory()   // 自愈：清掉上一次中断留下的 tool_calls 残体
                 // 带图轮数攒多了才裁一次，见 AgentVision.pruneOldImages
                 AgentVision.pruneOldImages(llmHistory)
-
-                val calledTools = mutableListOf<String>()
 
                 // MFA 提示：监控 SessionManager 的 activeMfaRequest，弹窗期间在对话列表追加一条
                 // "需要登录验证" tool_event，让用户知道为什么对话卡住——不是 AI 在慢，是在校验。
@@ -514,7 +511,6 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                         }
                     },
                     onToolCall = { name ->
-                        calledTools.add(name)
                         // 本轮模型可能先输出思考/短回复，再请求工具；工具执行后下一次模型回复应新开气泡。
                         // 换气泡前先把攒着的分片落到旧气泡上。
                         flushStream()
@@ -555,9 +551,9 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                 }
 
                 // 存的是 [AppRoute.id]：聊天记录要落盘，点按钮时再用 appRouteOf 解析回来
-                val navSuggestions = agentNavSuggestions(calledTools)
+                val navSuggestions = agentNavSuggestions(runner.shownTools)
 
-                val widgets = registry.drainWidgets()
+                val widgets = runner.shownWidgets.toList()
                 flushStream()
                 if (currentSessionId == turnSid) {   // 仍在本会话才写 UI
                     if (streamIdx >= 0) {

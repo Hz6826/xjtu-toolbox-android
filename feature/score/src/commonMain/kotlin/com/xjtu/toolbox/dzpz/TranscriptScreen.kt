@@ -25,8 +25,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.ui.components.DrawCheckmark
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.ui.components.SuccessGreen
+import com.xjtu.toolbox.ui.components.breath
+import com.xjtu.toolbox.ui.components.rememberLoopPhase
 import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -109,19 +113,6 @@ fun TranscriptScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // ── 用户信息卡 ──
-                    item {
-                        InfoCard(
-                            title = "申请信息",
-                            items = listOfNotNull(
-                                ctx.typeOptions.firstOrNull { it.value == vm.selectedType }?.let { "成绩单类型" to it.name },
-                                "申请日期" to ctx.defaultDate,
-                                "所属单位" to "西安交通大学",
-                                "份数" to "1"
-                            )
-                        )
-                    }
-
                     item {
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -183,50 +174,6 @@ enum class WorkflowState {
     RUNNING,    // 正在处理
     SUCCESS,    // 成功
     ERROR       // 失败
-}
-
-// ══════════════════════════════════════
-//  信息卡片
-// ══════════════════════════════════════
-
-@Composable
-private fun InfoCard(
-    title: String,
-    items: List<Pair<String, String>>
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Text(
-                title,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MiuixTheme.colorScheme.onSurface
-            )
-            Spacer(Modifier.height(10.dp))
-            items.forEach { (label, value) ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        label,
-                        fontSize = 14.sp,
-                        color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-                    Text(
-                        value,
-                        fontSize = 14.sp,
-                        color = MiuixTheme.colorScheme.onSurface
-                    )
-                }
-            }
-        }
-    }
 }
 
 /** serve 模式下替代 [WorkflowProgressCard] 的那张卡（见屏的 KDoc）：契约§5.5 只端了七步里的第一步，第 2~7 步没有端点——这里把哪几步没有、为什么没有写在屏幕上，而不是画一个点了会失败的按钮。 */
@@ -298,21 +245,11 @@ private fun WorkflowProgressCard(
                     )
                     Spacer(Modifier.height(16.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-                        // 拿 State 本身，只在 graphicsLayer 里读：闪烁时不每帧重组
-                        val alpha = infiniteTransition.animateFloat(
-                            initialValue = 0.4f,
-                            targetValue = 1f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(800),
-                                repeatMode = RepeatMode.Reverse
-                            ),
-                            label = "pulseAlpha"
-                        )
+                        val phase = rememberLoopPhase()
                         Icon(
                             Icons.Default.HourglassTop,
                             contentDescription = null,
-                            modifier = Modifier.size(20.dp).graphicsLayer { this.alpha = alpha.value },
+                            modifier = Modifier.size(20.dp).graphicsLayer { alpha = breath(phase.value, low = 0.4f) },
                             tint = MiuixTheme.colorScheme.primary
                         )
                         Spacer(Modifier.width(8.dp))
@@ -325,18 +262,13 @@ private fun WorkflowProgressCard(
                     Spacer(Modifier.height(8.dp))
                 }
                 WorkflowState.SUCCESS -> {
-                    Icon(
-                        Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = Color(0xFF4CAF50)
-                    )
+                    DrawCheckmark(size = 56.dp)
                     Spacer(Modifier.height(8.dp))
                     Text(
                         progress,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Medium,
-                        color = Color(0xFF4CAF50)
+                        color = SuccessGreen
                     )
                 }
                 WorkflowState.ERROR -> {

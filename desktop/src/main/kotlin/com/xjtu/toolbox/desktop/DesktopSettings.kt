@@ -58,7 +58,7 @@ internal class DesktopSettingsHost(private val notifyAppearanceChanged: () -> Un
 
     /** 真会照着办的行。 */
     override val honoredRows: Set<SettingsRow> =
-        setOf(SettingsRow.DARK_MODE, SettingsRow.DYNAMIC_COLOR, SettingsRow.HOME_THEME)
+        setOf(SettingsRow.DARK_MODE, SettingsRow.DYNAMIC_COLOR)
 
     override val changelog: List<ChangelogEntry> = emptyList()
 
