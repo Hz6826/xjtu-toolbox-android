@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tab
+import androidx.compose.material.icons.filled.Wallpaper
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.icon.extended.Carrier
@@ -19,6 +20,10 @@ import top.yukonga.miuix.kmp.icon.extended.Recent
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Theme
 import com.xjtu.toolbox.home.BottomBarTabs
+import com.xjtu.toolbox.ui.components.HeroAppearance
+import com.xjtu.toolbox.ui.components.HeroAppearanceRevision
+import com.xjtu.toolbox.ui.components.HomeHeroAppearanceDialog
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -90,6 +95,7 @@ fun SettingsScreen(
     val showDynamicColor = SettingsRow.DYNAMIC_COLOR in host.honoredRows
     val showQuickActions = SettingsRow.QUICK_ACTIONS in host.honoredRows
     val showNavStyle = SettingsRow.NAV_STYLE in host.honoredRows
+    val showHomeHero = SettingsRow.HOME_HERO in host.honoredRows
     val showDefaultTab = SettingsRow.DEFAULT_TAB in host.honoredRows
     val showBottomTabs = SettingsRow.BOTTOM_TABS in host.honoredRows
     val showHaptics = SettingsRow.HAPTICS in host.honoredRows
@@ -105,6 +111,7 @@ fun SettingsScreen(
     var customColorEnabled by remember { mutableStateOf(store.customColorEnabled) }
     var customColorHex by remember { mutableStateOf(store.customColorHex) }
     var showThemeColor by remember { mutableStateOf(false) }
+    var showHomeHeroDialog by remember { mutableStateOf(false) }
     val accountType = com.xjtu.toolbox.account.AccountContext.activeAccountType
     var bottomTabs by remember { mutableStateOf(BottomBarTabs.barIds(store.bottomBar, accountType)) }
     var defaultTab by remember { mutableStateOf(BottomBarTabs.defaultTab(store.defaultTab, bottomTabs)) }
@@ -131,6 +138,9 @@ fun SettingsScreen(
                 showThemeColor = false
             },
         )
+    }
+    if (showHomeHeroDialog) {
+        HomeHeroAppearanceDialog(store = store, onDismiss = { showHomeHeroDialog = false })
     }
     if (showBottomBarDialog) {
         BottomBarDialog(
@@ -278,6 +288,18 @@ fun SettingsScreen(
                             store.navBarStyle = v
                             host.onAppearanceChanged()
                         }
+                    )
+                }
+                if (showHomeHero) {
+                    val dark = LocalIsDarkTheme.current
+                    val heroAppearance = remember(HeroAppearanceRevision.current, dark) {
+                        HeroAppearance.read(store, dark)
+                    }
+                    ArrowPreference(
+                        title = "首页卡片",
+                        summary = heroAppearance.summary,
+                        startAction = { SettingsIcon(Icons.Default.Wallpaper, cPurple) },
+                        onClick = { showHomeHeroDialog = true },
                     )
                 }
                 if (showBottomTabs) {

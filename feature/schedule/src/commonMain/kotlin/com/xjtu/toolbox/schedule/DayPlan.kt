@@ -9,9 +9,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddTask
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.EventAvailable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -49,7 +50,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 「一句话排今天」：照今天的课、考试、截止和用户一句话，排出从现在到睡前的安排和路线。 */
 private val DAY_PLAN = InsightSpec(
-    id = "day_plan_v2",
+    id = "day_plan_v3",
     tools = setOf("get_schedule", "get_exam_schedule", "campus_map", "my_location", "get_empty_rooms", "get_library", "app_guide", "get_card_info"),
     ttlMs = 2 * 60 * 60 * 1000L,
     thinking = true,
@@ -63,8 +64,9 @@ private val DAY_PLAN = InsightSpec(
 - 仅在用户要求地点推荐或路线安排时查询位置；画像校区和上课地点不能视为当前位置。无可靠当前位置时保持未知。
 - 确需跨地点移动时依据地图结果评估可达性，把时间冲突或尚未确认的路程写入 tips，不挪动用户指定的安排。
 - 目标是今天时省略已结束事项；没有符合条件的安排时 blocks 为空，summary 如实说明。
+- 每块标 type：要占一段时间、到点去做的（课、考试、自习、运动、约饭、开会）为 event；只需在某时刻前办完、不占整段时间的（交材料、缴费、取快递、回消息）为 todo，start 写该办完的时刻，end 留空。
 只输出：
-{"summary":"不超过 30 字，这一天的主线","blocks":[{"start":"14:00","end":"15:50","title":"不超过 12 字","place":"楼名/食堂/图书馆区域，没有就空串","kind":"class|exam|study|meal|move|sport|rest|other","note":"不超过 20 字，可空"}],"tips":["最多两条，不超过 25 字"]}
+{"summary":"不超过 30 字，这一天的主线","blocks":[{"start":"14:00","end":"15:50","title":"不超过 12 字","place":"楼名/食堂/图书馆区域，没有就空串","kind":"class|exam|study|meal|move|sport|rest|other","type":"event|todo","note":"不超过 20 字，可空"}],"tips":["最多两条，不超过 25 字"]}
     """.trimIndent(),
     card = PidaiCard.DAY_PLAN,
 )
@@ -79,8 +81,49 @@ internal fun dayPlanSnapshot(today: LocalDate, entries: List<String>, upcoming: 
     }
 }
 
+/** 排日程卡里能加进去的一项（课、考试、赶路不算）。[todo] 由屁岱判断：只需到点前办完的进待办，其余进日程。 */
+data class PlanItem(val title: String, val startMinute: Int, val endMinute: Int, val place: String, val note: String, val todo: Boolean = false)
+
+private val HHMM = Regex("""(\d{1,2}):(\d{2})""")
+
+private fun minuteOf(text: String?): Int? =
+    HHMM.matchEntire(text?.trim().orEmpty())?.destructured?.let { (h, m) -> (h.toInt() * 60 + m.toInt()).takeIf { it in 0 until 24 * 60 } }
+
+/** 屁岱给的一块安排能不能加进日程；不能就 null。没写结束时间按一小时算。 */
+private fun planItemOf(block: JsonObject): PlanItem? {
+    if (block["kind"].safeStringOrNull() in setOf("class", "exam", "move")) return null
+    val title = block["title"].safeStringOrNull()?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    val start = minuteOf(block["start"].safeStringOrNull()) ?: return null
+    val end = minuteOf(block["end"].safeStringOrNull())?.takeIf { it > start } ?: (start + 60).coerceAtMost(24 * 60 - 1)
+    return PlanItem(
+        title, start, end,
+        place = block["place"].safeStringOrNull().orEmpty(),
+        note = block["note"].safeStringOrNull().orEmpty(),
+        todo = block["type"].safeStringOrNull() == "todo",
+    )
+}
+
+/** 待办按「该办完的时刻」建，提醒由用户在待办里自己开。 */
+private fun addTodo(date: LocalDate, item: PlanItem): Boolean {
+    val hhmm = "${(item.startMinute / 60).toString().padStart(2, '0')}:${(item.startMinute % 60).toString().padStart(2, '0')}"
+    val due = SelfTodoRules.parseDue("$date $hhmm") ?: return false
+    return SelfTodoStore.create(
+        title = item.title,
+        content = listOf(item.place, item.note).filter { it.isNotBlank() }.joinToString(" · "),
+        dueDate = due.first,
+        source = "agent",
+        allDay = due.second,
+    ) != null
+}
+
 @Composable
-internal fun DayPlanCard(snapshot: String, today: LocalDate, modifier: Modifier = Modifier) {
+internal fun DayPlanCard(
+    snapshot: String,
+    today: LocalDate,
+    modifier: Modifier = Modifier,
+    /** 把安排写进日程；null = 这一端不能写（只陈列）。 */
+    onAdd: ((LocalDate, List<PlanItem>) -> Unit)? = null,
+) {
     var draft by rememberSaveable { mutableStateOf("") }
     var target by rememberSaveable(today.toString()) { mutableStateOf(today.toString()) }
     var asked by rememberSaveable(today.toString()) { mutableStateOf<String?>(null) }
@@ -139,7 +182,28 @@ internal fun DayPlanCard(snapshot: String, today: LocalDate, modifier: Modifier 
             Text(it, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
         }
         val blocks = (json["blocks"] as? JsonArray).orEmpty().mapNotNull { runCatching { it.jsonObject }.getOrNull() }
-        blocks.forEach { PlanRow(it, targetDate) }
+        // 这次结果里已经加进去的块（按块的下标记），重排后换一批
+        var added by remember(json) { mutableStateOf(emptySet<Int>()) }
+        // 日程要这一端能写日程；待办哪端都能建
+        fun addable(item: PlanItem?) = item != null && (item.todo || onAdd != null)
+        fun add(indexed: List<Pair<Int, PlanItem>>) {
+            val (todos, events) = indexed.partition { it.second.todo }
+            val ok = todos.filter { addTodo(targetDate, it.second) } + events
+            if (events.isNotEmpty()) onAdd?.invoke(targetDate, events.map { it.second })
+            added = added + ok.map { it.first }
+        }
+        val items = blocks.map(::planItemOf)
+        blocks.forEachIndexed { i, block ->
+            val item = items[i]
+            PlanRow(block, todo = item?.todo == true, added = i in added,
+                onAdd = if (addable(item)) { { add(listOf(i to item!!)) } } else null)
+        }
+        val pending = items.withIndex().mapNotNull { (i, it) -> it?.takeIf { addable(it) && i !in added }?.let { i to it } }
+        if (pending.size > 1) {
+            PidaiChipRow {
+                PidaiChip("全部加入（${pending.size}）", icon = Icons.Filled.EventAvailable, onClick = { add(pending) })
+            }
+        }
         DayPlanMap(blocks)
         (json["tips"] as? JsonArray).orEmpty().mapNotNull { it.safeStringOrNull() }.filter { it.isNotBlank() }.forEach {
             Text("· $it", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -174,12 +238,11 @@ private fun dayLabel(date: LocalDate, today: LocalDate): String = when (date) {
 }
 
 @Composable
-private fun PlanRow(block: JsonObject, today: LocalDate) {
+private fun PlanRow(block: JsonObject, todo: Boolean, added: Boolean, onAdd: (() -> Unit)?) {
     val start = block["start"].safeStringOrNull().orEmpty()
     val title = block["title"].safeStringOrNull().orEmpty().ifBlank { return }
     val kind = block["kind"].safeStringOrNull().orEmpty()
     val fixed = kind == "class" || kind == "exam"
-    var reminded by remember(start, title) { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
             .background(if (fixed) MiuixTheme.colorScheme.primary.copy(alpha = 0.08f) else AppInsetColor)
@@ -200,23 +263,13 @@ private fun PlanRow(block: JsonObject, today: LocalDate) {
                 Text(sub.joinToString(" · "), style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
         }
-        // 课和考试本来就有提醒；屁岱排进来的那些可以顺手记成到点提醒的待办
-        if (!fixed && Regex("""\d{1,2}:\d{2}""").matches(start)) {
+        // 课和考试本来就在课表里；其余安排按屁岱标的类型进日程或待办
+        if (onAdd != null) {
             PidaiChip(
-                if (reminded) "已提醒" else "提醒我",
-                icon = if (reminded) Icons.Filled.Check else Icons.Filled.NotificationsActive,
-                enabled = !reminded,
-                onClick = {
-                    val due = SelfTodoRules.parseDue("$today ${start.padStart(5, '0')}") ?: return@PidaiChip
-                    reminded = SelfTodoStore.create(
-                        title = title,
-                        content = block["place"].safeStringOrNull().orEmpty(),
-                        dueDate = due.first,
-                        source = "agent",
-                        allDay = due.second,
-                        remind = true,
-                    ) != null
-                },
+                if (added) "已加入" else if (todo) "加入待办" else "加入日程",
+                icon = if (added) Icons.Filled.Check else if (todo) Icons.Filled.AddTask else Icons.Filled.EventAvailable,
+                enabled = !added,
+                onClick = onAdd,
             )
         }
     }

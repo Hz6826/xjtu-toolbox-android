@@ -143,6 +143,14 @@ fun ScheduleScreen(
     var unifiedSelectedCourse by remember { mutableStateOf<CourseItem?>(null) }
     /** 今日那一级点课时带上今天；学期那一级说不出是哪一次，保持 null。 */
     var unifiedOccurrence by remember { mutableStateOf<Occurrence?>(null) }
+    fun selectCourse(course: CourseItem, occurrence: Occurrence?) {
+        val custom = vm.customCourses.firstOrNull { it.toCourseItem().courseCode == course.courseCode }
+        if (custom != null) editingCourse = custom
+        else {
+            unifiedOccurrence = occurrence
+            unifiedSelectedCourse = course
+        }
+    }
     var termDropdownExpanded by remember { mutableStateOf(false) }
     var showWeekPicker by remember { mutableStateOf(false) }
     var showExportMenu by remember { mutableStateOf(false) }
@@ -521,7 +529,7 @@ fun ScheduleScreen(
             // 缓存数据提示：刷新失败但有缓存时，顶部一条小 banner 告知用户「这可能是旧数据」
             if (vm.showingStaleData && !vm.isLoading) {
                 Surface(
-                    color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
+                    color = MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 6.dp),
@@ -641,8 +649,7 @@ fun ScheduleScreen(
                                     // 由右栏展示。三个入口一个面板。
                                     onCourseSelected = if (isWideLayout) {
                                         { course, occurrence ->
-                                            unifiedOccurrence = occurrence
-                                            unifiedSelectedCourse = course
+                                            selectCourse(course, occurrence)
                                         }
                                     } else {
                                         null
@@ -666,15 +673,13 @@ fun ScheduleScreen(
                                     today = campusNow.date,
                                     allCourseNames = allCourseNames,
                                     onCourseClick = {
-                                        unifiedOccurrence = Occurrence(
-                                            campusNow.date, vm.realCurrentWeek,
-                                        )
-                                        unifiedSelectedCourse = it
+                                        selectCourse(it, Occurrence(campusNow.date, vm.realCurrentWeek))
                                     },
                                     bottomPadding = contentBottomPadding,
                                     topPadding = listTopPadding,
                                     upcoming = upcomingItems,
                                     todayHomework = vm.homeworkDue,
+                                    onAddPlan = vm::addPlanItems,
                                 )
                             }
                         }
@@ -698,8 +703,7 @@ fun ScheduleScreen(
                                     // 学期一级一行代表整学期，说不出是哪一次课，
                                     // 所以不给回放也不给本次考勤。
                                     onCourseClick = {
-                                        unifiedOccurrence = null
-                                        unifiedSelectedCourse = it
+                                        selectCourse(it, null)
                                     },
                                     bottomPadding = contentBottomPadding,
                                     topPadding = listTopPadding,
@@ -783,14 +787,12 @@ fun ScheduleScreen(
                             today = campusNow.date,
                             allCourseNames = allCourseNames,
                             onCourseClick = {
-                                unifiedOccurrence = Occurrence(
-                                    campusNow.date, vm.realCurrentWeek,
-                                )
-                                unifiedSelectedCourse = it
+                                selectCourse(it, Occurrence(campusNow.date, vm.realCurrentWeek))
                             },
                             bottomPadding = contentBottomPadding,
                             upcoming = upcomingItems,
                             todayHomework = vm.homeworkDue,
+                            onAddPlan = vm::addPlanItems,
                         )
                     }
                 }
@@ -954,13 +956,13 @@ private fun ScheduleTabContent(
             Surface(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
                 shape = RoundedCornerShape(8.dp),
-                color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+                color = MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
             ) {
                 Text(
                     weekNote,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onTertiaryContainer
+                    color = MiuixTheme.colorScheme.onPrimaryContainer
                 )
             }
         }

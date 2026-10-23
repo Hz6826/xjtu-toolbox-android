@@ -133,6 +133,8 @@ fun InboxScreen(
     fun accentOf(item: InboxItem) = if (item.category == InboxCategories.LMS) courseColors.colorOf(item.source) else null
     // 这次进来之前没看过的待办标个红点；一看到就记成看过，首页红点随之熄掉，这页的红点留到下次进来
     val seenAtOpen = remember { data.seenTodos }
+    // 点开过的这次就算看了，返回时红点立刻熄掉
+    var openedTodos by remember { mutableStateOf(emptySet<String>()) }
 
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
@@ -168,6 +170,7 @@ fun InboxScreen(
 
     fun open(item: InboxItem, ids: List<String> = listOf(item.id)) {
         InboxStore.markRead(ids)
+        openedTodos = openedTodos + ids
         // 屁岱的简报正文就是全部内容，屁岱页里没有它：先弹窗看全文，想接着聊再进屁岱
         val route = item.resolvedRouteId()
         if (route == null || item.category == InboxCategories.PIDAI) detail = item else onOpen(route)
@@ -244,7 +247,7 @@ fun InboxScreen(
                         todos.groupBy { todoSection(it, now) }.forEach { (title, list) ->
                             section(title, list.map {
                                 Entry(
-                                    it, it.id, unread = it.id !in seenAtOpen, count = 1, accent = accentOf(it),
+                                    it, it.id, unread = it.id !in seenAtOpen && it.id !in openedTodos, count = 1, accent = accentOf(it),
                                     onLongClick = {
                                         val selfId = SelfTodoRules.todoIdOf(it.id)
                                         actions = if (selfId != null) {

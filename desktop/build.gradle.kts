@@ -150,6 +150,13 @@ tasks.register<JavaExec>("renderHomePreview") {
     args = listOf(layout.buildDirectory.dir("home-preview").get().asFile.absolutePath)
 }
 
+tasks.register<JavaExec>("renderInterfaceRefinements") {
+    group = "verification"
+    mainClass.set("com.xjtu.toolbox.desktop.RenderInterfaceRefinementsKt")
+    classpath = sourceSets["test"].runtimeClasspath
+    args = listOf(layout.buildDirectory.dir("interface-preview").get().asFile.absolutePath)
+}
+
 tasks.register<JavaExec>("renderCampusExperience") {
     group = "verification"
     description = "Render offline previews of the meal report and notification filters"

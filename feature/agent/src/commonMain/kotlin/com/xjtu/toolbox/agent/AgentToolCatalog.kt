@@ -2,6 +2,8 @@ package com.xjtu.toolbox.agent
 
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** 送给模型的工具清单（OpenAI function calling 的那一份 JSON 串）。 */
 fun agentToolDefinitions(honored: Set<AgentCapability>): String {
@@ -41,12 +43,15 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             agentShow(),
         )))
     arr.add(agentTool("get_empty_rooms",
-        "空闲教室。今天且不给节次（或给的就是当前节）时返回此刻实时状态：空闲、其它使用（没排课但有人，附人数）、上课中；其余按课表逐节。",
+        "空闲教室。status 返回此刻状态，slots 返回全天课表节次，both 合并两者；节次条件自动查询课表。",
         agentParams(
             "campus"   to agentEnumProp("缺省：兴庆校区。实时状态只有兴庆、雁塔、创新港。", "兴庆校区", "雁塔校区", "曲江校区", "创新港校区"),
             "building" to agentStrProp("楼名，如 主楼A、1号巨构。缺省：全校区。"),
-            "section"  to agentIntProp("节次 1–11。缺省：此刻（今天）/全天（其他日期）。"),
+            "section"  to agentIntProp("按课表筛选该节空闲的教室，1–11。"),
             "date"     to agentStrProp("今天/明天/yyyy-MM-dd。缺省：今天。"),
+            "view" to agentEnumProp("auto 自动选择；slots 全天课表空闲条；status 此刻实时状态；both 同时查询。未来日期仅支持 slots。", "auto", "slots", "status", "both"),
+            "sections" to buildJsonObject { put("type", "array"); put("description", "要求全部空闲的节次 1–11；自动查询课表。明确要坐到晚上时传覆盖该时段的节次。"); put("items", buildJsonObject { put("type", "integer") }) },
+            "min_free_sections" to agentIntProp("至少连续空闲几节，1–11；不代表从现在一直空到晚上，需要具体时段时用 sections。"),
             agentShow(),
         )))
     arr.add(agentTool("get_attendance",
@@ -120,7 +125,7 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             )))
     }
     arr.add(agentTool("get_library",
-        "图书馆：本人当前座位预约，以及各区域空座。给 area 时返回该区域空座，show 时附平面图卡片。需图书馆登录。" +
+        "图书馆：本人当前座位预约，以及各区域空座。给 area 时返回该区域空座和平面图快照。需图书馆登录。" +
             "推荐去哪自习时按用户所在校区选 campus，用户点名别的校区就用那个。",
         agentParams(
             "campus" to agentEnumProp("校区。缺省：账号在图书馆系统里当前的校区。", "兴庆", "雁塔", "创新港"),
@@ -135,10 +140,12 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             agentShow(),
         )))
     arr.add(agentTool("read_zyxf_file",
-        "读仲英学辅资料站的文件：PDF 按页给你看页面图（一次最多 6 页，扫描版也行），docx/pptx/xlsx 给正文，图片直接看，文本给原文。老格式 doc/ppt 与压缩包读不了。",
+        "读学辅文件。PDF 可先用 mode=info 查看元数据与书签目录定位，再按页取文本或页面图。auto 优先文字，空文字页转图；同一附件复用缓存。docx/pptx/xlsx 取正文，图片直接看。",
         agentParams(
             "file_id" to agentIntProp("文件 ID，来自 list_zyxf。"),
-            "pages" to agentStrProp("PDF/pptx 的页码范围如 7-12；长文本是段号。缺省：开头。"),
+            "pages" to agentStrProp("PDF/pptx 实际页码，从 1 起。5 只读第5页；可用 3-5 或 1,3,7-8。缺省前2页。PDF 文本最多20页，页面图最多4页；长文本用段号。"),
+            "mode" to agentEnumProp("PDF：info=元数据和自带书签目录；text=只取文字；images=页面图（公式/图表/扫描页）；auto=文字优先，默认。", "auto", "info", "text", "images"),
+            "text_offset" to agentIntProp("PDF 单页文字过长时，按返回的 next 从此字符偏移续读；默认0。"),
             required = listOf("file_id"),
         )))
     arr.add(agentTool("save_file",
@@ -169,12 +176,14 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             agentShow(),
         )))
     arr.add(agentTool("get_lms_activity",
-        "思源学堂某个活动的详情：说明、截止时间、提交状态、附件名；给 file 时读该附件（PDF 给页面图，docx/pptx/xlsx 给正文，同 read_zyxf_file）。需思源学堂登录。",
+        "思源活动详情、截止时间、提交状态和附件。给 file 读取附件：PDF 用 info 看元数据与书签目录，text 快速取文字，images 看指定页面；auto 文字优先。附件复用缓存，同 read_zyxf_file。需思源登录。",
         agentParams(
             "course" to agentStrProp("课程名，模糊。"),
             "activity" to agentStrProp("活动标题，模糊。"),
-            "file" to agentStrProp("附件名关键词，模糊。"),
-            "pages" to agentStrProp("读附件时的页码范围，同 read_zyxf_file。"),
+            "file" to agentStrProp("附件ID或完整名称优先，也可用唯一关键词；多项匹配会返回候选。"),
+            "pages" to agentStrProp("PDF/pptx 实际页码，从1起；5只读第5页，支持1,3,7-8。默认前2页；文本最多20页，图最多4页。"),
+            "mode" to agentEnumProp("PDF：info=元数据和书签目录；text=只取文字；images=页面图；auto=文字优先，空文字页转图（默认）。", "auto", "info", "text", "images"),
+            "text_offset" to agentIntProp("PDF 单页文本续读的字符偏移，使用结果中的 next；默认0。"),
             agentShow(),
             required = listOf("course", "activity"),
         )))
@@ -197,5 +206,5 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
     arr.add(agentTool("calculate",
         "计算表达式：+ - * / ^ 与括号。",
         agentParams("expression" to agentStrProp("如 (3.7*4+4.0*3)/(4+3)。"), required = listOf("expression"))))
-    return JsonArray(arr).toString()
+    return JsonArray(arr.map(AgentWidgetPresentation::queryDefinition)).toString()
 }

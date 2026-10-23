@@ -106,7 +106,7 @@ fun WebVpnConverterScreen(
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "WebVPN 用于从校外访问校园内网。使用前需申请权限。",
+                        "WebVPN 用于在非校园网下访问校园内网。使用前需申请权限。",
                         style = MiuixTheme.textStyles.body2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )

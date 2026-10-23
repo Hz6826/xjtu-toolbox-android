@@ -67,7 +67,7 @@ class MealReportExport(val label: String, val export: suspend (ImageBitmap) -> U
 private fun LocalDate.dotted(): String =
     "$year." + month.number.toString().padStart(2, '0') + "." + day.toString().padStart(2, '0')
 
-/** 消费分析页里的入口：一行宋体标题加人设，点开看整张海报。 */
+/** 消费分析页里的入口：一行标题加人设，点开看整张海报。 */
 @Composable
 internal fun MealReportEntry(report: MealReport, onOpen: () -> Unit) {
     Row(
@@ -132,7 +132,7 @@ internal fun MealReportDialog(report: MealReport, exporter: MealReportExport, on
 
 /**
  * 海报本体：刊头 → 人设大字 → 顿数大数字 → 发丝线分隔的几栏数据 → 落款印章。
- * 版式按竖排杂志页来：左对齐、大留白，宋体只用在标题和数字上。
+ * 版式按竖排杂志页来：左对齐、大留白。
  */
 @Composable
 fun MealReportPoster(report: MealReport, modifier: Modifier = Modifier) {
@@ -259,7 +259,7 @@ private fun MealRhythm(counts: List<Int>) {
     }
 }
 
-/** 一栏：小标签、宋体的值、一行说明，上面一道发丝线。 */
+/** 一栏：小标签、大号的值、一行说明，上面一道发丝线。 */
 @Composable
 private fun PosterItem(label: String, value: String, note: String) {
     Box(Modifier.fillMaxWidth().height(0.8.dp).background(RULE))
@@ -272,7 +272,7 @@ private fun PosterItem(label: String, value: String, note: String) {
     }
 }
 
-/** 落款的方印：朱红底、白色宋体「岱」。 */
+/** 落款的方印：朱红底、白色「岱」。 */
 @Composable
 private fun Seal() {
     Box(

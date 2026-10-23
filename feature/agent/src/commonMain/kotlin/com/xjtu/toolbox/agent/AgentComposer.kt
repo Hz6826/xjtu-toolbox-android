@@ -248,17 +248,20 @@ internal fun AgentComposer(
                     )
                 }
             }
+            if (isLoading && canSend) IconButton(onClick = onStop, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.Stop, contentDescription = "停止生成", modifier = Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            }
             Box(
                 Modifier
                     .size(36.dp)
                     .clip(CircleShape)
                     .background(sendBg)
-                    .clickable(enabled = actionEnabled) { if (isLoading) onStop() else onSend() },
+                    .clickable(enabled = actionEnabled) { if (canSend) onSend() else if (isLoading) onStop() },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    if (isLoading) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send,
-                    contentDescription = if (isLoading) "停止" else "发送",
+                    if (isLoading && !canSend) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send,
+                    contentDescription = if (isLoading && !canSend) "停止" else if (isLoading) "插话并发送" else "发送",
                     tint = if (actionEnabled) MiuixTheme.colorScheme.onPrimary
                     else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.size(18.dp),

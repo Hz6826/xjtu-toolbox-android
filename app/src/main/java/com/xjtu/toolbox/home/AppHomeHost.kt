@@ -183,7 +183,7 @@ internal fun rememberAppHome(
     val heroStatus: HomeStatusLine? = if (isLoggedIn) {
         val (netLabel, netTone) = when (loginState.isOnCampus) {
             true -> "校园网" to HomeTone.NORMAL
-            false -> "校外" to HomeTone.ACCENT
+            false -> "非校园网" to HomeTone.ACCENT
             null -> "检测中" to HomeTone.MUTED
         }
         val types = LoginType.entries

@@ -12,6 +12,7 @@ import kotlinx.serialization.json.jsonObject
 
 /** 一次工具调用的执行中文案。 */
 fun agentToolLabel(name: String): String = when (name) {
+    "present_result"        -> "整理结果卡片…"
     "get_calendar"          -> "查询时间与校历…"
     "get_schedule"          -> "查询课表…"
     "get_exam_schedule"     -> "查询考试安排…"
@@ -56,7 +57,7 @@ fun agentCompleteToolLabel(running: String): String {
     return if (base.startsWith("已")) base else "已$base"
 }
 
-/** 本轮模型用 show 点名展示的工具 → 回复下方那排跳转按钮，`List<Pair<显示文字, [AppRoute.id]>>`。 */
+/** 选中的查询结果对应的页面入口。 */
 fun agentNavSuggestions(shownTools: List<String>): List<Pair<String, String>> =
     shownTools.mapNotNull { toolName ->
         when (toolName) {

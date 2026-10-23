@@ -25,8 +25,8 @@ android {
         applicationId = "com.xjtu.toolbox"
         minSdk = 31
         targetSdk = 36
-        versionCode = 90
-        versionName = "5.2.0"
+        versionCode = 91
+        versionName = "5.2.1"
 
         // 反馈后端（飞书多维表格）的凭据。优先读环境变量（CI），否则读
         // 仓库根目录 feedback.properties（已 gitignore）。两者都没有时留空字符串——
@@ -197,6 +197,16 @@ baselineProfile {
     dexLayoutOptimization = true
 }
 
+val pdfTestAssets by configurations.creating { isTransitive = false }
+val unpackPdfTestAssets by tasks.registering(Sync::class) {
+    from(pdfTestAssets.map { zipTree(it) }) { include("assets/**") }
+    into(layout.buildDirectory.dir("pdf-test-assets"))
+}
+android.sourceSets.getByName("test").resources.srcDir(layout.buildDirectory.dir("pdf-test-assets/assets").get().asFile)
+tasks.matching { it.name.startsWith("process") && it.name.endsWith("UnitTestJavaRes") }.configureEach {
+    dependsOn(unpackPdfTestAssets)
+}
+
 dependencies {
     // 三端共用的业务与平台抽象（KMP）；:core 必须能编过 wasmJs（CI 门禁在守）。
     implementation(project(":core"))
@@ -221,6 +231,8 @@ dependencies {
     implementation(libs.okhttp.brotli)
     implementation(libs.okhttp.java.net.cookiejar)
     implementation(libs.jsoup)
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    pdfTestAssets("com.tom-roush:pdfbox-android:2.0.27.0@aar")
     implementation(libs.flexmark.html2md)
     implementation(libs.coroutines.android)
     implementation(libs.security.crypto)
@@ -265,5 +277,6 @@ dependencies {
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
     testImplementation(libs.junit)
+    testImplementation("org.robolectric:robolectric:4.17")
     debugImplementation(libs.androidx.ui.tooling)
 }

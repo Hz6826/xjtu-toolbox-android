@@ -1,9 +1,11 @@
 package com.xjtu.toolbox.home
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -30,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -62,15 +66,25 @@ import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.vibrancy
 import com.xjtu.toolbox.bulletin.BulletinNoticePanel
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
+import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.ui.components.AppCardColor
+import com.xjtu.toolbox.ui.components.HeroAppearance
+import com.xjtu.toolbox.ui.components.HeroAppearanceDialog
+import com.xjtu.toolbox.ui.components.HeroAppearanceRevision
+import com.xjtu.toolbox.ui.components.HeroCustomBackground
+import com.xjtu.toolbox.ui.components.HeroCustomScrim
+import com.xjtu.toolbox.ui.components.HeroForestBackground
+import com.xjtu.toolbox.ui.components.HeroForestScrim
+import com.xjtu.toolbox.ui.components.HeroPixelBackground
+import com.xjtu.toolbox.ui.components.HeroPixelScrim
 import com.xjtu.toolbox.ui.components.LiquidBackground
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
+import com.xjtu.toolbox.ui.components.rememberLiquidMood
 import com.xjtu.toolbox.ui.glass.LocalGlassStyle
 import com.xjtu.toolbox.ui.isWideLayout
 import com.xjtu.toolbox.ui.theme.Editorial
@@ -161,8 +175,6 @@ fun HomeScreen(
     // 刊头先让出一栏高度、再画在顶栏下面，所以滑完整个刊头才算折叠完成
     val rangePx = if (masthead && mastheadPx > 0) mastheadPx.toFloat().coerceAtLeast(barPx) else barPx
     val progress = { (scroll.value / rangePx).coerceIn(0f, 1f) }
-    // 只要有内容越过顶栏底边，玻璃和红印就立刻出现，不再等滑过一段距离
-    val coverage = { if (scroll.value > 0) 1f else 0f }
     // 顶栏的玻璃采这一页自己的滚动层：顶栏本身在壳的采样层里，采壳的层会采到自己
     val pageBackdrop = rememberLayerBackdrop()
     // 采样层本身没有页面底色：先垫一层不透明 surface 再采样，否则模糊把透明当黑色，
@@ -243,7 +255,6 @@ fun HomeScreen(
             val scope = rememberCoroutineScope()
             HomeCollapsingBar(
                 progress = progress,
-                coverage = coverage,
                 topInset = contentTopPadding,
                 backdrop = if (glass) glassBackdrop else null,
                 onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
@@ -261,7 +272,6 @@ fun HomeScreen(
 @Composable
 private fun HomeCollapsingBar(
     progress: () -> Float,
-    coverage: () -> Float,
     topInset: Dp,
     backdrop: Backdrop?,
     onTapCollapsed: () -> Unit,
@@ -271,37 +281,31 @@ private fun HomeCollapsingBar(
     val collapsed by remember { derivedStateOf { progress() > 0.5f } }
     val surface = MiuixTheme.colorScheme.surface
     Box(Modifier.fillMaxWidth().height(topInset + BAR_HEIGHT)) {
+        if (backdrop != null) {
+            // 96dp 的模糊带比顶栏本身高，放在顶栏高度之外，才能往内容里多淡一段。
+            // useplanes 的 progressive blur：七层不同半径的模糊，每层各自用一条
+            // 从底边透明、到屏幕顶边最强的遮罩裁出一条带。
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .requiredHeight(PROGRESSIVE_BLUR_BAND_HEIGHT),
+            ) {
+                ProgressiveBarBlur(backdrop, Modifier.matchParentSize())
+                // 表面色遮罩是 useplanes 的可选 tint；页面预览没有开，这里也保持关闭。
+                if (SHOW_TINT_WASH) {
+                    Box(Modifier.matchParentSize().background(tintWash(surface)))
+                }
+            }
+        }
         Box(
             Modifier
                 .matchParentSize()
-                // 内容一越过顶栏底边就出现，不再等滑过一段刊头
-                .graphicsLayer { alpha = coverage() }
+                .then(if (backdrop == null) Modifier.background(surface) else Modifier)
                 .then(
                     if (collapsed) Modifier.clickable(interactionSource = null, indication = null, onClick = onTapCollapsed)
                     else Modifier
                 ),
-        ) {
-            if (backdrop != null) {
-                // 一层固定模糊（16dp）+ 平滑遮罩：底边完全透明，往上 smoothstep 到满强度，
-                // 40% 高度以上保持满强度。和 expo-backdrop 的 ProgressiveBlurView 同一套做法。
-                Box(
-                    Modifier.matchParentSize()
-                        .glassBarLayer(
-                            backdrop = backdrop,
-                            base = surface,
-                            blurRadius = 4.dp,
-                            mask = ProgressiveBlurMaskBrush,
-                        )
-                )
-                // 表面色像 iOS 26 顶栏那样：顶部最实，往下随模糊一起淡掉。
-                // 临时验收开关：关掉时只留模糊层，改回 true 即恢复。
-                if (SHOW_TINT_WASH) {
-                    Box(Modifier.matchParentSize().background(tintWash(surface)))
-                }
-            } else {
-                Box(Modifier.matchParentSize().background(surface))
-            }
-        }
+        )
         Row(
             Modifier.fillMaxWidth().padding(top = topInset).height(BAR_HEIGHT).padding(start = 20.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -326,64 +330,95 @@ private fun HomeCollapsingBar(
 }
 
 /**
- * 一层玻璃：模糊后的页面 + 不透明的底，再用 [mask] 做 DstIn（画在 drawBackdrop 的
- * onDrawFront 里，跟它自己的离屏层一起合成）。
- * 返回值必须接上调用方的 Modifier；丢掉它会把尺寸/layout 约束一并丢掉，整层量成 0×0。
+ * useplanes 的 progressive blur：七层不同半径的模糊叠在一起。
+ * 每层都从同一份 backdrop 采样，再用各自的渐变遮罩只留下一段：
+ * 最弱的一层在底边淡出，最强的一层在屏幕顶边达到满强度，中间没有硬边。
  */
 @Composable
-private fun Modifier.glassBarLayer(
+private fun ProgressiveBarBlur(
     backdrop: Backdrop,
-    base: Color,
-    blurRadius: Dp,
-    mask: Brush,
-): Modifier {
-    val layer = remember(backdrop, base, blurRadius, mask) {
-        Modifier.drawBackdrop(
-            backdrop = backdrop,
-            shape = { RoundedCornerShape(0.dp) },
-            effects = {
-                padding = maxOf(padding, 24.dp.toPx())
-                vibrancy()
-                blur(blurRadius.toPx(), TileMode.Decal)
-            },
-            highlight = null,
-            shadow = null,
-            onDrawBehind = { drawRect(base.copy(alpha = 1f)) },
-            onDrawFront = { drawRect(brush = mask, blendMode = BlendMode.DstIn) },
-        )
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier) {
+        ProgressiveBlurRadii.forEachIndexed { index, radius ->
+            val layer = remember(backdrop, index) {
+                Modifier.drawBackdrop(
+                    backdrop = backdrop,
+                    shape = { RoundedCornerShape(0.dp) },
+                    effects = {
+                        blur(radius.dp.toPx(), TileMode.Decal)
+                    },
+                    highlight = null,
+                    shadow = null,
+                    onDrawFront = {
+                        drawRect(
+                            brush = ProgressiveBlurMasks[index],
+                            blendMode = BlendMode.DstIn,
+                        )
+                    },
+                )
+            }
+            Box(Modifier.matchParentSize().then(layer))
+        }
     }
-    return this then layer
 }
 
 /** 展开时圆钮比顶栏正中上移的距离：顶栏里圆钮上方正好留这么多，不会顶进状态栏。 */
 private val BUTTON_LIFT get() = (BAR_HEIGHT - 36.dp) / 2 - 2.dp
 
-/** 临时验收开关：关掉表面色遮罩，只留模糊；改回 true 即恢复。 */
+/** useplanes 的可选 tint：表面色从顶部 1.0 线性淡到底边 0。 */
 private const val SHOW_TINT_WASH = true
 
-/**
- * 渐进模糊的遮罩：0 = 顶栏顶边，1 = 底边。
- * 顶部 1.0，40% 高度以上保持满强度；之后先急后缓地收到 0.8。
- */
-private val ProgressiveBlurMaskBrush: Brush = Brush.verticalGradient(
-    0f to Color.Black.copy(alpha = 1f),
-    0.4f to Color.Black.copy(alpha = 1f),
-    0.5f to Color.Black.copy(alpha = 0.94f),
-    0.6f to Color.Black.copy(alpha = 0.89f),
-    0.7f to Color.Black.copy(alpha = 0.85f),
-    0.8f to Color.Black.copy(alpha = 0.82f),
-    0.9f to Color.Black.copy(alpha = 0.81f),
-    1f to Color.Black.copy(alpha = 0.80f),
-)
+/** useplanes 页面预览的顶部模糊带高度：96px。 */
+private val PROGRESSIVE_BLUR_BAND_HEIGHT = 96.dp
 
-/** 顶栏表面色：顶部 20% 保持 0.95，往下淡到底边 0.4。 */
+/** useplanes 页面预览顶部带的七层模糊半径（默认 ramp × 1.5）。 */
+private val ProgressiveBlurRadii = listOf(0.75f, 1.5f, 3f, 4.5f, 7.5f, 12f, 18f)
+
+/**
+ * 每层遮罩占整条带的比例：useplanes 的层与层之间错开 12.5%，
+ * 每层是「透明 → 不透明 → 不透明 → 透明」的一条带。
+ */
+private const val PROGRESSIVE_BLUR_STEP = 0.125f
+
+/**
+ * 顶栏的模糊从屏幕顶边往下递减，所以遮罩按从底边往上数的位置生成：
+ * 第 0 层（0.75dp）在底边附近淡出，第 6 层（18dp）在顶边满强度。
+ */
+private val ProgressiveBlurMasks: List<Brush> = ProgressiveBlurRadii.indices.map { index ->
+    val stops = listOf(
+        (1f - (index + 3) * PROGRESSIVE_BLUR_STEP) to 0f,
+        (1f - (index + 2) * PROGRESSIVE_BLUR_STEP) to 1f,
+        (1f - (index + 1) * PROGRESSIVE_BLUR_STEP) to 1f,
+        (1f - index * PROGRESSIVE_BLUR_STEP) to 0f,
+    ).clipToUnitRange()
+    Brush.verticalGradient(
+        *stops.map { (position, alpha) ->
+            position to Color.Black.copy(alpha = alpha)
+        }.toTypedArray(),
+    )
+}
+
+/** 把越出 [0, 1] 的渐变端点裁掉，并在边界上按原斜率补一个端点。 */
+private fun List<Pair<Float, Float>>.clipToUnitRange(): List<Pair<Float, Float>> {
+    fun alphaAt(position: Float): Float {
+        val before = lastOrNull { it.first <= position } ?: first()
+        val after = firstOrNull { it.first >= position } ?: last()
+        if (before.first == after.first) return after.second
+        val t = (position - before.first) / (after.first - before.first)
+        return before.second + (after.second - before.second) * t
+    }
+
+    val visible = filter { it.first in 0f..1f }.toMutableList()
+    if (first().first > 0f) visible.add(0, 0f to alphaAt(0f))
+    if (last().first < 1f) visible.add(1f to alphaAt(1f))
+    return visible.sortedBy { it.first }
+}
+
+/** 顶栏表面色遮罩：顶部完全不透明，到底边线性归零。 */
 private fun tintWash(surface: Color): Brush = Brush.verticalGradient(
-    0f to surface.copy(alpha = 0.95f),
-    0.2f to surface.copy(alpha = 0.95f),
-    0.4f to surface.copy(alpha = 0.91f),
-    0.6f to surface.copy(alpha = 0.70f),
-    0.8f to surface.copy(alpha = 0.49f),
-    1f to surface.copy(alpha = 0.40f),
+    0f to surface.copy(alpha = 1f),
+    1f to surface.copy(alpha = 0f),
 )
 
 // ── 首页版式 ──
@@ -473,6 +508,7 @@ private fun EditorialMasthead(
 
 /** 今日安排只放时间相关的信息；所有功能及其状态统一放在下面的服务区。 */
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun EditorialFrontPage(
     modifier: Modifier = Modifier,
     host: HomeHost,
@@ -489,36 +525,63 @@ private fun EditorialFrontPage(
         ?.firstOrNull { it.route == AppRoute.Schedule }
     if (nextUp == null && inbox == null && exam == null && quick == null) return
 
-    val ink = Color.White
-    val muted = Color.White.copy(alpha = 0.78f)
     val hasLead = nextUp != null || exam != null || inbox != null
-    val mood = rememberLiquidMood(nextUp, examSoon = exam != null)
+    val appearanceStore = remember { SettingsStore() }
+    val dark = LocalIsDarkTheme.current
+    // 设置页与首页各读一份；靠 revision / 深浅模式在别处改完之后重新读盘。
+    val appearance = remember(HeroAppearanceRevision.current, dark) { HeroAppearance.read(appearanceStore, dark) }
+    var showAppearance by remember { mutableStateOf(false) }
+    val configure = { showAppearance = true }
+    val ink = appearance.contentColor
+    val muted = ink.copy(alpha = 0.78f)
+    val accent = if (ink == Color.White) LiquidCardAccent else ink.copy(alpha = 0.8f)
+    val rule = ink.copy(alpha = 0.18f)
+    val mood = rememberLiquidMood(nextUp?.startAt, examSoon = exam != null, appearance = appearance)
     Column(modifier.fillMaxWidth()) {
         if (hasLead) {
             Box(Modifier.fillMaxWidth().liquidPaper()) {
-                LiquidBackground(
-                    colors = mood.colors, seed = mood.seed, speed = mood.speed, crease = mood.crease,
-                    modifier = Modifier.matchParentSize(),
-                )
-                // 和站点面板同一层思路：亮部再压一道暗色，白字在流动的亮斑上也立得住。
-                Box(Modifier.matchParentSize().background(LiquidCardScrim))
+                when (appearance.background) {
+                    "solid" -> Box(Modifier.matchParentSize().background(appearance.solidColor))
+                    "forest" -> {
+                        HeroForestBackground(Modifier.matchParentSize())
+                        Box(Modifier.matchParentSize().background(HeroForestScrim))
+                    }
+                    "pixel" -> {
+                        HeroPixelBackground(Modifier.matchParentSize(), animated = !showAppearance)
+                        Box(Modifier.matchParentSize().background(HeroPixelScrim))
+                    }
+                    "custom" -> {
+                        HeroCustomBackground(appearance.imageData, Modifier.matchParentSize())
+                        Box(Modifier.matchParentSize().background(HeroCustomScrim))
+                    }
+                    else -> {
+                        LiquidBackground(
+                            colors = mood.colors, seed = mood.seed, speed = mood.speed, crease = mood.crease,
+                            animated = mood.animated && !showAppearance,
+                            modifier = Modifier.matchParentSize(),
+                        )
+                        Box(Modifier.matchParentSize().background(LiquidCardScrim))
+                    }
+                }
                 Column(Modifier.fillMaxWidth()) {
                     nextUp?.let {
-                        EditorialNextUpLead(it, ink, muted) { it.route?.let(host::onRoute) ?: host.onProfile() }
+                        EditorialNextUpLead(it, ink, muted, accent, onLongClick = configure) { it.route?.let(host::onRoute) ?: host.onProfile() }
                     }
                     if (exam != null) {
-                        if (nextUp != null) EditorialRule(Modifier.padding(horizontal = 18.dp), LiquidCardRule)
+                        if (nextUp != null) EditorialRule(Modifier.padding(horizontal = 18.dp), rule)
                         Row(
                             Modifier.fillMaxWidth()
-                                .clickable(
+                                .combinedClickable(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = SinkFeedback(),
                                     onClick = { host.onRoute(AppRoute.Schedule) },
+                                    onLongClick = configure,
+                                    onLongClickLabel = "设置卡片外观",
                                 )
                                 .padding(horizontal = 18.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(exam.icon, null, tint = LiquidCardAccent, modifier = Modifier.size(16.dp))
+                            Icon(exam.icon, null, tint = accent, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(exam.label, fontSize = 12.sp, color = muted)
                             Spacer(Modifier.width(10.dp))
@@ -534,9 +597,9 @@ private fun EditorialFrontPage(
                     }
                     if (inbox != null) {
                         if (nextUp != null || exam != null) {
-                            EditorialRule(Modifier.padding(horizontal = 18.dp), LiquidCardRule)
+                            EditorialRule(Modifier.padding(horizontal = 18.dp), rule)
                         }
-                        InboxBrief(inbox, ink, muted) { host.onRoute(AppRoute.Inbox) }
+                        InboxBrief(inbox, ink, muted, onLongClick = configure) { host.onRoute(AppRoute.Inbox) }
                     }
                 }
             }
@@ -549,13 +612,28 @@ private fun EditorialFrontPage(
             }
         }
     }
+    if (showAppearance) {
+        HeroAppearanceDialog(
+            current = appearance,
+            nextStartAt = nextUp?.startAt,
+            examSoon = exam != null,
+            onDismiss = { showAppearance = false },
+            onApply = {
+                it.save(appearanceStore, dark)
+                showAppearance = false
+            },
+        )
+    }
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun EditorialNextUpLead(
     nextUp: HomeNextUp,
     ink: Color,
     muted: Color,
+    accent: Color,
+    onLongClick: () -> Unit,
     onClick: () -> Unit,
 ) {
     val timeLabel = nextUp.timeLabel
@@ -563,10 +641,12 @@ private fun EditorialNextUpLead(
     Column(
         Modifier
             .fillMaxWidth()
-            .clickable(
+            .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
                 onClick = onClick,
+                onLongClick = onLongClick,
+                onLongClickLabel = "设置卡片外观",
             )
             .padding(horizontal = 16.dp, vertical = 15.dp),
     ) {
@@ -578,7 +658,7 @@ private fun EditorialNextUpLead(
                 Modifier
                     .size(5.dp)
                     .background(
-                        if (timeLabel != null) LiquidCardAccent else muted.copy(alpha = 0.45f),
+                        if (timeLabel != null) accent else muted.copy(alpha = 0.45f),
                         CircleShape,
                     )
             )
@@ -593,7 +673,6 @@ private fun EditorialNextUpLead(
                 Text(
                     nextUp.eta,
                     style = TextStyle(
-                        fontFamily = Editorial.Serif,
                         fontWeight = FontWeight.Medium,
                         fontSize = 11.sp,
                         lineHeight = 14.sp,
@@ -653,7 +732,6 @@ private fun EditorialNextUpLead(
                     Text(
                         nextUp.title,
                         style = TextStyle(
-                            fontFamily = Editorial.Serif,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 18.sp,
                             lineHeight = 24.sp,
@@ -688,7 +766,6 @@ private fun EditorialNextUpLead(
                     Text(
                         nextUp.title,
                         style = TextStyle(
-                            fontFamily = Editorial.Serif,
                             fontWeight = FontWeight.Medium,
                             fontSize = 16.sp,
                             lineHeight = 22.sp,
@@ -715,14 +792,17 @@ private fun EditorialNextUpLead(
 }
 
 @Composable
-private fun InboxBrief(summary: HomeInboxSummary, ink: Color, muted: Color, onClick: () -> Unit) {
+@OptIn(ExperimentalFoundationApi::class)
+private fun InboxBrief(summary: HomeInboxSummary, ink: Color, muted: Color, onLongClick: () -> Unit, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(
+            .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
                 onClick = onClick,
+                onLongClick = onLongClick,
+                onLongClickLabel = "设置卡片外观",
             )
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -739,7 +819,6 @@ private fun InboxBrief(summary: HomeInboxSummary, ink: Color, muted: Color, onCl
         Text(
             summary.nextTodo ?: "去收纳里看看",
             style = TextStyle(
-                fontFamily = Editorial.Serif,
                 fontWeight = FontWeight.Medium,
                 fontSize = 14.5.sp,
                 lineHeight = 19.sp,
@@ -784,8 +863,6 @@ private fun HomeIndexCard(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        Text("校园服务", fontSize = 19.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(start = 4.dp, bottom = 12.dp))
         if (isWideLayout()) {
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 balancedColumns(sections.size) { 2 + (sections[it].rows.size + 1) / 2 }.forEach { column ->
@@ -823,8 +900,7 @@ private fun ServiceSection(section: IndexCategorySection) {
             Box(Modifier.width(3.dp).height(28.dp).background(accent, RoundedCornerShape(2.dp)))
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(section.title, fontSize = 17.sp, fontWeight = FontWeight.Bold,
-                    fontFamily = Editorial.Serif, color = ink)
+                Text(section.title, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = ink)
                 Spacer(Modifier.height(3.dp))
                 Text(section.subtitle, fontSize = 11.sp, color = muted, maxLines = 1,
                     overflow = TextOverflow.Ellipsis)
@@ -1009,7 +1085,6 @@ private val LiquidCardScrim = Brush.verticalGradient(
 )
 
 /** 液体卡上的发丝线：白线，比主题描边亮一档。 */
-private val LiquidCardRule = Color.White.copy(alpha = 0.18f)
 
 /** 液体卡上的暖色点缀，只用在小圆点和考试图标上，不承字。 */
 private val LiquidCardAccent = Color(0xFFFFB4A6)

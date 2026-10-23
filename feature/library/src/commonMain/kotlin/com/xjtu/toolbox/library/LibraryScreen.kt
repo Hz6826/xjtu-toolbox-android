@@ -55,6 +55,8 @@ import androidx.compose.runtime.*
 import com.xjtu.toolbox.auth.LocalAuthExpiry
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -783,6 +785,7 @@ private fun ResultBanner(result: BookResult?, onDismiss: () -> Unit, modifier: M
                     color = if (r.success) MiuixTheme.colorScheme.secondaryContainer else MiuixTheme.colorScheme.errorContainer,
                     cornerRadius = 16.dp,
                 )
+                .clip(RoundedCornerShape(16.dp))
                 .clickable(onClick = onDismiss)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         )

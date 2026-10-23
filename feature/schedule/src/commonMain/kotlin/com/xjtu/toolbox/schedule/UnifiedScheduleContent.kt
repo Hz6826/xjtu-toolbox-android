@@ -87,6 +87,8 @@ fun TodayTimeline(
     upcoming: List<UpcomingItem> = emptyList(),
     /** 今天截止的作业，插进时间轴对应的时刻（不是「接下来」——那是给以后的）。 */
     todayHomework: List<LmsDue> = emptyList(),
+    /** 屁岱排日程卡里的安排写进日程（见 [DayPlanCard]）。 */
+    onAddPlan: ((LocalDate, List<PlanItem>) -> Unit)? = null,
 ) {
     val courseColors = rememberCourseColors(allCourseNames)
     val isSummer = remember(today) { XjtuTime.isSummerTime(today.monthNumber) }
@@ -168,7 +170,7 @@ fun TodayTimeline(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 12.dp + bottomPadding),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item(key = "day_plan") { DayPlanCard(planSnapshot, today) }
+            item(key = "day_plan") { DayPlanCard(planSnapshot, today, onAdd = onAddPlan) }
             item(key = "empty") { Box(Modifier.enterOnce(0)) { NoCourseTodayCard() } }
         }
         return
@@ -200,7 +202,7 @@ fun TodayTimeline(
         ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (showPlan) item(key = "day_plan") { DayPlanCard(planSnapshot, today) }
+        if (showPlan) item(key = "day_plan") { DayPlanCard(planSnapshot, today, onAdd = onAddPlan) }
         if (entries.isEmpty()) {
             // 今天没课也没考试没作业，但「接下来」有内容——给个小卡片交代一下，
             // 别让页面看着像没加载出来。

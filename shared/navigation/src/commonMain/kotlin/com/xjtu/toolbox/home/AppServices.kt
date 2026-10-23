@@ -36,13 +36,24 @@ data class AppService(
     val aliases: List<String> = emptyList(),
     val showOnHome: Boolean = true,
     val audience: AccountType? = null,
+    /**
+     * 页面里的功能，写成「名称：说明」。屁岱的 app_guide 照这里讲、全局搜索按名称搜；
+     * 页面里加了能单独说出名字的功能就登记在这，不然屁岱会说 App 没有。
+     */
+    val features: List<String> = emptyList(),
 )
 
 object AppServices {
     val all: List<AppService> = listOf(
-        AppService(AppRoute.Schedule, "日程", "本学期课表与考试", ServiceCategory.CLASS, listOf("课表", "课程", "schedule", "今天", "明天")),
-        AppService(AppRoute.EmptyRoom, "空闲教室", "查找自习空教室", ServiceCategory.STUDY, listOf("空教室", "自习", "教室")),
-        AppService(AppRoute.Lms(), "思源", "课程作业与资料", ServiceCategory.CLASS, listOf("思源学堂", "lms", "作业", "课件")),
+        AppService(AppRoute.Schedule, "日程", "本学期课表与考试", ServiceCategory.CLASS, listOf("课表", "课程", "schedule", "今天", "明天"),
+            features = listOf(
+                "自建日程：手动添加、编辑、删除自己的安排",
+                "屁岱排日程：选一天说一句，屁岱整理安排，可一键加进日程或待办",
+            )),
+        AppService(AppRoute.EmptyRoom, "空闲教室", "查找自习空教室", ServiceCategory.STUDY, listOf("空教室", "自习", "教室"),
+            features = listOf("三种数据源：此刻实况、课表 CDN、直查教务")),
+        AppService(AppRoute.Lms(), "思源", "课程作业与资料", ServiceCategory.CLASS, listOf("思源学堂", "lms", "作业", "课件"),
+            features = listOf("课程公告与讨论区：按课程看公告、发帖回帖", "屁岱思源待办：快截止的作业排在一起")),
         AppService(AppRoute.SchoolCourse, "课程查询", "全校开课查询", ServiceCategory.CLASS, listOf("开课", "选课", "查课")),
         AppService(AppRoute.Attendance, "考勤", "出勤统计与请假", ServiceCategory.CLASS, listOf("考勤", "考勤查询", "出勤", "迟到", "缺勤", "新考勤", "请假", "病假", "私事假", "销假", "kq")),
         AppService(AppRoute.Iclassface, "快速考勤流水", "课堂人脸考勤记录", ServiceCategory.CLASS, listOf("人脸考勤", "刷脸", "iclassface"), showOnHome = false, audience = AccountType.UNDERGRADUATE),
@@ -52,21 +63,34 @@ object AppServices {
         AppService(AppRoute.Jiaocai, "教材", "查课程教材、读全文", ServiceCategory.STUDY, listOf("课本", "教材中心", "全文", "电子书", "在线阅读")),
         // 已并进「教材」的全文库栏；首页不单列，全局搜「教材全文」仍能直达那一栏
         AppService(AppRoute.Jiaocai1, "教材全文", "教材全文库", ServiceCategory.STUDY, listOf("全文", "电子书", "在线阅读"), showOnHome = false),
-        AppService(AppRoute.Library, "图书馆", "借阅与座位", ServiceCategory.STUDY, listOf("图书", "借书", "座位", "自习室")),
-        AppService(AppRoute.Zyxf, "学辅资料", "历年卷与复习资料", ServiceCategory.STUDY, listOf("学辅", "仲英学辅", "历年卷", "真题", "复习资料", "课件", "笔记")),
+        AppService(AppRoute.Library, "图书馆", "借阅与座位", ServiceCategory.STUDY, listOf("图书", "借书", "座位", "自习室"),
+            features = listOf(
+                "座位热力图：按区域看拥挤程度，找好坐的空座",
+                "屁岱荐座：按偏好挑座位，仅供参考",
+                "收藏座位：长按座位收藏",
+            )),
+        AppService(AppRoute.Zyxf, "学辅资料", "历年卷与复习资料", ServiceCategory.STUDY, listOf("学辅", "仲英学辅", "历年卷", "真题", "复习资料", "课件", "笔记"),
+            features = listOf("屁岱找资料：说要找什么，屁岱帮你挑")),
         AppService(AppRoute.Transcript, "成绩单", "电子成绩单", ServiceCategory.CLASS, listOf("成绩证明", "打印成绩"), showOnHome = false, audience = AccountType.UNDERGRADUATE),
-        AppService(AppRoute.Notification, "通知公告", "教务与学院通知", ServiceCategory.LIFE, listOf("通知", "公告", "教务")),
+        AppService(AppRoute.Notification, "通知公告", "教务与学院通知", ServiceCategory.LIFE, listOf("通知", "公告", "教务"),
+            features = listOf("屁岱通知精选：从多个来源里挑出和你相关的")),
         AppService(AppRoute.Faculty, "教师主页", "教师与研究方向", ServiceCategory.STUDY, listOf("教师", "老师", "导师", "博导", "硕导", "研究方向", "teacher", "faculty")),
 
-        AppService(AppRoute.CampusCard, "校园卡", "余额与今日消费", ServiceCategory.LIFE, listOf("一卡通", "余额")),
+        AppService(AppRoute.CampusCard, "校园卡", "余额与今日消费", ServiceCategory.LIFE, listOf("一卡通", "余额"),
+            features = listOf(
+                "消费分析：全年流水、食堂分布、吃饭节奏",
+                "干饭人账单：消费分析里按吃饭习惯出一张海报，可存图分享",
+                "屁岱今天吃啥：按课表和位置推荐去哪吃",
+            )),
         AppService(AppRoute.PaymentCode, "付款码", "出示校园付款码", ServiceCategory.LIFE, listOf("付款", "扫码")),
         AppService(AppRoute.Coupon, "加餐券", "食堂加餐券", ServiceCategory.LIFE, listOf("加餐", "餐券", "食堂"), showOnHome = false),
         AppService(AppRoute.SchoolCalendar, "校历", "学期与考试安排", ServiceCategory.LIFE, listOf("学期", "周数")),
-        AppService(AppRoute.Venue, "场馆预订", "预约羽毛球、网球等", ServiceCategory.LIFE, listOf("场馆", "空闲场馆", "羽毛", "网球场")),
+        AppService(AppRoute.Venue, "场馆预订", "预约羽毛球、网球等", ServiceCategory.LIFE, listOf("场馆", "空闲场馆", "羽毛", "网球场"),
+            features = listOf("我的订单：查看、支付、取消订单", "验证码自动识别：预订时自动滑过滑块验证码")),
         AppService(AppRoute.Fitness, "体测查询", "体测成绩与明细", ServiceCategory.LIFE, listOf("体测", "体育", "体能", "fitness")),
         AppService(AppRoute.YellowPage, "校园黄页", "校内电话与机构", ServiceCategory.LIFE, listOf("黄页", "电话", "分机")),
 
-        AppService(AppRoute.WebVpnConverter, "WebVPN", "校外访问转换", ServiceCategory.TOOL, listOf("vpn", "webvpn")),
+        AppService(AppRoute.WebVpnConverter, "WebVPN", "非校园网访问转换", ServiceCategory.TOOL, listOf("vpn", "webvpn")),
         AppService(AppRoute.Agent, "屁岱", "校园 AI 助手", ServiceCategory.TOOL, listOf("问屁岱", "ai", "助手")),
         AppService(AppRoute.Community, "社区", "提建议、报问题", ServiceCategory.TOOL, listOf("社区讨论", "讨论", "论坛", "交流", "建议", "github")),
 

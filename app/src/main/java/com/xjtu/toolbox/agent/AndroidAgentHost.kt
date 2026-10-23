@@ -344,7 +344,7 @@ private fun agentImageDir(context: Context): File =
         .apply { mkdirs() }
 
 /** 把用户选中的图片压好存进私有目录，返回文件绝对路径；失败返回 null。 */
-private fun attachAgentImage(context: Context, uri: Uri): String? = try {
+internal fun attachAgentImage(context: Context, uri: Uri): String? = try {
     val source = decodeAgentImageScaled(context, uri)
     if (source == null) {
         null
