@@ -240,7 +240,7 @@ internal fun rememberAppHome(
         override val greetingName: String = loginState.cachedNickname.orEmpty()
             .ifBlank { loginState.ywtbUserInfo?.userName.orEmpty() }
             .ifBlank { loginState.activeUsername }
-        override val dateLabel: String = "${today.monthOfMonth()} · $weekDay"
+        override val dateLabel: String = "${today.monthOfMonth()} $weekDay"
         override val weekNumber: Int get() = currentWeekNumber
         override val statusLine: HomeStatusLine? get() = heroStatus
         override val bulletins: List<Bulletin> get() = bulletinItems

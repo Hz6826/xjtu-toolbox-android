@@ -237,26 +237,35 @@ private fun HomeQuickAction(
 ) {
     val origin = rememberExpandOriginSource()
     val density = LocalDensity.current
+    val iconRadius = iconSize * (if (solidIcon) 0.3f else 0.31f)
+    val snapshot: @Composable (Modifier) -> Unit = { m ->
+        Box(m, contentAlignment = Alignment.Center) {
+            if (solidIcon) GradientAppIcon(icon, color, size = iconSize, iconSize = iconSize * 0.5f)
+            else ExpressiveIcon(icon = icon, color = color, size = iconSize, iconSize = iconSize * 0.5f)
+        }
+    }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top,
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (originKey != null) Modifier.expandOriginSource(origin) else Modifier)
             .clip(RoundedCornerShape(18.dp))
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
                 onLongClick = onLongClick,
                 onClick = {
-                    originKey?.let { origin.arm(it, 18.dp, density) }
+                    originKey?.let { origin.arm(it, iconRadius, density, snapshot) }
                     onClick()
                 },
             )
             .padding(horizontal = 4.dp, vertical = 6.dp)
     ) {
-        if (solidIcon) GradientAppIcon(icon, color, size = iconSize, iconSize = iconSize * 0.5f)
-        else ExpressiveIcon(icon = icon, color = color, size = iconSize, iconSize = iconSize * 0.5f)
+        // 转场从图标本身长出来：坐标取图标方块，不含下面的名称。
+        Box(if (originKey != null) Modifier.expandOriginSource(origin) else Modifier) {
+            if (solidIcon) GradientAppIcon(icon, color, size = iconSize, iconSize = iconSize * 0.5f)
+            else ExpressiveIcon(icon = icon, color = color, size = iconSize, iconSize = iconSize * 0.5f)
+        }
         Spacer(Modifier.height(6.dp))
         Text(label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, maxLines = 1,
             color = labelColor ?: MiuixTheme.colorScheme.onSurface)

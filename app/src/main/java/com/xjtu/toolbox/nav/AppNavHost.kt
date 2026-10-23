@@ -7,6 +7,12 @@ import android.net.Uri
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -14,11 +20,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.util.lerp
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.createSavedStateHandle
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CompletableDeferred
 import com.xjtu.toolbox.account.AccountManager
 import com.xjtu.toolbox.account.AccountManagerScreen
@@ -114,6 +127,7 @@ import top.yukonga.miuix.kmp.nav.core.NavDisplay
 import top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius
 import top.yukonga.miuix.kmp.nav.transition.NavSwipeDirection
 import top.yukonga.miuix.kmp.nav.transition.NavTransition
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.reflect.KClass
 
 /**
@@ -147,6 +161,7 @@ fun AppNavHost(
         if (site != null) content(site) else LaunchedEffect(Unit) { back() }
     }
 
+    Box(Modifier.fillMaxSize()) {
     NavDisplay(backStack = backStack, onBack = back) {
         entry<AppRoute.Main> { mainContent() }
 
@@ -547,6 +562,56 @@ fun AppNavHost(
             )
         }
         // 日程、屁岱是底栏 tab，付款码是覆盖层，都不进返回栈（见 AppRouter.open）
+    }
+    ExpandOriginPopOverlay(screenCornerPx)
+    }
+}
+
+/**
+ * 返回时的源元素叠加层：窗口缩到中段以后，页面内容会让位给真实的图标 / 行块。
+ * 外层灰底和窗口尺寸继续按转场的进度缩到原位，所以看不到页面顶栏叠在目标元素上。
+ */
+@Composable
+private fun ExpandOriginPopOverlay(screenCornerPx: Float) {
+    val pop = ExpandOrigins.pop.value ?: return
+    val origin = pop.origin
+    val snapshot = origin.snapshot ?: return
+    val win = ExpandOrigins.windowOf(origin, pop.progress, pop.full)
+    // 0.55 → 0.35：页面渐隐、源元素渐显；之后整个窗口继续缩到原位。
+    val cover = ((0.55f - pop.progress) / 0.2f).coerceIn(0f, 1f)
+    if (cover <= 0f) return
+    val widthPx = win.bounds.width
+    val heightPx = win.bounds.height
+    if (widthPx <= 0f || heightPx <= 0f) return
+
+    val density = LocalDensity.current
+    val surface = MiuixTheme.colorScheme.surface
+    val cornerPx = lerp(origin.cornerPx, screenCornerPx, win.grow)
+    val scale = widthPx / origin.bounds.width.coerceAtLeast(1f)
+    val winWidth = with(density) { widthPx.toDp() }
+    val winHeight = with(density) { heightPx.toDp() }
+    val corner = with(density) { cornerPx.toDp() }
+    val originWidth = with(density) { origin.bounds.width.toDp() }
+    val originHeight = with(density) { origin.bounds.height.toDp() }
+
+    Box(
+        Modifier
+            .offset { IntOffset(win.bounds.left.roundToInt(), win.bounds.top.roundToInt()) }
+            .size(winWidth, winHeight)
+            .clip(RoundedCornerShape(corner))
+            .background(surface.copy(alpha = cover)),
+    ) {
+        Box(
+            Modifier
+                .align(Alignment.Center)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    alpha = cover
+                },
+        ) {
+            snapshot(Modifier.size(originWidth, originHeight))
+        }
     }
 }
 

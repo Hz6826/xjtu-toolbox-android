@@ -4,6 +4,7 @@ package com.xjtu.toolbox.agent
 
 import com.xjtu.toolbox.nav.appRouteOf
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.ui.glass.LocalGlassStyle
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.scaleIn
@@ -41,6 +42,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.xjtu.toolbox.platform.showBriefMessage
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
@@ -129,7 +134,12 @@ internal fun ChatPanel(
         vm.sendMessage(text, config)
     }
 
-    Column(
+    val glass = LocalGlassStyle.current
+    val chatBackdrop = rememberLayerBackdrop()
+    var composerHeightPx by remember { mutableIntStateOf(0) }
+    val composerHeight = with(LocalDensity.current) { composerHeightPx.toDp() }
+
+    Box(
         modifier
             // 宽屏下一行聊天横跨平板全宽让人找不到行首，整块（含输入栏）限宽居中。
             .readableWidth(760.dp)
@@ -139,7 +149,13 @@ internal fun ChatPanel(
             .padding(top = padding.calculateTopPadding())
             .background(MiuixTheme.colorScheme.surface)
     ) {
-        Box(Modifier.weight(1f).clipToBounds()) {
+        // 内容层只录聊天列表和气泡；输入栏玻璃采样这一层，不能把自己也录进去。
+        Box(
+            Modifier
+                .fillMaxSize()
+                .then(if (glass) Modifier.layerBackdrop(chatBackdrop) else Modifier)
+        ) {
+            Box(Modifier.fillMaxSize().clipToBounds()) {
             key(vm.currentSessionId) {
                 val listState = rememberLazyListState()
                 val chatRows = groupAgentRows(vm.messages, config.showReasoning)
@@ -153,7 +169,7 @@ internal fun ChatPanel(
                         .fillMaxSize()
                         .overScrollVertical()
                         .nestedScroll(scrollBehavior.nestedScrollConnection),
-                    contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 16.dp + listTopPadding, bottom = 16.dp),
+                    contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 16.dp + listTopPadding, bottom = 16.dp + composerHeight),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
             if (vm.messages.isEmpty()) {
@@ -215,10 +231,19 @@ internal fun ChatPanel(
             // 聊天中戳底栏屁岱：首屏已经不在了，就在输入框正上方冒一句小话，几秒后自己收起。
             // 不走底栏气泡（会压住输入框），也不打断对话。
             if (vm.messages.isNotEmpty()) {
-                pokeWhisper(Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp))
+                pokeWhisper(Modifier.align(Alignment.BottomCenter).padding(bottom = composerHeight + 10.dp))
+            }
             }
         }
 
+        // 输入区浮在聊天内容上：玻璃模式下不铺底色，内容从下面透出来；经典模式保持原来的实底。
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .onSizeChanged { composerHeightPx = it.height }
+                .then(if (glass) Modifier else Modifier.background(MiuixTheme.colorScheme.surface))
+        ) {
         // 未配置模型时的提示条。放在输入栏正上方而不是弹窗或整页表单，
         // 是因为它要解释「为什么现在发不出去」，紧挨着发送动作才说得通。
         if (!config.isConfigured && vm.messages.isNotEmpty()) {
@@ -304,7 +329,9 @@ internal fun ChatPanel(
                 // 还没发出去就撤了，压缩件留着没用。
                 host.deleteImageFiles(listOf(path))
             },
+            backdrop = if (glass) chatBackdrop else null,
         )
+        }
     }
 }
 /** 三个依次明灭的小圆点，替代静态"思考中…"，让等待更有生气。 */

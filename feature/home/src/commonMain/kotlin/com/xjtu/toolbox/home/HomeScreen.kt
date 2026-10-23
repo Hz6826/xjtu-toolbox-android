@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -506,7 +507,7 @@ private fun EditorialMasthead(
             Row(Modifier.fillMaxWidth().height(20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(dateLabel, fontSize = 12.sp, color = muted, maxLines = 1)
                 if (weekNumber in 1..MAX_TEACHING_WEEK) {
-                    Text(" · ", fontSize = 12.sp, color = muted.copy(alpha = 0.5f))
+                    Text("  ", fontSize = 12.sp, color = muted.copy(alpha = 0.5f))
                     Text("第 $weekNumber 周", fontSize = 12.sp,
                         color = if (LocalIsDarkTheme.current) lerp(HomeSeal.Red, ink, 0.35f) else HomeSeal.Red,
                         maxLines = 1)
@@ -893,33 +894,64 @@ private fun IndexEntry(row: HomeServiceRow, modifier: Modifier = Modifier) {
     val iconColor = if (dark) lerp(row.color, Color.White, 0.4f) else row.color
     Row(
         modifier.background(tile, RoundedCornerShape(15.dp))
-            .opensRow(row, 15.dp).padding(horizontal = 10.dp, vertical = 11.dp),
+            .opensRow(row, 15.dp) { m -> IndexEntrySnapshot(row, m) }
+            .padding(horizontal = 10.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(34.dp).background(row.color.copy(alpha = if (dark) 0.18f else 0.10f),
-            RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) {
-            Icon(row.icon, null, tint = iconColor, modifier = Modifier.size(19.dp))
-        }
-        Spacer(Modifier.width(9.dp))
-        Column(Modifier.weight(1f)) {
-            Text(row.title, fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium, color = ink,
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(3.dp))
-            Text(row.stat ?: row.subtitle,
-                fontSize = 11.sp, lineHeight = 15.sp,
-                fontWeight = if (row.stat != null) FontWeight.Medium else FontWeight.Normal,
-                color = when {
-                    row.stat == null || row.tone == HomeTone.MUTED -> muted
-                    row.tone == HomeTone.ALERT -> MiuixTheme.colorScheme.error
-                    row.tone == HomeTone.ACCENT -> iconColor
-                    else -> lerp(row.color, ink, if (dark) 0.55f else 0.25f)
-                },
+        IndexEntryBody(row, dark, ink, muted, iconColor)
+    }
+}
+
+/** 返回转场里画在窗口中的行块；和 [IndexEntry] 用同一套内容与底色，落到原位时不会跳。 */
+@Composable
+private fun IndexEntrySnapshot(row: HomeServiceRow, modifier: Modifier = Modifier) {
+    val dark = LocalIsDarkTheme.current
+    val ink = MiuixTheme.colorScheme.onSurface
+    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val tile = if (dark) lerp(AppCardColor, Color.White, 0.045f)
+        else lerp(AppCardColor, MiuixTheme.colorScheme.surface, 0.65f)
+    val iconColor = if (dark) lerp(row.color, Color.White, 0.4f) else row.color
+    Row(
+        modifier.fillMaxSize()
+            .background(tile, RoundedCornerShape(15.dp))
+            .padding(horizontal = 10.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IndexEntryBody(row, dark, ink, muted, iconColor)
+    }
+}
+
+@Composable
+private fun RowScope.IndexEntryBody(
+    row: HomeServiceRow,
+    dark: Boolean,
+    ink: Color,
+    muted: Color,
+    iconColor: Color,
+) {
+    Box(Modifier.size(34.dp).background(row.color.copy(alpha = if (dark) 0.18f else 0.10f),
+        RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) {
+        Icon(row.icon, null, tint = iconColor, modifier = Modifier.size(19.dp))
+    }
+    Spacer(Modifier.width(9.dp))
+    Column(Modifier.weight(1f)) {
+        Text(row.title, fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium, color = ink,
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(3.dp))
+        Text(row.stat ?: row.subtitle,
+            fontSize = 11.sp, lineHeight = 15.sp,
+            fontWeight = if (row.stat != null) FontWeight.Medium else FontWeight.Normal,
+            color = when {
+                row.stat == null || row.tone == HomeTone.MUTED -> muted
+                row.tone == HomeTone.ALERT -> MiuixTheme.colorScheme.error
+                row.tone == HomeTone.ACCENT -> iconColor
+                else -> lerp(row.color, ink, if (dark) 0.55f else 0.25f)
+            },
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+        row.statDetail?.takeIf { it.isNotBlank() }?.let {
+            Spacer(Modifier.height(2.dp))
+            Text(it, fontSize = 10.5.sp, lineHeight = 14.sp, color = muted,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-            row.statDetail?.takeIf { it.isNotBlank() }?.let {
-                Spacer(Modifier.height(2.dp))
-                Text(it, fontSize = 10.5.sp, lineHeight = 14.sp, color = muted,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
         }
     }
 }
@@ -1416,25 +1448,38 @@ private fun HomeServiceTile(
 ) {
     val origin = rememberExpandOriginSource()
     val density = LocalDensity.current
+    val iconSize = if (solidIcon) 48.dp else 42.dp
+    val iconRadius = iconSize * (if (solidIcon) 0.3f else 0.31f)
+    val snapshot: @Composable (Modifier) -> Unit = { m ->
+        Box(m, contentAlignment = Alignment.Center) {
+            if (solidIcon) {
+                GradientAppIcon(row.icon, row.color, size = iconSize)
+            } else {
+                ExpressiveIcon(icon = row.icon, color = row.color, size = iconSize, iconSize = 21.dp)
+            }
+        }
+    }
     Column(
         modifier = modifier
-            .expandOriginSource(origin)
             .clip(RoundedCornerShape(14.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
                 onClick = {
-                    origin.arm(row.key, 14.dp, density)
+                    origin.arm(row.key, iconRadius, density, snapshot)
                     row.onClick()
                 }
             )
             .padding(horizontal = 2.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        if (solidIcon) {
-            GradientAppIcon(row.icon, row.color)
-        } else {
-            ExpressiveIcon(icon = row.icon, color = row.color, size = 42.dp, iconSize = 21.dp)
+        // 转场从图标本身长出来：坐标取图标方块，不含下面的名称。
+        Box(Modifier.expandOriginSource(origin)) {
+            if (solidIcon) {
+                GradientAppIcon(row.icon, row.color, size = iconSize)
+            } else {
+                ExpressiveIcon(icon = row.icon, color = row.color, size = iconSize, iconSize = 21.dp)
+            }
         }
         Spacer(Modifier.height(7.dp))
         Text(
@@ -1450,7 +1495,11 @@ private fun HomeServiceTile(
 
 /** 点开功能页，并让功能页从这一块放大出来。 */
 @Composable
-private fun Modifier.opensRow(row: HomeServiceRow, radius: Dp = 12.dp): Modifier {
+private fun Modifier.opensRow(
+    row: HomeServiceRow,
+    radius: Dp = 12.dp,
+    snapshot: (@Composable (Modifier) -> Unit)? = null,
+): Modifier {
     val origin = rememberExpandOriginSource()
     val density = LocalDensity.current
     return this
@@ -1460,7 +1509,7 @@ private fun Modifier.opensRow(row: HomeServiceRow, radius: Dp = 12.dp): Modifier
             interactionSource = remember { MutableInteractionSource() },
             indication = SinkFeedback(),
             onClick = {
-                origin.arm(row.key, radius, density)
+                origin.arm(row.key, radius, density, snapshot)
                 row.onClick()
             },
         )

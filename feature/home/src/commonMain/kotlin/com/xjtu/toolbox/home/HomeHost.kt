@@ -84,7 +84,7 @@ interface HomeHost {
     /** 问候里的名字（空 = 只问候，不写名字）。 */
     val greetingName: String
 
-    /** 日期那一行的文案（例如「10月12日 · 星期一」）。 */
+    /** 日期那一行的文案（例如「10月12日 星期一」）。 */
     val dateLabel: String
 
     /** 教学周；0 = 算不出来（只有 [HomeCard.WEEK_NUMBER] 荣列时才画）。 */
