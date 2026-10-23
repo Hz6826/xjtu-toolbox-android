@@ -34,6 +34,13 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "5.2.1" to VersionChangelog(
+            items = listOf(
+                "🪶" to "少则得，多则惑。",
+                "🖼️" to "社区插图改为粘贴图片链接，不再需要配置自己的图片仓库",
+                "🔔" to "首页铃铛红点不再被边框压住；消息里点开过的待办，返回后红点立即熄灭",
+            )
+        ),
         "5.2.0" to VersionChangelog(
             items = listOf(
                 "🪶" to "致广大而尽精微。",
