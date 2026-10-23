@@ -143,6 +143,14 @@ fun ScheduleScreen(
     var unifiedSelectedCourse by remember { mutableStateOf<CourseItem?>(null) }
     /** 今日那一级点课时带上今天；学期那一级说不出是哪一次，保持 null。 */
     var unifiedOccurrence by remember { mutableStateOf<Occurrence?>(null) }
+    fun selectCourse(course: CourseItem, occurrence: Occurrence?) {
+        val custom = vm.customCourses.firstOrNull { it.toCourseItem().courseCode == course.courseCode }
+        if (custom != null) editingCourse = custom
+        else {
+            unifiedOccurrence = occurrence
+            unifiedSelectedCourse = course
+        }
+    }
     var termDropdownExpanded by remember { mutableStateOf(false) }
     var showWeekPicker by remember { mutableStateOf(false) }
     var showExportMenu by remember { mutableStateOf(false) }
@@ -641,8 +649,7 @@ fun ScheduleScreen(
                                     // 由右栏展示。三个入口一个面板。
                                     onCourseSelected = if (isWideLayout) {
                                         { course, occurrence ->
-                                            unifiedOccurrence = occurrence
-                                            unifiedSelectedCourse = course
+                                            selectCourse(course, occurrence)
                                         }
                                     } else {
                                         null
@@ -666,10 +673,7 @@ fun ScheduleScreen(
                                     today = campusNow.date,
                                     allCourseNames = allCourseNames,
                                     onCourseClick = {
-                                        unifiedOccurrence = Occurrence(
-                                            campusNow.date, vm.realCurrentWeek,
-                                        )
-                                        unifiedSelectedCourse = it
+                                        selectCourse(it, Occurrence(campusNow.date, vm.realCurrentWeek))
                                     },
                                     bottomPadding = contentBottomPadding,
                                     topPadding = listTopPadding,
@@ -699,8 +703,7 @@ fun ScheduleScreen(
                                     // 学期一级一行代表整学期，说不出是哪一次课，
                                     // 所以不给回放也不给本次考勤。
                                     onCourseClick = {
-                                        unifiedOccurrence = null
-                                        unifiedSelectedCourse = it
+                                        selectCourse(it, null)
                                     },
                                     bottomPadding = contentBottomPadding,
                                     topPadding = listTopPadding,
@@ -784,10 +787,7 @@ fun ScheduleScreen(
                             today = campusNow.date,
                             allCourseNames = allCourseNames,
                             onCourseClick = {
-                                unifiedOccurrence = Occurrence(
-                                    campusNow.date, vm.realCurrentWeek,
-                                )
-                                unifiedSelectedCourse = it
+                                selectCourse(it, Occurrence(campusNow.date, vm.realCurrentWeek))
                             },
                             bottomPadding = contentBottomPadding,
                             upcoming = upcomingItems,
