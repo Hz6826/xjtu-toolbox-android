@@ -45,6 +45,10 @@ jobs:
         # 单测不过就不出包
         run: ./gradlew :app:testDebugUnitTest
 
+      - name: Verify release shrinking
+        if: github.ref == 'refs/heads/dev'
+        run: ./gradlew :app:minifyReleaseWithR8
+
       - name: Extract version name
         id: version
         run: |
