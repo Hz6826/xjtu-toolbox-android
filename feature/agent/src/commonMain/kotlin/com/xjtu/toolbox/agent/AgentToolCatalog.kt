@@ -125,7 +125,7 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             )))
     }
     arr.add(agentTool("get_library",
-        "图书馆：本人当前座位预约，以及各区域空座。给 area 时返回该区域空座，show 时附平面图卡片。需图书馆登录。" +
+        "图书馆：本人当前座位预约，以及各区域空座。给 area 时返回该区域空座和平面图快照。需图书馆登录。" +
             "推荐去哪自习时按用户所在校区选 campus，用户点名别的校区就用那个。",
         agentParams(
             "campus" to agentEnumProp("校区。缺省：账号在图书馆系统里当前的校区。", "兴庆", "雁塔", "创新港"),
@@ -202,5 +202,5 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
     arr.add(agentTool("calculate",
         "计算表达式：+ - * / ^ 与括号。",
         agentParams("expression" to agentStrProp("如 (3.7*4+4.0*3)/(4+3)。"), required = listOf("expression"))))
-    return JsonArray(arr.map(AgentWidgetPresentation::decorate)).toString()
+    return JsonArray(arr.map(AgentWidgetPresentation::queryDefinition)).toString()
 }

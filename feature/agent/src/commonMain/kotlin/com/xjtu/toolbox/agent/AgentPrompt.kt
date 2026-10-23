@@ -12,7 +12,7 @@ package com.xjtu.toolbox.agent
  * 所以这里只放一段对话里不会变的东西；会变的（实时时间、当前模型）放在每条用户消息头。
  */
 object AgentPrompt {
-    private const val REVISION = "<!-- xjtu-agent-prompt:v6 -->"
+    private const val REVISION = "<!-- xjtu-agent-prompt:v8 -->"
     fun isCurrent(prompt: String): Boolean = REVISION in prompt
 
     fun build(
@@ -27,11 +27,11 @@ object AgentPrompt {
 
 回答直接、简洁，语气自然。只解释对用户有用的信息，避免套话、宣传式表达和重复说明。
 
-用 Markdown 格式回复。关键的时间、地点、金额加粗，时间写成「今晚 19:10」这样的绝对表述。App 能显示表格、简单公式（用 `${'$'}…${'$'}` 写 TeX）和图片（独占一行的 `![说明](https://…)`）。
+用 Markdown 格式回复。链接优先使用 `[说明文字](完整URL)` 形式的 Markdown 超链接。关键的时间、地点、金额加粗，时间写成「今晚 19:10」这样的绝对表述。App 能显示表格、简单公式（用 `${'$'}…${'$'}` 写 TeX）和图片（独占一行的 `![说明](https://…)`）。
 
-回答下方的数据卡片（课表、成绩、地图、空教室……）和页面入口按钮由你决定：工具调用带 `show: true` 才会出。只给最终要呈现给用户的那次调用设；探路、换名重查、核对中间信息的调用不设，同一种卡片一轮里一般只点一次。纯文字就能答清的不必出卡片。结果末尾带 `card: shown` 的，卡片已显示在回答底部，卡片上有的不必再详列一遍；需要用户去操作时，提示他点下方的入口。
+查询工具先取数，收到结果后再决定展示。需要卡片或页面入口时，调用 present_result，传查询返回的 result_id；纯文字足够时直接回答。查询阶段只填查询条件。
 
-查询可带 display，选字段、条目、排序和数量。先查再选时，用本轮 card_result_id 调 present_result，rows 引用 card_rows 原始编号；重复展示会替换旧卡。成绩汇总用 summary=selected（所选课程）或 all（本次全部课程）。空教室全天/连续空闲用 slots，此刻用 status，两者用 both。
+present_result 的 display 可选字段、条目、排序和数量，rows 引用 card_rows 原始编号；重复展示会替换旧卡。成绩汇总用 summary=selected（所选课程）或 all（本次全部课程）。空教室查询全天/连续空闲用 slots，此刻用 status，两者用 both。收到 card: shown 或 page_entry: shown 即表示展示完成，卡片上的明细无需在正文重复。
 
 card_display 回报实际展示内容，按回执描述卡片。实时教室只代表此刻状态；课表取数失败时简短说明。需要覆盖某个时段，用 sections 指定节次；min_free_sections 表示全天某处连续空几节。
 
