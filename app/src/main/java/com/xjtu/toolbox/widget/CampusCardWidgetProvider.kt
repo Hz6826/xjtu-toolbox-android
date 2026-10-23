@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.widget
 
+import com.xjtu.toolbox.account.restoreIfNeeded
+
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -10,6 +12,7 @@ import android.widget.RemoteViews
 import com.xjtu.toolbox.MainActivity
 import com.xjtu.toolbox.R
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.util.RequestCodes
 
 object CampusCardWidgetUpdater {
     fun requestUpdate(context: Context) {
@@ -24,13 +27,7 @@ object CampusCardWidgetUpdater {
 
     fun update(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         if (appWidgetIds.isEmpty()) return
-        if (com.xjtu.toolbox.account.AccountContext.activeAccountId == null) {
-            runCatching {
-                com.xjtu.toolbox.account.AccountStore(context).activeAccountId()?.let {
-                    com.xjtu.toolbox.account.AccountContext.activeAccountId = it
-                }
-            }
-        }
+        com.xjtu.toolbox.account.AccountContext.restoreIfNeeded()
         val prefs = com.xjtu.toolbox.card.CampusCardCache.cardPrefs(context)
         val balance = prefs.getFloat("card_balance_cache", -1f)
         val todaySpend = prefs.getFloat("card_today_spend_cache", -1f)
@@ -45,8 +42,7 @@ object CampusCardWidgetUpdater {
         val lunchText = formatMealMoney(lunch)
         val dinnerText = formatMealMoney(dinner)
         val updateTimeText = if (cacheTime == 0L) "--:--" else {
-            val cal = java.util.Calendar.getInstance().apply { timeInMillis = cacheTime }
-            "%02d:%02d".format(cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
+            com.xjtu.toolbox.util.campusClockText(cacheTime)
         }
 
         val launchIntent = Intent(context, MainActivity::class.java).apply {
@@ -55,7 +51,7 @@ object CampusCardWidgetUpdater {
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
-            2001,
+            RequestCodes.CAMPUS_CARD_WIDGET,
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

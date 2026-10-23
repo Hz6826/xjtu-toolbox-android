@@ -4,7 +4,7 @@ import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,7 +18,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -35,7 +34,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -55,6 +53,7 @@ import com.xjtu.toolbox.auth.*
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
+import com.xjtu.toolbox.ui.components.pressHighlight
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.util.toDialableTel
@@ -251,20 +250,16 @@ private fun InfoLine(label: String, value: String) {
     }
 }
 
-/** 按下时压一层淡暗色。列表行用它，比整行缩放更安静。 */
+/** 列表行的点击：按压反馈用共享的 [pressHighlight]。 */
 @Composable
 private fun Modifier.pressOverlay(
     enabled: Boolean = true,
     onClick: () -> Unit
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
     return this
         .clickable(interactionSource = interactionSource, indication = null, enabled = enabled, onClick = onClick)
-        .drawWithContent {
-            drawContent()
-            if (isPressed) drawRect(color = Color.Black.copy(alpha = 0.06f))
-        }
+        .pressHighlight(interactionSource)
 }
 
 /**
@@ -753,7 +748,7 @@ internal fun ProfileTab(
         if (!loginState.isLoggedIn) return@produceState
         value = withContext(Dispatchers.IO) {
             runCatching {
-                val stats = com.xjtu.toolbox.media.DownloadManager.getInstance(ctx).getDownloadStats()
+                val stats = com.xjtu.toolbox.media.AppDownloadManager.getInstance(ctx).getDownloadStats()
                 val lms = com.xjtu.toolbox.lms.LmsDownloadStore.getAll(ctx).size
                 buildString {
                     if (stats.downloadingCount > 0) append("${stats.downloadingCount} 个下载中")

@@ -1,5 +1,4 @@
 import java.util.Properties
-import java.util.concurrent.TimeUnit
 
 plugins {
     alias(libs.plugins.android.application)
@@ -26,8 +25,8 @@ android {
         applicationId = "com.xjtu.toolbox"
         minSdk = 31
         targetSdk = 36
-        versionCode = 89
-        versionName = "5.1.1"
+        versionCode = 90
+        versionName = "5.2.0"
 
         // 反馈后端（飞书多维表格）的凭据。优先读环境变量（CI），否则读
         // 仓库根目录 feedback.properties（已 gitignore）。两者都没有时留空字符串——
@@ -56,6 +55,22 @@ android {
             buildConfigField("String", "FEEDBACK_BASE_TOKEN", "\"${cfg("baseToken")}\"")
             buildConfigField("String", "FEEDBACK_TABLE_SUBMIT", "\"${cfg("tableSubmit")}\"")
             buildConfigField("String", "FEEDBACK_TABLE_REPLY", "\"${cfg("tableReply")}\"")
+
+            // 小游戏全服榜的服务端地址（服务端见 server/leaderboard）。
+            //
+            // 默认指向正式环境，这是公开地址、不是密钥，所以直接写在这里而不是塞进
+            // 某个 properties 文件——CI 和普通克隆都该开箱即用。本地联调要指到自己的
+            // 服务端时，用环境变量 LEADERBOARD_BASE_URL，或在仓库根建
+            // leaderboard.properties（已 gitignore）写 baseUrl=http://127.0.0.1:4100/games，
+            // 配合 adb reverse tcp:4100 tcp:4100。
+            //
+            // 置成空字符串 = 整块排行榜功能从界面上消失（Leaderboard.enabled 为 false）。
+            val lbFile = rootProject.file("leaderboard.properties")
+            val lbProps = Properties().apply { if (lbFile.exists()) lbFile.inputStream().use { load(it) } }
+            val lbUrl = System.getenv("LEADERBOARD_BASE_URL")?.trim()?.takeIf { it.isNotEmpty() }
+                ?: lbProps.getProperty("baseUrl")?.trim()?.takeIf { it.isNotEmpty() }
+                ?: "https://zyxf.top/games"
+            buildConfigField("String", "LEADERBOARD_BASE_URL", "\"$lbUrl\"")
         }
     }
 
@@ -172,21 +187,6 @@ androidComponents {
     }
 }
 
-// miuix 走 latest.release：拒掉预发布版本；解析到的最新版本号缓存 30 分钟，
-// 既能跟上新版本，又不会因为一次网络抖动让构建失败
-configurations.configureEach {
-    resolutionStrategy {
-        cacheDynamicVersionsFor(30, TimeUnit.MINUTES)
-        componentSelection.all {
-            if (candidate.group == "top.yukonga.miuix.kmp" &&
-                Regex("(?i)(alpha|beta|rc|dev|snapshot)").containsMatchIn(candidate.version)
-            ) {
-                reject("miuix 只跟正式版")
-            }
-        }
-    }
-}
-
 // 插件只会把 profile 打进非 debuggable 变体（release），debug 不做 AOT、拿它没用。
 baselineProfile {
     // 每次构建都重新采集会要求构建机常驻真机——本项目的 CI 没有设备，
@@ -198,6 +198,9 @@ baselineProfile {
 }
 
 dependencies {
+    // 三端共用的业务与平台抽象（KMP）；:core 必须能编过 wasmJs（CI 门禁在守）。
+    implementation(project(":core"))
+    implementation(project(":data"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -242,7 +245,7 @@ dependencies {
     // profile 的来源模块；只是数据依赖，不进 APK
     baselineProfile(project(":baselineprofile"))
     ksp(libs.androidx.room.compiler)
-    // MIUIX：版本见 libs.versions.toml，始终取 Maven Central 最新正式版
+    // MIUIX：版本钉在 libs.versions.toml（0.9.4，正式版），升级是显式改版本号
     implementation(libs.miuix.ui)
     implementation(libs.miuix.preference)
     implementation(libs.miuix.icons)
@@ -256,6 +259,11 @@ dependencies {
     implementation(libs.kyant.backdrop)
     // 形状形变（加载动画）
     implementation(libs.androidx.graphics.shapes)
+    // Ktor 的 OkHttp 引擎预置现有 OkHttpClient：cookie jar、UA 拦截器、超时、TLS、连接池全部沿用。
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.serialization.kotlinx.json)
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.ui.tooling)
 }

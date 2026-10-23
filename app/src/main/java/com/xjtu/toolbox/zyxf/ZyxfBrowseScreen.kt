@@ -2,7 +2,7 @@ package com.xjtu.toolbox.zyxf
 
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -23,14 +23,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -39,11 +36,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
@@ -64,7 +60,7 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
  * 资料站的签名链**按 IP 限流**（每分钟 60 次、每小时 240 次）。网页版天然安全，
  * 因为用户点一次才请求一次；原生端一旦做"列表页预取缩略图/预热直链"，一屏就能打爆，
  * 而且打爆的是**别人的**服务。所以这里严格保持"一次交互一次请求"，
- * 目录内容按需拉、直链点了才要。
+ * 目录内容按需拉、直链点了才要；关键词输入停止 500ms 后才检索，不预取下载地址。
  *
  * 预览另见 [ZyxfPreviewSheet]：那一层的渲染借阿里云 IMM，不自己造。
  */
@@ -79,6 +75,21 @@ fun ZyxfBrowseScreen(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val vm: ZyxfBrowseViewModel = viewModel { ZyxfBrowseViewModel(context) }
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    var searchFocused by remember { mutableStateOf(false) }
+    val visible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
+    LaunchedEffect(visible) {
+        if (!visible) {
+            if (searchFocused) {
+                focus.clearFocus(force = true)
+                keyboard?.hide()
+            }
+            vm.cancelPendingSearch()
+        } else if (vm.query.isNotBlank()) {
+            vm.runSearch()
+        }
+    }
     val stack = vm.stack
     val entries = vm.entries
     val searching = vm.searching
@@ -124,12 +135,26 @@ fun ZyxfBrowseScreen(
             .background(MiuixTheme.colorScheme.surface),
     ) {
         val header: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
+            // 屁岱「为你找资料」：只在根目录、没在搜的时候出现
+            if (stack.size <= 1 && !searching && com.xjtu.toolbox.agent.AgentInsightHub.insights.available) {
+                item(key = "pidai_picks", contentType = "pidai") {
+                    ZyxfPicksCard(
+                        onPreview = { vm.previewing = it; vm.previewFromSplit = isWide },
+                        onDownload = vm::download,
+                        downloadState = { vm.downloadState[it] },
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+                    )
+                }
+            }
             item(key = "search", contentType = "header") {
-                SearchField(
-                    value = vm.query,
-                    onValueChange = { vm.query = it },
-                    onSearch = vm::runSearch,
-                    onClear = vm::clearSearch,
+                com.xjtu.toolbox.ui.components.AppSearchBar(
+                    query = vm.query,
+                    onQueryChange = vm::updateQuery,
+                    label = "搜课件、历年卷、笔记…",
+                    onSearch = { vm.runSearch(); focus.clearFocus(force = true); keyboard?.hide() },
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .onFocusChanged { searchFocused = it.hasFocus },
                 )
             }
             if (!searching && stack.size > 1) {
@@ -205,13 +230,26 @@ fun ZyxfBrowseScreen(
                             Alignment.Center,
                         ) {
                             if (stateText == null) {
-                                com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
+                                com.xjtu.toolbox.ui.components.LoadingState(message = null)
                             } else {
-                                Text(
-                                    stateText,
-                                    style = MiuixTheme.textStyles.body2,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                )
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(
+                                        when {
+                                            vm.error != null -> Icons.Default.CloudOff
+                                            searching -> Icons.Default.SearchOff
+                                            else -> Icons.Default.FolderOpen
+                                        },
+                                        contentDescription = null,
+                                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(40.dp),
+                                    )
+                                    Spacer(Modifier.height(10.dp))
+                                    Text(
+                                        stateText,
+                                        style = MiuixTheme.textStyles.body2,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    )
+                                }
                             }
                         }
                     }
@@ -228,7 +266,7 @@ fun ZyxfBrowseScreen(
                         } else vm.download(entry)
                     }
                     if (folders.isNotEmpty()) {
-                        item(key = "folderHead", contentType = "section") { SectionLabel("文件夹", folders.size) }
+                        item(key = "folderHead", contentType = "section") { SectionLabel(if (searching) "匹配的文件夹 · 点开查看内容" else "文件夹", folders.size) }
                         items(folders.chunked(2), key = { "folders-${it.first().id}" }, contentType = { "folderRow" }) { pair ->
                             Row(
                                 Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -242,7 +280,10 @@ fun ZyxfBrowseScreen(
                         }
                     }
                     if (files.isNotEmpty()) {
-                        item(key = "fileHead", contentType = "section") { SectionLabel("文件", files.size) }
+                        item(key = "fileHead", contentType = "section") {
+                            if (searching && folders.isNotEmpty()) Spacer(Modifier.height(20.dp))
+                            SectionLabel(if (searching) "独立匹配的文件 · 来源见下方路径" else "文件", files.size)
+                        }
                         itemsIndexed(files, key = { _, it -> "file-${it.id}" }, contentType = { _, _ -> "file" }) { i, entry ->
                             FileRow(
                                 entry = entry,
@@ -299,63 +340,6 @@ fun ZyxfBrowseScreen(
 
 
 @Composable
-private fun SearchField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    onSearch: () -> Unit,
-    onClear: () -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(22.dp))
-            .background(MiuixTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            Icons.Default.Search,
-            contentDescription = null,
-            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.size(18.dp),
-        )
-        Spacer(Modifier.width(10.dp))
-        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                singleLine = true,
-                textStyle = MiuixTheme.textStyles.body2.copy(
-                    color = MiuixTheme.colorScheme.onSurface,
-                ),
-                cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            if (value.isEmpty()) {
-                Text(
-                    "搜课件、历年卷、笔记…",
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-            }
-        }
-        if (value.isNotEmpty()) {
-            IconButton(onClick = onClear, modifier = Modifier.size(22.dp)) {
-                Icon(
-                    Icons.Default.Clear,
-                    contentDescription = "清空",
-                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun Breadcrumb(stack: List<Crumb>, onJump: (Int) -> Unit) {
     Row(
         Modifier
@@ -365,21 +349,30 @@ private fun Breadcrumb(stack: List<Crumb>, onJump: (Int) -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         stack.forEachIndexed { i, crumb ->
+            val current = i == stack.lastIndex
             if (i > 0) {
                 Text(
-                    "  ›  ",
+                    "›",
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(horizontal = 6.dp),
                 )
             }
+            // 胶囊：能点的上一级淡蓝底，当前所在目录灰底加粗，一眼看出「我在哪、能退到哪」
             Text(
                 crumb.name,
                 style = MiuixTheme.textStyles.footnote1,
-                fontWeight = if (i == stack.lastIndex) FontWeight.Bold else FontWeight.Normal,
-                color = if (i == stack.lastIndex) MiuixTheme.colorScheme.onSurface
-                else MiuixTheme.colorScheme.primary,
+                fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
+                color = if (current) MiuixTheme.colorScheme.onSurface else MiuixTheme.colorScheme.primary,
                 maxLines = 1,
-                modifier = Modifier.clickable(enabled = i < stack.lastIndex) { onJump(i) },
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(
+                        if (current) MiuixTheme.colorScheme.surfaceVariant
+                        else MiuixTheme.colorScheme.primary.copy(alpha = 0.10f),
+                    )
+                    .clickable(enabled = !current) { onJump(i) }
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
             )
         }
     }
@@ -398,26 +391,43 @@ private fun SortBar(
     desc: Boolean,
     onPick: (ZyxfApi.Sort) -> Unit,
 ) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ZyxfApi.Sort.entries.forEach { option ->
-            val active = option == sort
-            val arrow = when {
-                !active || option == ZyxfApi.Sort.MANUAL -> ""
-                desc -> " ↓"
-                else -> " ↑"
-            }
-            com.xjtu.toolbox.ui.components.AppFilterChip(
-                selected = active,
-                onClick = { onPick(option) },
-                label = option.label + arrow,
+    // 排序是低频操作：平时只留一行小字，点开才展开四个选项，别让它和搜索框叠着占首屏
+    var open by remember { mutableStateOf(false) }
+    fun arrowOf(option: ZyxfApi.Sort) = when {
+        option != sort || option == ZyxfApi.Sort.MANUAL -> ""
+        desc -> " ↓"
+        else -> " ↑"
+    }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .clickable { open = !open }
+                .padding(horizontal = 22.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "排序 · ${sort.label}${arrowOf(sort)}  ${if (open) "▴" else "▾"}",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
+        }
+        androidx.compose.animation.AnimatedVisibility(visible = open) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ZyxfApi.Sort.entries.forEach { option ->
+                    com.xjtu.toolbox.ui.components.AppFilterChip(
+                        selected = option == sort,
+                        onClick = { onPick(option) },
+                        label = option.label + arrowOf(option),
+                    )
+                }
+            }
         }
     }
 }
@@ -463,10 +473,25 @@ private fun SectionLabel(title: String, count: Int) {
     }
 }
 
-/** 文件夹：带色块图标的小卡片，两列排开，一屏能看到的目录多一倍。 */
+/** 文件夹配色：按名字取，同一个目录每次颜色一样；八种都是中等饱和度，深浅色下都不刺眼。 */
+private val FOLDER_TONES = longArrayOf(
+    0xFF3B82F6, 0xFF14B8A6, 0xFFF0A23C, 0xFF8B5CF6, 0xFFEC4899, 0xFF3FBF7F, 0xFFE5484D, 0xFF0EA5E9,
+)
+
+private fun folderTone(name: String) =
+    androidx.compose.ui.graphics.Color(FOLDER_TONES[(name.hashCode() and 0x7fffffff) % FOLDER_TONES.size])
+
+/** 取名字里第一个能当「首字」的字符，跳过开头的括号和空格。 */
+private fun folderInitial(name: String): String =
+    name.trim().trimStart('(', '（', '[', '【', '《', '「').firstOrNull()?.toString() ?: "?"
+
+/**
+ * 文件夹：课程首字 + 按名字取色的小卡片，两列排开，一屏能看到的目录多一倍。
+ * 以前统一一个蓝色文件夹图标，根目录一屏全是同一种颜色，只能靠读字找课。
+ */
 @Composable
 private fun FolderTile(entry: ZyxfApi.Entry, modifier: Modifier, onClick: () -> Unit) {
-    val primary = MiuixTheme.colorScheme.primary
+    val tone = folderTone(entry.name)
     Row(
         modifier
             .clip(RoundedCornerShape(16.dp))
@@ -479,10 +504,16 @@ private fun FolderTile(entry: ZyxfApi.Entry, modifier: Modifier, onClick: () -> 
             Modifier
                 .size(36.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(primary.copy(alpha = 0.12f)),
+                .background(tone.copy(alpha = 0.16f)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Default.Folder, contentDescription = null, tint = primary, modifier = Modifier.size(20.dp))
+            Text(
+                folderInitial(entry.name),
+                style = MiuixTheme.textStyles.body1,
+                fontWeight = FontWeight.Bold,
+                color = tone,
+                maxLines = 1,
+            )
         }
         Spacer(Modifier.width(10.dp))
         Text(
@@ -545,14 +576,30 @@ private fun FileRow(
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(
-                    entry.name,
-                    style = MiuixTheme.textStyles.body2,
-                    fontWeight = FontWeight.Medium,
-                    color = MiuixTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        entry.name,
+                        style = MiuixTheme.textStyles.body2,
+                        fontWeight = FontWeight.Medium,
+                        color = MiuixTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (entry.isFresh) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "新",
+                            style = MiuixTheme.textStyles.footnote2,
+                            fontWeight = FontWeight.Bold,
+                            color = MiuixTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(5.dp))
+                                .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f))
+                                .padding(horizontal = 5.dp, vertical = 1.dp),
+                        )
+                    }
+                }
                 val sub = listOfNotNull(
                     entry.path.takeIf { it.isNotBlank() },
                     entry.sizeText.takeIf { it.isNotBlank() },

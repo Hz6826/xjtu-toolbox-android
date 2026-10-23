@@ -41,7 +41,7 @@ object HomeSignals {
      *
      * 单独一条信号而不是让提醒规则去解析 [HomeStat] 里的状态文本：
      * 状态是学校页面的原文，措辞会变；这里存的是 `LibraryApi.classifyActionLabel`
-     * 归一化后的 label，只有固定几个值。见 `LibraryApi.URGENT_ACTIONS`。
+     * 归一化后的 label，只有固定几个值。见 `:core` 的 `URGENT_BOOKING_ACTIONS`。
      */
     var libraryUrgentAction by mutableStateOf<String?>(null)
 
@@ -60,8 +60,6 @@ object HomeSignals {
      */
     var couponAlert by mutableStateOf<String?>(null)
 
-    /** 宿舍电量低于 [com.xjtu.toolbox.dormpower.LOW_KWH] 时的提醒文案；没有则为 null。 */
-    var dormPowerAlert by mutableStateOf<String?>(null)
 
     /** [HomeStatsRefresher.refreshDue] 跑完一轮就自增，首页据此重新读缓存刷新展示。 */
     var statsVersion by mutableIntStateOf(0)
@@ -77,7 +75,6 @@ object HomeSignals {
         libraryUrgentAction = null
         attendanceAlert = null
         couponAlert = null
-        dormPowerAlert = null
     }
 
     /** 提醒只需要课程名和开始时间，不必把首页那个完整模型搬过来。 */

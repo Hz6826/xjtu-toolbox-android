@@ -1,25 +1,21 @@
 package com.xjtu.toolbox.agent
 
-import kotlin.coroutines.resume
-import com.xjtu.toolbox.network.APP_UA
 import kotlinx.serialization.json.jsonObject
-import com.xjtu.toolbox.util.safeStringOrNull
 import com.xjtu.toolbox.util.AppJson
 import kotlinx.serialization.json.add
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.buildJsonObject
-import com.xjtu.toolbox.network.HttpClients
-import android.content.Intent
-import android.provider.AlarmClock
 import android.content.Context
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.ensureSite
+import com.xjtu.toolbox.card.AppCampusCardSource
+import com.xjtu.toolbox.card.appCampusCardStore
 import com.xjtu.toolbox.card.CampusCardApi
+import com.xjtu.toolbox.card.allTransactions
+import com.xjtu.toolbox.util.toJavaTime
+import com.xjtu.toolbox.util.toKx
 import com.xjtu.toolbox.emptyroom.CAMPUS_BUILDINGS
 import com.xjtu.toolbox.emptyroom.EmptyRoomApi
 import com.xjtu.toolbox.emptyroom.EmptyRoomCache
@@ -30,7 +26,7 @@ import com.xjtu.toolbox.fitness.orderedFitnessYears
 import com.xjtu.toolbox.fitness.pickFitnessYear
 import com.xjtu.toolbox.fitness.yearValue
 import com.xjtu.toolbox.schedule.CourseItem
-import com.xjtu.toolbox.schedule.ScheduleApi
+import com.xjtu.toolbox.schedule.JwxtScheduleApi
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.score.ScoreReportApi
 import com.xjtu.toolbox.data.CredentialStore
@@ -41,70 +37,55 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.sync.withLock
+import com.xjtu.toolbox.util.CampusZoneId
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import com.xjtu.toolbox.util.formatOnCampus
 
 /**
- * `app_guide` 的内容：App 功能与入口。
+ * 暴露给 Agent 的工具注册表 —— 工具层的**取数那半边**。
  *
- * 以前常驻在系统提示里（约 600 字），可只有「去哪办」「App 能不能做」这类问题才用得上，
- * 其余每轮都白付这些 token，所以挪到工具后面按需取。
- * 这是 App 页面的一份手写副本，**加减页面时记得同步**——以前写错过（日程「导出图片」其实走不到）。
- */
-private const val APP_GUIDE = """App 功能与入口：
-- 日程（底栏）：课表与教材、考试安排、自建日程；可切学期、导出日历（ICS）。
-- 成绩查询：各学期成绩、GPA、成绩报表。电子成绩单另有一页：一键向学校申请并下载 PDF。
-- 空闲教室：默认看此刻实时状态（空闲 / 其它使用及人数 / 上课中，兴庆、雁塔、创新港）；右上角可切到 CDN 课表或直查教务，按今天、明天逐节查，可筛「现在空闲」「刚解放」「大教室」。
-- 考勤：考勤流水、打卡流水、统计，以及请假的提交、撤回和销假；另有快速考勤流水（人脸 / 班牌打卡）。
-- 校园卡：余额、流水、消费分析；付款码单独一页。
-- 加餐券：领取和使用。
-- 图书馆：座位查询、预约等。
-- 场馆预约：体育场馆按时段预订、看订单。
-- 思源学堂：课程、作业、课件、回放。
-- 教材：查本人教材、书架、全文库在线阅读。
-- 本科评教：可一键好评。
-- 其他：全校课程（按课程名或老师查开课）、校历、校园黄页、体测成绩、通知公告（多来源合并）、教师主页、仲英学辅资料站（课件、历年卷等资料的预览和下载）、WebVPN 链接转换（校外访问内网）、扫码登录（首页左上角，扫统一身份认证的二维码）、反馈与建议（「我的」页）。
-- 选课、交作业、缴费不在 App 里，要去学校对应系统。"""
-
-/** `app_guide` 的内容：校区食堂与开放时间。来源：学校后勤官网、交大新闻网及公开报道。 */
-private const val XINGQING_GUIDE = """兴庆校区：
-- 学生食堂：梧桐苑和康桥苑。梧桐苑三层，二楼是自选餐厅。康桥苑价格更便宜，离东南门和操场近：一楼大众伙食，二楼特色小吃和自选，三楼东苑食堂有点餐、套餐和自助餐，还有超市、奶茶店和瑞幸。
-- 图书馆约 23:00 闭馆，二层连廊和流通大厅 24 小时开放；主楼群约 22:30 关门。
-- 主楼在校园南部，中、东、西楼在北部。
-
-创新港：
-- 食堂：A 区和鸣苑、B 区惠风苑、C 区朗清苑，另有涵英楼食堂、同和苑，都在各自的宿舍园区里。
-- 供餐时间：早餐 6:30–9:30，午餐 11:00–13:30，晚餐 17:00–19:30；部分档口有夜宵到 23:00。"""
-
-/**
- * 暴露给 Agent 的只读工具注册表。
+ * 工具层现在切成三块（见 `core/.../agent/`）：
+ * - **纯逻辑**（工具定义表、schema 构造器、算表达式、闹钟判据、结果格式化、缓存回退文案）
+ *   在 `:core`，本类只剩调用；
+ * - **Android 专属那几档**（系统闹钟、应用设置读写）收进 `:core` 的 [AgentHost] 槽位，
+ *   本类不知道它们怎么实现；
+ * - **取数**（下面那二十来个 `*Api`，都已经是 `:data` 的类）留在本类。
  *
  * 安全约束：
- * - 全部只读，无写/预订/支付接口
+ * - 不碰学校系统的写/预订/支付接口；写的只有本机：记偏好、改 App 设置、加日程/待办、设闹钟
  * - 优先复用 SessionManager 已有站点会话；若对应子系统未登录，调用一次 ensureSite，
  *   60s 内不重试（防止反复触发导致服务端风控）
  * - Auth 异常直接上抛给 AgentRunner 终止循环（不重试）
  * - 优先命中 DataCache，减少对学校服务器的请求
+ *
+ * 唯一一处例外是 `add_schedule_event`（自建日程写入）：它的本体仍在本类（Room 写入 + 与
+ * 课程/已有日程的冲突判定是一次不可分的动作，见 [AgentCapability.SCHEDULE_EVENT_WRITE]），
+ * 但它画不画由宿主声明的能力决定 —— 没声明这一档的端一个字都不画、调了也回 not_found。
  */
 class AgentToolRegistry(
     private val loginState: AppLoginState,
     private val dataCache: DataCache,
     private val context: Context,
-    private val defaultSearchEngine: String = AgentConfig.SEARCH_AUTO
-) {
+    /** 记住的用户偏好（[AgentMemory]）：宿主可以换一份落盘实现，见那个类的 KDoc。 */
+    private val memory: AgentMemory = AgentMemory(),
+    /** 端上的能力槽位（见 `:core` 的 [AgentHost]）：闹钟、应用设置那几档由它接。 */
+    private val host: AgentHost,
+    private val allowInteractiveLogin: Boolean = false,
+) : AgentTools {
+    // [AgentTools] 是 `:core` 调度循环（[AgentRunner]）要的三件事：工具清单 / 限流分组键 / 执行一次调用。
+    // `memoryBlock()` 不在其中：它是系统提示那一侧要的，调用方是 ViewModel。
 
     /**
      * 限流分组键：同一个后端系统的两次调用之间要隔开一点，别连着猛打学校服务器。
      * 返回 null 表示纯本地工具（算术、设闹钟、记偏好等），不需要间隔。
      */
-    fun rateLimitKeyOf(toolName: String): String? = toolSites[toolName]
+    override fun rateLimitKeyOf(toolName: String): String? = toolSites[toolName]
 
     /** 记住的用户偏好，拼进系统提示。走注册表是因为 ViewModel 手上没有 Context。 */
-    fun memoryBlock(): String = AgentMemory.promptBlock(context)
+    override fun memoryBlock(): String = memory.promptBlock()
 
     /** 工具 → 它访问的后端系统。只用于限流分组。 */
     private val toolSites = mapOf(
@@ -118,11 +99,10 @@ class AgentToolRegistry(
         "get_card_info" to "card",
         "get_notifications" to "notifications",
         "search_yellow_page" to "yellow_page",
-        "web_search" to "web",
-        "web_fetch" to "web",
         "get_library" to "library",
         "list_zyxf" to "zyxf",
         "read_zyxf_file" to "zyxf",
+        "save_file" to "files",
         "get_textbooks" to "textbook",
         "get_coupons" to "coupon",
         "get_lms" to "lms",
@@ -136,7 +116,7 @@ class AgentToolRegistry(
     private val pendingWidgets = mutableListOf<AgentWidget>()
 
     /** 取走并清空本轮收集的控件。 */
-    fun drainWidgets(): List<AgentWidget> = pendingWidgets.toList().also { pendingWidgets.clear() }
+    override fun drainWidgets(): List<AgentWidget> = pendingWidgets.toList().also { pendingWidgets.clear() }
 
     /** 一网通办拉到的身份。姓名、学院都是死数据，记下来免得为它反复联网。 */
     @kotlinx.serialization.Serializable
@@ -158,7 +138,7 @@ class AgentToolRegistry(
      * @param allowNetwork 本地补不齐姓名/学院时，是否允许联网拉一网通办。没登录时每轮都去
      *   撞一次网络只会白等，所以由调用方控制节奏（见 AgentViewModel）。
      */
-    suspend fun userContext(allowNetwork: Boolean = true): String = withContext(Dispatchers.IO) {
+    override suspend fun userContext(allowNetwork: Boolean): String = withContext(Dispatchers.IO) {
         val sid = loginState.activeUsername
         var name = runCatching { com.xjtu.toolbox.data.CredentialStore(context).loadNickname() }
             .getOrNull()?.takeIf { it.isNotBlank() }
@@ -248,31 +228,9 @@ class AgentToolRegistry(
         if (lines.isEmpty()) return@withContext ""
         lines.joinToString("\n")
     }
-
-    /** 把毫秒年龄转成人话，供回退缓存时如实标注新鲜度。 */
-    private fun humanAge(ms: Long): String = when {
-        ms < 60_000L      -> "刚刚"
-        ms < 3_600_000L   -> "约${ms / 60_000L}分钟前"
-        ms < 86_400_000L  -> "约${ms / 3_600_000L}小时前"
-        else              -> "约${ms / 86_400_000L}天前"
-    }
-
-    /**
-     * 实时获取失败时的兜底：若有缓存则返回带「约 X 前」时间戳的缓存内容，否则返回实时错误文案。
-     * 让 Agent 能如实告诉用户「这是几点的缓存」，而不是干脆报错。
-     */
-    private fun staleOr(cacheKey: String, liveError: String): String {
-        val cached = dataCache.getStale(cacheKey)
-        if (cached == null) {
-            return ToolReply.noCache(liveError)
-        }
-        val age = dataCache.ageMs(cacheKey)?.let { humanAge(it) } ?: "较早"
-        return ToolReply.stale(age, cached)
-    }
-
     /** 当前节次的 0 基索引；不在上课时段返回 -1。 */
     private fun currentPeriodIndex(): Int {
-        val now = java.time.LocalDateTime.now()
+        val now = java.time.LocalDateTime.now(CampusZoneId)
         val isSummer = XjtuTime.isSummerTime(now.monthValue)
         val nowMinute = now.hour * 60 + now.minute
         val section = (1..11).firstOrNull { s ->
@@ -294,14 +252,13 @@ class AgentToolRegistry(
     /**
      * 取一个已登录的子系统会话。
      *
-     * **silent = true**：模型自己决定调工具时，不能在用户毫不知情的情况下触发一次
-     * 带凭据的认证并把短信验证码发到他手机上。撞上 MFA 就抛 MfaRequiredException，
-     * 由 [loginHint] 翻译成"你自己去那个页面登一次"。
+     * 对话中的查询允许宿主处理短信验证；自动卡片和后台任务保持静默。
      */
     private suspend fun ensureSite(type: LoginType): SiteSession? = try {
         lastSiteError = null
-        loginState.sessionManager?.ensureSite(type, silent = true)
+        loginState.sessionManager?.ensureSite(type, silent = !allowInteractiveLogin, userInitiated = allowInteractiveLogin)
     } catch (e: Throwable) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         lastSiteError = e
         null
     }
@@ -309,8 +266,9 @@ class AgentToolRegistry(
     /** 同 [ensureSite]，给不在 [LoginType] 里的站点（智慧教室等）用。 */
     private suspend fun ensureSiteKey(siteKey: String): SiteSession? = try {
         lastSiteError = null
-        loginState.sessionManager?.ensureSite(siteKey, silent = true)
+        loginState.sessionManager?.ensureSite(siteKey, silent = !allowInteractiveLogin, userInitiated = allowInteractiveLogin)
     } catch (e: Throwable) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         lastSiteError = e
         null
     }
@@ -343,7 +301,7 @@ class AgentToolRegistry(
         }
         if (scope.isEmpty()) return null
 
-        val time = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(snap.fetchedAt)
+        val time = formatOnCampus(snap.fetchedAt, "HH:mm")
         val free = scope.filter { it.isFree }
         val inUse = scope.filter { it.isInUse }.sortedBy { it.people }
         val inClass = scope.count { it.isInClass }
@@ -387,335 +345,132 @@ class AgentToolRegistry(
         else -> ToolReply.loginFailed(type.label, "connection", e.message?.take(60))
     }
 
-    // OpenAI function calling 格式的工具描述。
-    // 用 JSON 构建器生成（自动转义），description 里有引号也不会截断整串。
-    // 新增/修改工具：只需在 buildToolDefinitions() 里加一行 tool(...)。
-    val toolDefinitions: String = buildToolDefinitions()
+    // OpenAI function calling 格式的工具描述：表本身在 `:core` 的 `AgentToolCatalog`
+    // （纯数据 + 纯构造），这里只把端上声明的能力递过去 —— 没列进 `honored` 的档一个字都不画。
+    override val toolDefinitions: String = agentToolDefinitions(host.honored)
 
-    private fun buildToolDefinitions(): String {
-        val arr = mutableListOf<JsonObject>()
-        // 描述只写「返回什么、参数怎么填、前置条件」。何时该调、怎么答由系统提示和模型自己定，
-        // 不在这里举例、劝说或解释。
-        arr.add(tool("get_calendar",
-            "第几周、放假、考试周、开学：教学周、当前与下一节次、今天的作息表、开学至今天数，以及学期校历。",
-            params("term" to strProp("学年或学期关键词，如 2025-2026、第一学期。缺省：当前学期。"))))
-        arr.add(tool("get_schedule",
-            "课表，含用户自建日程。无缓存时联网拉取。",
-            params(
-                "date" to strProp("yyyy-MM-dd，只返回该日。缺省：本周；给了 term 则整学期。"),
-                "term" to strProp("学期代码，如 2024-2025-1。缺省：当前学期。")
-            )))
-        arr.add(tool("get_exam_schedule",
-            "考试安排：日期、时间、地点、座位号。需教务登录。"))
-        arr.add(tool("search_school_courses",
-            "全校开课查询，返回教师、学分、容量、班级、时间地点。至少给一个筛选条件。需教务登录。",
-            params(
-                "course_name" to strProp("课程名，模糊。"),
-                "teacher" to strProp("教师姓名，模糊。"),
-                "course_code" to strProp("课程号，模糊。"),
-                "class_name" to strProp("上课班级，模糊。"),
-                "department" to strProp("开课单位，如 数学学院。"),
-                "campus" to strProp("兴庆/雁塔/曲江/苏州/创新港。"),
-                "term" to strProp("学期代码，如 2025-2026-2。缺省：当前学期。"),
-                "weekday" to intProp("星期 1–7。"),
-                "section" to intProp("节次 1–11，匹配覆盖该节的课。"),
-                "start_section" to intProp("起始节次 1–11，与 end_section 组成区间。"),
-                "end_section" to intProp("结束节次 1–11。"),
-                "public_elective" to boolProp("仅校公选课。"),
-                "elective_category" to strProp("基础通识类选修课/基础通识类核心课/钱学森学院特色课。"),
-                "limit" to intProp("条数，默认 10，上限 20。")
-            )))
-        arr.add(tool("get_empty_rooms",
-            "空闲教室。今天且不给节次（或给的就是当前节）时返回此刻实时状态：空闲、其它使用（没排课但有人，附人数）、上课中；其余按课表逐节。",
-            params(
-                "campus"   to strProp("兴庆校区/雁塔校区/曲江校区/创新港校区。缺省：兴庆校区。实时状态只有兴庆、雁塔、创新港。"),
-                "building" to strProp("楼名，如 主楼A、1号巨构。缺省：全校区。"),
-                "section"  to intProp("节次 1–11。缺省：此刻（今天）/全天（其他日期）。"),
-                "date"     to strProp("今天/明天/yyyy-MM-dd。缺省：今天。")
-            )))
-        arr.add(tool("get_attendance",
-            "本学期考勤记录（正常/迟到/缺勤/请假）。需考勤登录。",
-            params("limit" to intProp("条数，默认 20，上限 200。"))))
-        arr.add(tool("get_grades",
-            "成绩与加权 GPA。需教务登录。",
-            params("term" to strProp("学期代码，如 2024-2025-1。缺省：全部学期。"))))
-        arr.add(tool("get_card_info",
-            "校园卡余额、消费流水与收支汇总（给 days 时）。需校园卡登录。",
-            params("days" to intProp("流水天数 1–180。缺省：不查流水。"))))
-        arr.add(tool("get_notifications",
-            "校内通知：标题、来源、日期、链接。给 keyword 时用各站自己的站内搜索查全站（含往年），否则列最新。",
-            params(
-                "keyword" to strProp("关键词，如 推免、放假、奖学金、选课。缺省：不搜，列最新。"),
-                "source" to strProp("来源名，如 教务处、OA 通知、仲英书院、电信学部。缺省：按用户身份自动选（本科生：教务处、学生处、实践教学中心、所在书院；研究生：研究生院；都含 OA 与所在学院）。"),
-                "limit" to intProp("条数，默认 10，上限 20。")
-            )))
-        arr.add(tool("search_yellow_page",
-            "校园黄页：机构总机电话，不含个人号码。",
-            params(
-                "query" to strProp("机构名或号码片段。可空，配合 category 列出。"),
-                "category" to strProp("党群机构/行政机构/直属单位/附属单位/其它。"),
-                "limit" to intProp("条数，默认 10，上限 20。")
-            )))
-        arr.add(tool("preference",
-            "在本机长期保存或删除一条用户偏好。只存可复用的信息，不存一次性事项。",
-            params(
-                "key" to strProp("偏好名，同名覆盖。"),
-                "value" to strProp("内容，一句。缺省：删除该偏好。")
-            )))
-        arr.add(tool("find_faculty",
-            "本校在职教师主页：学院、职称、研究方向、办公地点、邮箱、主页地址。不含学生、行政人员、校外人士。",
-            params(
-                "name" to strProp("姓名，模糊。"),
-                "college" to strProp("学院名，用于重名。"),
-                "limit" to intProp("条数，默认 3，上限 8。")
-            )))
-        arr.add(tool("web_search",
-            "联网搜索，返回标题、URL、摘要。",
-            params(
-                "query" to strProp("关键词。学校政策、办事流程加 site:xjtu.edu.cn 优先查官网。"),
-                "engine" to strProp("auto/baidu/so360/wechat/wiki。缺省：用户设置。auto=百度与360合并，wechat=公众号，wiki=百科词条。"),
-                "limit" to intProp("条数，默认 8，上限 22。")
-            )))
-        arr.add(tool("web_fetch",
-            "抓取网页正文，转 Markdown，约一万字。",
-            params("url" to strProp("http(s) URL。"))))
-        arr.add(tool("set_alarm",
-            "打开系统闹钟设定闹钟。",
-            params(
-                "hour" to intProp("0–23。"),
-                "minute" to intProp("0–59。"),
-                "message" to strProp("标签。"),
-                "days" to strProp("重复星期，逗号分隔：MON,TUE,WED,THU,FRI,SAT,SUN。缺省：单次。")
-            )))
-        arr.add(tool("add_schedule_event",
-            "往本 App 的日程里添加一条，只限当前学期。与课程或已有日程时间重叠时不添加，返回冲突；用户确认后带 force=true 重试。",
-            params(
-                "title" to strProp("标题。"),
-                "date" to strProp("yyyy-MM-dd；星期取这一天。"),
-                "start" to strProp("开始时间 HH:mm。"),
-                "end" to strProp("结束时间 HH:mm。缺省：开始后 1 小时。"),
-                "location" to strProp("地点。"),
-                "note" to strProp("备注。"),
-                "weeks" to strProp("每周重复的教学周，如 3-5,8。缺省：只加 date 所在的那一周。"),
-                "force" to boolProp("冲突时仍然添加。")
-            )))
-        arr.add(tool("get_library",
-            "图书馆：本人当前座位预约，以及各区域空座。给 area 时返回该区域空座并附平面图卡片。需图书馆登录。" +
-                "推荐去哪自习时按用户所在校区选 campus，用户点名别的校区就用那个。",
-            params(
-                "campus" to strProp("校区：兴庆 / 雁塔 / 创新港。缺省：账号在图书馆系统里当前的校区。"),
-                "area" to strProp("区域名，模糊，如 北楼二层外文库。缺省：列出该校区全部区域及空座数。"),
-            )))
-        arr.add(tool("list_zyxf",
-            "历年卷、复习资料、课件、笔记（仲英学辅资料站，同学共享）：给 keyword 按文件名、目录名检索，否则列出目录。",
-            params(
-                "keyword" to strProp("关键词，宜用课程名。"),
-                "folder_id" to intProp("目录 ID。缺省或 0：根目录。")
-            )))
-        arr.add(tool("read_zyxf_file",
-            "读取仲英学辅资料站文件。文本返回正文；PDF/Office 只返回直链与大小。",
-            params(
-                "file_id" to intProp("文件 ID，来自 list_zyxf。")
-            )))
-        arr.add(tool("get_textbooks",
-            "本人课程教材（教务教材报表）。需教务登录。",
-            params(
-                "course" to strProp("课程名关键词。缺省：全部。"),
-                "term" to strProp("学期代码，如 2025-2026-2。缺省：当前学期。")
-            )))
-        arr.add(tool("get_coupons",
-            "本人加餐券：可领取、可使用、余额、有效期。需加餐券登录。",
-            params("status" to strProp("all=可领取+可使用；available=可领取；usable=可使用。缺省：all。"))))
-        arr.add(tool("get_lms",
-            "思源学堂：不给 course 列出本人课程；给 course 列出该课的作业、课件、回放等活动；scope=assignments 汇总全部课程的作业（逐课查询，较慢）。需思源学堂登录。",
-            params(
-                "course" to strProp("课程名，模糊。"),
-                "scope" to strProp("assignments：全部作业汇总。")
-            )))
-        arr.add(tool("get_lms_activity",
-            "思源学堂某个活动的详情：说明、截止时间、提交状态、附件名与 URL；给 file 时读取该附件文本（txt/md/html/json/csv；PDF/Office 只返回 URL）。需思源学堂登录。",
-            params(
-                "course" to strProp("课程名，模糊。"),
-                "activity" to strProp("活动标题，模糊。"),
-                "file" to strProp("附件名关键词，模糊。")
-            )))
-        arr.add(tool("get_fitness_score",
-            "本人体测成绩：总分、等级、分项。按学年计。需体测登录。",
-            params("year" to strProp("学年起始年，2025=2025-2026 学年。缺省：当前已开测学年。"))))
-        arr.add(tool("app_setting",
-            "本应用设置：不给 value 时列出全部设置的当前值与可选值；给 key 和 value 时修改该项。",
-            params(
-                "key" to strProp("dark_mode / dynamic_color / home_theme / nav_bar_style / show_quick_actions / default_tab / network_mode / account_type / venue_auto_solve_captcha / update_channel / receive_preview_updates。"),
-                "value" to strProp("新取值。")
-            )))
-        arr.add(tool("app_guide",
-            "本 App 有哪些功能、某件事去哪一页办；兴庆、创新港的食堂和开放时间。",
-            params("topic" to strProp("app：功能与入口；campus：食堂与开放时间。缺省：两者都给。"))))
-        arr.add(tool("calculate",
-            "计算表达式：+ - * / ^ 与括号。",
-            params("expression" to strProp("如 (3.7*4+4.0*3)/(4+3)。"))))
-        return JsonArray(arr).toString()
-    }
+    /** 这一档这一端会不会照着办（见 [AgentCapability]）：不在清单里的工具名（纯逻辑与取数）一律放行，[AgentCapability] 里有名字的只有宿主声明了才放过去。 */
+    private fun honors(name: String): Boolean =
+        AgentCapability.ofTool(name)?.let { it in host.honored } ?: true
 
-    /** 构造单个 function-calling 工具对象。params 省略时为无参。 */
-    private fun tool(name: String, description: String, params: JsonObject = emptyParams()): JsonObject =
-        buildJsonObject {
-            put("type", "function")
-            put("function", buildJsonObject {
-                put("name", name)
-                put("description", description)
-                put("parameters", params)
-            })
-        }
-
-    private fun emptyParams(): JsonObject = buildJsonObject {
-        put("type", "object")
-        put("properties", JsonObject(emptyMap()))
-        put("required", JsonArray(emptyList()))
-    }
-
-    private fun params(vararg props: Pair<String, JsonObject>): JsonObject = buildJsonObject {
-        put("type", "object")
-        put("properties", buildJsonObject { props.forEach { (k, v) -> put(k, v) } })
-        put("required", JsonArray(emptyList()))
-    }
-
-    private fun strProp(description: String): JsonObject = propOf("string", description)
-    private fun intProp(description: String): JsonObject = propOf("integer", description)
-    private fun boolProp(description: String): JsonObject = propOf("boolean", description)
-    private fun propOf(type: String, description: String): JsonObject = buildJsonObject {
-        put("type", type)
-        put("description", description)
-    }
-
-    // 工具参数：模型偶尔把数字写成字符串，按内容解析
-    private fun JsonObject.str(key: String): String? = this[key].safeStringOrNull()
-    private fun JsonObject.int(key: String): Int? = this[key].safeStringOrNull()?.let { it.toIntOrNull() ?: it.toDoubleOrNull()?.toInt() }
-    private fun JsonObject.bool(key: String): Boolean? = this[key].safeStringOrNull()?.let { it.equals("true", ignoreCase = true) }
-
-    suspend fun execute(name: String, argsJson: String): String = withContext(Dispatchers.IO) {
+    override suspend fun execute(name: String, argsJson: String): String = withContext(Dispatchers.IO) {
 
         val args = runCatching { AppJson.parseToJsonElement(argsJson).jsonObject }.getOrDefault(JsonObject(emptyMap()))
 
-        val widgetsBefore = pendingWidgets.size
-        val result = when (name) {
+        // 工具表里没画的那几档直接回 not_found：模型可能凭旧对话里的记忆调过来
+        // （那一段历史是在别的端上生成的）。
+        if (!honors(name)) return@withContext ToolReply.notFound("tool", name)
+
+        when (name) {
             // 当前时间、节次、教学周和校历本是同一件事，合成一个工具
-            "get_calendar" -> getCurrentTime() + "\n\n" + getSchoolCalendar(args.str("term"))
-            "get_schedule" -> getSchedule(args.str("date"), args.str("term"))
+            "get_calendar" -> getCurrentTime() + "\n\n" + getSchoolCalendar(args.argStr("term"))
+            "get_schedule" -> getSchedule(args.argStr("date"), args.argStr("term"))
             "get_exam_schedule" -> getExamSchedule()
             "search_school_courses" -> searchSchoolCourses(
-                courseName = args.str("course_name"),
-                teacher = args.str("teacher"),
-                courseCode = args.str("course_code"),
-                className = args.str("class_name"),
-                department = args.str("department"),
-                campus = args.str("campus"),
-                term = args.str("term"),
-                weekday = args.int("weekday"),
-                section = args.int("section"),
-                startSection = args.int("start_section"),
-                endSection = args.int("end_section"),
-                publicElective = args.bool("public_elective"),
-                electiveCategory = args.str("elective_category"),
-                limit = args.int("limit") ?: 10
+                courseName = args.argStr("course_name"),
+                teacher = args.argStr("teacher"),
+                courseCode = args.argStr("course_code"),
+                className = args.argStr("class_name"),
+                department = args.argStr("department"),
+                campus = args.argStr("campus"),
+                term = args.argStr("term"),
+                weekday = args.argInt("weekday"),
+                section = args.argInt("section"),
+                startSection = args.argInt("start_section"),
+                endSection = args.argInt("end_section"),
+                publicElective = args.argBool("public_elective"),
+                electiveCategory = args.argStr("elective_category"),
+                limit = args.argInt("limit") ?: 10
             )
             "get_empty_rooms" -> getEmptyRooms(
-                campus = args.str("campus"),
-                building = args.str("building"),
-                section = args.int("section"),
-                date = args.str("date")
+                campus = args.argStr("campus"),
+                building = args.argStr("building"),
+                section = args.argInt("section"),
+                date = args.argStr("date")
             )  // suspend: parallel per-building fetches inside
             "get_attendance" -> getAttendance(
-                limit = args.int("limit") ?: 20
+                limit = args.argInt("limit") ?: 20
             )
-            "get_grades" -> getGrades(args.str("term"))
-            "get_card_info" -> getCardInfo(args.int("days"))
+            "get_grades" -> getGrades(args.argStr("term"))
+            "get_card_info" -> getCardInfo(args.argInt("days"))
             "get_notifications" -> getNotifications(
-                args.str("source"),
-                args.int("limit") ?: 10,
-                (args.str("keyword"))?.trim()?.takeIf { it.isNotEmpty() },
+                args.argStr("source"),
+                args.argInt("limit") ?: 10,
+                (args.argStr("keyword"))?.trim()?.takeIf { it.isNotEmpty() },
             )
             "search_yellow_page" -> searchYellowPage(
-                query = args.str("query"),
-                category = args.str("category"),
-                limit = args.int("limit") ?: 10
+                query = args.argStr("query"),
+                category = args.argStr("category"),
+                limit = args.argInt("limit") ?: 10
             )
             // 给 value 是记下，不给是删掉
             "preference" -> {
-                val key = args.str("key") ?: ""
-                val value = (args.str("value")).orEmpty()
-                if (value.isBlank()) AgentMemory.forget(context, key)
-                else AgentMemory.remember(context, key, value)
+                val key = args.argStr("key") ?: ""
+                val value = (args.argStr("value")).orEmpty()
+                if (value.isBlank()) memory.forget(key)
+                else memory.remember(key, value)
             }
             "find_faculty" -> findFaculty(
-                name = args.str("name") ?: "",
-                college = args.str("college"),
-                limit = args.int("limit") ?: 3
+                name = args.argStr("name") ?: "",
+                college = args.argStr("college"),
+                limit = args.argInt("limit") ?: 3
             )
-            "web_search" -> webSearch(
-                query = args.str("query") ?: "",
-                limit = args.int("limit") ?: 8,
-                engine = args.str("engine")
-            )
-            "web_fetch" -> webFetch(args.str("url") ?: "")
-            "set_alarm" -> setAlarm(
-                hour = args.int("hour"),
-                minute = args.int("minute"),
-                message = args.str("message"),
-                days = args.str("days")
+            "set_alarm" -> host.setAlarm(
+                hour = args.argInt("hour"),
+                minute = args.argInt("minute"),
+                message = args.argStr("message"),
+                days = args.argStr("days")
             )
             "add_schedule_event" -> addScheduleEvent(
-                title = args.str("title"),
-                date = args.str("date"),
-                start = args.str("start"),
-                end = args.str("end"),
-                location = args.str("location"),
-                note = args.str("note"),
-                weeks = args.str("weeks"),
-                force = args.bool("force") ?: false,
+                title = args.argStr("title"),
+                date = args.argStr("date"),
+                start = args.argStr("start"),
+                end = args.argStr("end"),
+                location = args.argStr("location"),
+                note = args.argStr("note"),
+                weeks = args.argStr("weeks"),
+                force = args.argBool("force") ?: false,
             )
             // 给关键词就检索，不给就按目录浏览
             "list_zyxf" -> {
-                val keyword = (args.str("keyword")).orEmpty()
+                val keyword = (args.argStr("keyword")).orEmpty()
                 if (keyword.isNotBlank()) searchZyxf(keyword)
-                else browseZyxf(args.int("folder_id") ?: 0)
+                else browseZyxf(args.argInt("folder_id") ?: 0)
             }
-            "read_zyxf_file" -> readZyxfFile(args.int("file_id") ?: 0)
+            "read_zyxf_file" -> readZyxfFile(args.argInt("file_id") ?: 0, args.argStr("pages"))
+            "save_file" -> saveFile(
+                args.argStr("source"), args.argInt("file_id"),
+                args.argStr("course"), args.argStr("activity"), args.argStr("file"),
+            )
             // 我的预约和区域空座一次给全
             "get_library" -> getLibraryBooking() + "\n\n" +
-                getLibrarySeats(args.str("campus"), args.str("area"))
-            "get_textbooks" -> getTextbooks(args.str("course"), args.str("term"))
-            "get_coupons" -> getCoupons(args.str("status"))
+                getLibrarySeats(args.argStr("campus"), args.argStr("area"))
+            "get_textbooks" -> getTextbooks(args.argStr("course"), args.argStr("term"))
+            "get_coupons" -> getCoupons(args.argStr("status"))
             "get_lms" -> {
-                val course = (args.str("course")).orEmpty()
+                val course = (args.argStr("course")).orEmpty()
                 when {
-                    args.str("scope") == "assignments" -> getLmsAssignments()
+                    args.argStr("scope") == "assignments" -> getLmsAssignments()
                     course.isBlank() -> getLmsCourses()
                     else -> getLmsActivities(course)
                 }
             }
             "get_lms_activity" -> {
-                val file = (args.str("file")).orEmpty()
-                if (file.isNotBlank()) readLmsAttachment(args.str("course"), args.str("activity"), file)
-                else getLmsActivityDetail(args.str("course"), args.str("activity"))
+                val file = (args.argStr("file")).orEmpty()
+                if (file.isNotBlank()) readLmsAttachment(args.argStr("course"), args.argStr("activity"), file, args.argStr("pages"))
+                else getLmsActivityDetail(args.argStr("course"), args.argStr("activity"))
             }
-            "get_fitness_score" -> getFitnessScore(args.str("year"))
+            "get_fitness_score" -> getFitnessScore(args.argStr("year"))
             // 给了 key 和 value 是改，否则列出全部设置
             "app_setting" -> {
-                val key = (args.str("key")).orEmpty()
-                val value = (args.str("value")).orEmpty()
-                if (key.isBlank() || value.isBlank()) getAppSettings() else setAppSetting(key, value)
+                val key = (args.argStr("key")).orEmpty()
+                val value = (args.argStr("value")).orEmpty()
+                if (key.isBlank() || value.isBlank()) host.readAppSettings() else host.writeAppSetting(key, value)
             }
-            "calculate" -> calculate(args.str("expression") ?: "")
-            "app_guide" -> when ((args.str("topic"))?.trim()?.lowercase()) {
-                "app" -> APP_GUIDE
-                "campus", "xingqing" -> XINGQING_GUIDE
-                else -> APP_GUIDE + "\n\n" + XINGQING_GUIDE
-            }
+            "calculate" -> agentCalculate(args.argStr("expression") ?: "")
+            "app_guide" -> agentGuideText(args.argStr("topic"))
             else -> ToolReply.notFound("tool", name)
         }
-        // 这次调用生成了卡片（课表、成绩、空教室……）就明确告诉模型：用户已经看到了
-        if (pendingWidgets.size > widgetsBefore) result + "\n" + ToolReply.CARD_SHOWN else result
     }
 
     // ── 实现 ──────────────────────────────────────────────────────────────
@@ -743,9 +498,6 @@ class AgentToolRegistry(
         } catch (e: Exception) {
             return ToolReply.failed("find_faculty", e.message)
         }
-        // 学院只能在客户端筛：检索接口的学院参数要的是数字 id，而模型手上只有名字。
-        // 筛空了就退回不筛，宁可多给几条也别因为学院名写法不同（"电信学部"/"电信学院"）
-        // 把正确结果全滤掉。
         val members = college?.takeIf { it.isNotBlank() }
             ?.let { c -> all.filter { it.collegeName.contains(c) }.ifEmpty { all } }
             ?: all
@@ -792,7 +544,7 @@ class AgentToolRegistry(
     }
 
     private fun getCurrentTime(): String {
-        val now = LocalDateTime.now()
+        val now = LocalDateTime.now(CampusZoneId)
         val today = now.toLocalDate()
         val isSummer = XjtuTime.isSummerTime(today.monthValue)
         val dayNames = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -819,7 +571,7 @@ class AgentToolRegistry(
             cachedStartDate(it)?.let { sd ->
                 val startStr = sd.toString()
                 val daysSince = java.time.temporal.ChronoUnit.DAYS.between(sd, today).toInt()
-                val w = com.xjtu.toolbox.schedule.TermWeeks.weekOf(sd, today)
+                val w = com.xjtu.toolbox.schedule.TermWeeks.weekOf(sd.toKx(), today.toKx())
                 // 含起始日与已过天数，便于推算"整学期"区间（如校园卡整学期账单天数）
                 if (w in 1..25) "第${w}周（起始 $startStr，开学至今 $daysSince 天）" else null
             }
@@ -852,13 +604,13 @@ class AgentToolRegistry(
      */
     private fun cachedTermCode(): String? = ScheduleCache.readCurrentTerm(dataCache)
 
-    private fun cachedStartDate(term: String): LocalDate? = ScheduleCache.readStartDate(dataCache, term)
+    private fun cachedStartDate(term: String): LocalDate? = ScheduleCache.readStartDate(dataCache, term)?.toJavaTime()
 
     private suspend fun getSchoolCalendar(term: String?): String {
         return try {
-            val terms = com.xjtu.toolbox.calendar.SchoolCalendarApi().getTerms()
+            val terms = com.xjtu.toolbox.calendar.SchoolCalendarApi().terms()
             if (terms.isEmpty()) return ToolReply.empty("school_calendar")
-            val today = LocalDate.now()
+            val today = com.xjtu.toolbox.util.todayOnCampus()
             val selected = if (term.isNullOrBlank()) {
                 terms.firstOrNull { today in it.startDate..it.endDate }
                     ?: terms.lastOrNull { it.startDate <= today }
@@ -894,9 +646,9 @@ class AgentToolRegistry(
         }
     }
 
-    private fun searchYellowPage(query: String?, category: String?, limit: Int): String {
+    private suspend fun searchYellowPage(query: String?, category: String?, limit: Int): String {
         return try {
-            val data = com.xjtu.toolbox.yellowpage.YellowPageApi(context).getData()
+            val data = com.xjtu.toolbox.yellowpage.appYellowPageApi(context).getData()
             val categoryId = category?.takeIf { it.isNotBlank() }?.let { name ->
                 data.categories.firstOrNull {
                     it.name == name || it.name.contains(name) || name.contains(it.name)
@@ -1005,8 +757,12 @@ class AgentToolRegistry(
                     if (course.department.isNotBlank()) append(" · ${course.department}")
                     if (course.campus.isNotBlank()) append(" · ${course.campus}")
                     if (course.scheduleLocation.isNotBlank()) append("\n  ${course.scheduleLocation}")
-                    if (course.capacity > 0) {
-                        append("\n  已选${course.enrollCount}/${course.capacity}，剩余${course.remaining.coerceAtLeast(0)}")
+                    // 人数类字段可空（campus-api 不投影它们），只在有值时输出。
+                    val capacity = course.capacity
+                    val enrolled = course.enrollCount
+                    val remaining = course.remaining
+                    if (capacity != null && enrolled != null && remaining != null && capacity > 0) {
+                        append("\n  已选${enrolled}/${capacity}，剩余${remaining.coerceAtLeast(0)}")
                     }
                     append("\n")
                 }
@@ -1035,7 +791,7 @@ class AgentToolRegistry(
             ?: return ToolReply.noCache(ToolReply.loginFailed("教务系统", "unreachable"))
         return try {
             com.xjtu.toolbox.schedule.ScheduleSourceRouter.ensureCached(
-                context, dataCache, ScheduleApi(site), loginState.sessionManager, term,
+                dataCache, JwxtScheduleApi(site), loginState.sessionManager, term,
             )
             null
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
@@ -1078,22 +834,22 @@ class AgentToolRegistry(
                 append("${termCode}学期课表（共${courseCount}门，含手动添加${customCourses.size}）：\n")
                 // 历史学期跨冬夏两套作息，只给节次不给钟点
                 courses.sortedWith(compareBy({ it.dayOfWeek }, { it.startSection })).forEach {
-                    append("${it.courseName}｜${dayNames.getOrElse(it.dayOfWeek) { "" }} ${it.startSection}–${it.endSection}节｜${weekRange(it).trim()}｜${it.location}\n")
+                    append("${it.courseName}｜${dayNames.getOrElse(it.dayOfWeek) { "" }} ${it.startSection}–${it.endSection}节｜${agentWeekRange(it).trim()}｜${it.location}\n")
                 }
-            }.withChangeNote(changeNote)
+            }.withAgentChangeNote(changeNote)
         }
 
         val startDate = runCatching {
             cachedStartDate(termCode)
         }.getOrNull() ?: return ToolReply.failed("get_schedule", "no_term_start_date")
 
-        // 法定假日：课表照排，但那天停课。数据源只有放假日，没有调休补课日，所以只标停课
-        val holidays = runCatching { com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(context) }
+        val holidays = runCatching { com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(com.xjtu.toolbox.data.DataCache(context)) }
             .getOrDefault(emptyMap())
+            .mapKeys { it.key.toJavaTime() }
 
         if (dateStr != null) {
-            val targetDate = runCatching { LocalDate.parse(dateStr) }.getOrElse { LocalDate.now() }
-            val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, targetDate)
+            val targetDate = runCatching { LocalDate.parse(dateStr) }.getOrElse { LocalDate.now(CampusZoneId) }
+            val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate.toKx(), targetDate.toKx())
             val targetSummer = XjtuTime.isSummerTime(targetDate.monthValue)
             val dayCourses = courses.filter { it.dayOfWeek == targetDate.dayOfWeek.value && it.isInWeek(weekNum) }
                 .sortedBy { it.clockMinutes(targetSummer).first }
@@ -1110,11 +866,11 @@ class AgentToolRegistry(
                     if (dayCourses.any { !it.isUserCreated }) append("，教务课程停课，自建日程照常")
                 }
                 append("\n")
-                dayCourses.forEach { c -> append(courseLine(c, targetDate, withTeacher = true)).append('\n') }
-            }.withChangeNote(changeNote)
+                dayCourses.forEach { c -> append(agentCourseLine(c, targetSummer, withTeacher = true)).append('\n') }
+            }.withAgentChangeNote(changeNote)
         } else {
-            val today = LocalDate.now()
-            val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, today)
+            val today = LocalDate.now(CampusZoneId)
+            val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate.toKx(), today.toKx())
             if (weekNum <= 0) return "当前不在学期内。"
             // 每门课按它那天的日期算作息，跨月那周也不会错
             val monday = startDate.plusWeeks((weekNum - 1).toLong())
@@ -1128,69 +884,30 @@ class AgentToolRegistry(
                 append("第${weekNum}周：\n")
                 weekCourses.forEach { c ->
                     val day = monday.plusDays((c.dayOfWeek - 1).toLong())
-                    append(courseLine(c, day))
+                    append(agentCourseLine(c, XjtuTime.isSummerTime(day.monthValue)))
                     if (!c.isUserCreated) holidays[day]?.let { append("｜停课（$it）") }
                     append('\n')
                 }
-            }.withChangeNote(changeNote)
+            }.withAgentChangeNote(changeNote)
         }
     }
-
-    /**
-     * 课表的一行：`课程｜周二 10:10–12:00（3–4节）｜地点｜教师`。
-     *
-     * 直接写出钟点，模型不必知道作息表——学校有冬、夏两套作息（5–9 月下午晚上推后 30 分钟），
-     * 让模型按节次自己推，问「明天几点下课」时容易错。起止用 [CourseItem.clockMinutes]，
-     * 和日程页、桌面卡片同一个算法；作息按**那节课所在日期**的月份定。
-     */
-    private fun courseLine(c: CourseItem, date: LocalDate, withTeacher: Boolean = false): String {
-        fun hhmm(min: Int) = "%02d:%02d".format(min / 60, min % 60)
-        val (start, end) = c.clockMinutes(XjtuTime.isSummerTime(date.monthValue))
-        val days = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
-        val sections = if (c.isUserCreated) "" else "（${c.startSection}–${c.endSection}节）"
-        return listOfNotNull(
-            c.courseName,
-            "${days.getOrElse(c.dayOfWeek) { "" }} ${hhmm(start)}–${hhmm(end)}$sections".trim(),
-            c.location.ifBlank { null },
-            c.teacher.takeIf { withTeacher && it.isNotBlank() },
-        ).joinToString("｜")
-    }
-
     /**
      * 教务的调停课记录（课表已按它合并过），只提这次列出的课相关的；报太多反而像凑数，
      * 取最后 3 条（记录按申请时间排）。
      */
     private fun scheduleChangeNote(termCode: String, courses: List<CourseItem>): String? {
         val codes = courses.map { it.courseCode }.toSet()
-        val relevant = com.xjtu.toolbox.schedule.ScheduleSourceRouter.changeEvents(context, termCode)
+        val relevant = com.xjtu.toolbox.schedule.ScheduleSourceRouter.changeEvents(termCode)
             .filter { it.courseCode.isBlank() || it.courseCode in codes }
             .takeLast(3)
         if (relevant.isEmpty()) return null
         return "调课记录：" + relevant.joinToString("；") { "${it.courseName}${it.describe()}" }
     }
-
-    /** 整学期列表里给每条标上周次：`第1-4、6-16周 `。周次拿不到就不标。 */
-    private fun weekRange(c: CourseItem): String {
-        val weeks = c.getWeeks()
-        if (weeks.isEmpty()) return ""
-        val parts = mutableListOf<String>()
-        var i = 0
-        while (i < weeks.size) {
-            var j = i
-            while (j + 1 < weeks.size && weeks[j + 1] == weeks[j] + 1) j++
-            parts += if (j > i) "${weeks[i]}-${weeks[j]}" else "${weeks[i]}"
-            i = j + 1
-        }
-        return "第${parts.joinToString("、")}周 "
-    }
-
-    private fun String.withChangeNote(note: String?): String = if (note.isNullOrBlank()) this else "$this\n$note"
-
     private suspend fun getExamSchedule(): String {
         val site = ensureSite(LoginType.JWXT)
             ?: return loginHint(LoginType.JWXT)
         return try {
-            val exams = ScheduleApi(site).getExamSchedule()
+            val exams = JwxtScheduleApi(site).examSchedule()
             if (exams.isEmpty()) return ToolReply.empty("exams")
             pendingWidgets.add(ExamWidget(exams))
             val text = buildString {
@@ -1204,13 +921,13 @@ class AgentToolRegistry(
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
-            staleOr("agent_exam", ToolReply.failed("get_exam_schedule", e.message))
+            agentStaleFallback(dataCache, "agent_exam", ToolReply.failed("get_exam_schedule", e.message))
         }
     }
 
     private suspend fun getEmptyRooms(campus: String?, building: String?, section: Int?, date: String?): String {
         return try {
-            val api = EmptyRoomApi(context)
+            val api = EmptyRoomApi(EmptyRoomCache(context))
             val targetDate = parseToolDate(date)
             val dateStr = targetDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
 
@@ -1218,13 +935,10 @@ class AgentToolRegistry(
             val buildings = CAMPUS_BUILDINGS[targetCampus]
                 ?: return ToolReply.notFound("campus", targetCampus, CAMPUS_BUILDINGS.keys)
 
-            // 问的是"现在"：今天、没给节次或给的就是当前节 → 先用实时状态。
-            // 实时状态比课表多一层信息（没排课但有人、有几个人），正是"现在去哪自习"要的。
-            // 用户在页面里明确切到了课表数据源，就尊重他的选择。
             val sourcePref = context.getSharedPreferences("empty_room", Context.MODE_PRIVATE)
                 .getString("empty_room_source", null)
             val nowSection = currentPeriodIndex() + 1
-            val asksNow = targetDate == LocalDate.now() && (section == null || section == nowSection)
+            val asksNow = targetDate == LocalDate.now(CampusZoneId) && (section == null || section == nowSection)
             var liveNote: String? = null
             if (asksNow && (sourcePref == null || sourcePref == "live") && targetCampus in LIVE_CAMPUSES) {
                 val site = ensureSiteKey(com.xjtu.toolbox.auth.JsSession.SITE_KEY)
@@ -1307,7 +1021,7 @@ class AgentToolRegistry(
     }
 
     private fun parseToolDate(date: String?): LocalDate {
-        val today = LocalDate.now()
+        val today = LocalDate.now(CampusZoneId)
         return when (date?.trim()?.lowercase()) {
             null, "", "今天", "今日", "today" -> today
             "明天", "tomorrow" -> today.plusDays(1)
@@ -1347,7 +1061,7 @@ class AgentToolRegistry(
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
-            staleOr("agent_attendance", ToolReply.failed("get_attendance", e.message))
+            agentStaleFallback(dataCache, "agent_attendance", ToolReply.failed("get_attendance", e.message))
         }
     }
 
@@ -1399,7 +1113,7 @@ class AgentToolRegistry(
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
-            staleOr("agent_grades_${term ?: "all"}", ToolReply.failed("get_grades", e.message))
+            agentStaleFallback(dataCache, "agent_grades_${term ?: "all"}", ToolReply.failed("get_grades", e.message))
         }
     }
 
@@ -1417,9 +1131,12 @@ class AgentToolRegistry(
                 if (days != null) {
                     val d = days.coerceIn(1, 180)   // 放宽：用户可能要看整月/整学期账单
                     runCatching {
-                        CampusCardApi(site).getAllTransactions(
-                            startDate = LocalDate.now().minusDays(d.toLong()),
-                            endDate = LocalDate.now(),
+                        // 与校园卡页同一条取数路径（同一个 ncard 接口、80 页上限、allowIncomplete=false）。
+                        AppCampusCardSource(site, appCampusCardStore(context)).allTransactions(
+                            // :core 那条分页编排收 kotlinx-datetime 的日期，这里从 java.time 转过去
+                            //（本文件其余地方仍是 java.time，边界转换用 `:app` 的 toKx()，见 util/TimeBridge.kt）
+                            startDate = LocalDate.now(CampusZoneId).minusDays(d.toLong()).toKx(),
+                            endDate = LocalDate.now(CampusZoneId).toKx(),
                             maxPages = 80,
                             allowIncomplete = false,
                         )
@@ -1445,7 +1162,7 @@ class AgentToolRegistry(
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
-            staleOr("agent_card", ToolReply.failed("get_card_info", e.message))
+            agentStaleFallback(dataCache, "agent_card", ToolReply.failed("get_card_info", e.message))
         }
     }
 
@@ -1495,11 +1212,13 @@ class AgentToolRegistry(
             val scope = sources.joinToString("、") { it.displayName } +
                 if (source.isNullOrBlank()) "（按你的身份自动选）" else ""
             val api = com.xjtu.toolbox.notification.NotificationApi()
-            if (keyword != null) {
+            if (!keyword.isNullOrBlank()) {
                 // 站内搜索：查的是各站全站索引，不是本地已抓的那几页（见 NotificationApi.search）
                 val found = api.search(sources, keyword)
                 val hits = found.items.take(limit.coerceIn(1, 20))
-                if (hits.isEmpty()) return ToolReply.empty("notifications: $keyword（已查：$scope）")
+                if (hits.isEmpty()) return if (found.skipped.isNotEmpty()) {
+                    ToolReply.failed("get_notifications", "部分来源暂时搜索失败：${found.skipped.joinToString("、") { it.displayName }}；已完成的来源未找到匹配，不能认定全站没有结果。")
+                } else ToolReply.empty("notifications: $keyword（已查：$scope）")
                 return buildString {
                     append("「$keyword」站内搜索结果（${hits.size}条，按日期从新到旧")
                     if (found.skipped.isNotEmpty()) append("；${found.skipped.joinToString("、") { it.displayName }}这次没搜成")
@@ -1525,382 +1244,7 @@ class AgentToolRegistry(
             dataCache.put("agent_notifications", text)
             text
         } catch (e: Exception) {
-            staleOr("agent_notifications", ToolReply.failed("get_notifications", e.message))
-        }
-    }
-
-    // ── 联网搜索/网页阅读（无需登录） ─────────────────────────────────────
-
-    private val webCookies = object : okhttp3.CookieJar {
-        private val lock = Any()
-        private val jar = mutableListOf<okhttp3.Cookie>()
-        override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
-            synchronized(lock) {
-                cookies.forEach { incoming ->
-                    jar.removeAll { it.name == incoming.name && it.domain == incoming.domain && it.path == incoming.path }
-                    jar.add(incoming)
-                }
-            }
-        }
-        override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
-            val now = System.currentTimeMillis()
-            synchronized(lock) {
-                jar.removeAll { it.expiresAt < now }
-                return jar.filter { it.matches(url) }
-            }
-        }
-    }
-
-    private val webClient by lazy {
-        AgentWeb.applyPublicNetworkPolicy(HttpClients.base.newBuilder())
-            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-            .followRedirects(true)
-            .followSslRedirects(true)
-            .cookieJar(webCookies)
-            .addInterceptor { chain ->
-                val request = chain.request()
-                AgentWeb.requirePublicHttpUrl(request.url.toString())
-                val host = request.url.host.lowercase()
-                val b = request.newBuilder()
-                if (request.header("User-Agent").isNullOrBlank()) b.header("User-Agent", searchUa)
-                if (request.header("Accept-Language").isNullOrBlank()) {
-                    b.header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.6")
-                }
-                if (request.header("Referer").isNullOrBlank()) {
-                    when {
-                        host.contains("sogou.com") -> b.header("Referer", "https://weixin.sogou.com/")
-                        host.contains("mp.weixin.qq.com") -> b.header("Referer", "https://weixin.sogou.com/")
-                        host.contains("so.com") -> b.header("Referer", "https://www.so.com/")
-                        // 百度首页是「地址栏直接打开」，不能带 Referer（和 Sec-Fetch-Site: none 自相矛盾）
-                        host.contains("baidu.com") && request.url.encodedPath != "/" ->
-                            b.header("Referer", "https://www.baidu.com/")
-                    }
-                }
-                val response = chain.proceed(b.build())
-                AgentWeb.requirePublicHttpUrl(response.request.url.toString())
-                response
-            }
-            .build()
-    }
-    private val wechatUa =
-        "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.50.2701(0x2800323B) NetType/WIFI Language/zh_CN"
-
-    private val searchUa =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-
-    /**
-     * 搜索要快失败。callTimeout 是整次调用（含跳转、读完正文）的硬上限，OkHttp 到点直接取消。
-     * 以前只靠外面包一层 withTimeoutOrNull，而里面是阻塞的 execute()，协程超时根本打断不了它，
-     * 各个源的连接 + 读取超时会一路叠加。
-     */
-    private val searchClient by lazy {
-        webClient.newBuilder()
-            .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-            .callTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
-            .build()
-    }
-
-    /**
-     * 百度专用的内存 cookie，每次搜索前清空、重新从首页拿一份。
-     *
-     * 2026-09 实测（校园网，连发中文查询）：
-     * - 只带 UA/Referer 的精简请求头：几乎每次都跳 wappass 验证码；
-     * - 补齐浏览器导航请求头（Accept、Sec-Fetch-*、sec-ch-ua）：多数能过，但同一份 cookie
-     *   连用第二次起常被拦；
-     * - 每次搜索前换一份新 cookie：8/8 一次通过，只多一次首页请求（约 0.3 秒）。
-     * 所以不再「一个会话热身一次」，而是每次都新拿；万一还是被拦，换 cookie 再试一次。
-     */
-    private val baiduJar = object : okhttp3.CookieJar {
-        private val store = java.util.concurrent.CopyOnWriteArrayList<okhttp3.Cookie>()
-        fun clear() = store.clear()
-        override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
-            for (c in cookies) {
-                store.removeAll { it.name == c.name && it.domain == c.domain && it.path == c.path }
-                store.add(c)
-            }
-        }
-        override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
-            val now = System.currentTimeMillis()
-            return store.filter { it.expiresAt > now && it.matches(url) }
-        }
-    }
-    private val baiduClient by lazy { searchClient.newBuilder().cookieJar(baiduJar).build() }
-    /** 换 cookie 这件事不能并发：两次搜索同时清空、同时热身会互相踩掉。 */
-    private val baiduMutex = kotlinx.coroutines.sync.Mutex()
-
-    /** 浏览器从地址栏 / 页内跳转打开网页时带的那一套请求头，缺了百度就当成脚本。 */
-    private val baiduNavHeaders = mapOf(
-        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Upgrade-Insecure-Requests" to "1",
-        "sec-ch-ua" to "\"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"",
-        "sec-ch-ua-mobile" to "?0",
-        "sec-ch-ua-platform" to "\"Windows\"",
-        "Sec-Fetch-Dest" to "document",
-        "Sec-Fetch-Mode" to "navigate",
-        "Sec-Fetch-User" to "?1",
-    )
-
-    private fun normalizeSearchLink(href: String, baseUrl: String): String {
-        val raw = href.trim()
-        if (raw.isBlank() || raw.startsWith("javascript:", ignoreCase = true)) return ""
-        return runCatching {
-            when {
-                raw.startsWith("//") -> "https:$raw"
-                raw.startsWith("http://", true) || raw.startsWith("https://", true) -> raw
-                else -> java.net.URL(java.net.URL(baseUrl), raw).toString()
-            }
-        }.getOrDefault(raw)
-    }
-
-    /**
-     * 搜狗网页搜索与微信搜索共用。
-     * 微信结果必须选到 `li`，不能选外层 `.news-box`（全页只有一个）。
-     */
-    private fun parseSogouResults(body: String, limit: Int, baseUrl: String): List<Triple<String, String, String>> {
-        val doc = org.jsoup.Jsoup.parse(body, baseUrl)
-        return doc.select(
-            ".results .vrwrap, .results .rb, .vrwrap, .rb, .wx-rb, " +
-                "ul.news-list > li, li[id^=sogou_vr_]"
-        ).asSequence()
-            .mapNotNull { el ->
-                // 必须**逐个**选择器按优先级试，不能写成逗号列表：
-                // Jsoup 的 selectFirst("a, b") 返回的是**文档顺序**里第一个命中的元素，
-                // 与选择器的书写顺序无关。而微信结果 li 的结构是
-                // `.img-box > a`（缩略图，在前）→ `.txt-box > h3 > a`（标题，在后），
-                // 用逗号列表必然选中缩略图那个 a —— 标题空、链接指向图片。
-                val a = TITLE_SELECTORS.firstNotNullOfOrNull { el.selectFirst(it) }
-                    ?: return@mapNotNull null
-                val title = a.text().ifBlank { return@mapNotNull null }
-                val link = normalizeSearchLink(a.attr("href"), baseUrl)
-                val snippet = el.selectFirst(".txt-info, .str_info, .ft, .text-layout, .s-p")?.text().orEmpty()
-                Triple(title, link, snippet)
-            }
-            .filter { (_, link, snippet) -> isUsefulSogouResult(link, snippet) }
-            .distinctBy { (_, link, _) -> link }
-            .take(limit.coerceIn(1, MAX_SEARCH_RESULTS))
-            .toList()
-    }
-
-    /** 标题链接候选，按优先级排列，逐个尝试（原因见调用处注释）。 */
-    private val TITLE_SELECTORS = listOf(".txt-box h3 a", "h3 a", ".vrTitle a", "a[target=_blank]")
-
-    private companion object {
-        const val MAX_SEARCH_RESULTS = 22
-        /** 搜狗/微信翻页极易撞验证码，自动链路只取首页。 */
-        const val MAX_SEARCH_PAGES = 1
-        /** 自动档百度返回后，360 最多再等多久才合并；实测 360 通常比百度早到，这点余量足够。 */
-        const val AUTO_GRACE_MS = 400L
-    }
-
-    /**
-     * 剔除搜狗结果页里的非自然结果。实测一次「西安交通大学」，16 个命中元素里只有 7 条是真结果，
-     * 其余是广告、搜狗自家垂直卡片和站内相关搜索——不过滤的话模型拿到的就是一堆噪声。
-     *
-     * 判据：
-     * - `www.sogou.com/link?url=…` 是自然结果的跳转链接，一律保留（web_fetch 会自动跟随重定向）；
-     * - 其余 sogou.com 域名都是站内货（pic.sogou 图片、m.sogou 视频、www.sogou.com/sogou 相关搜索），丢弃；
-     * - 带 `fromcoop=` / `channel=sgtp` 的是推广位，丢弃；
-     * - 剩下的外链要求**必须有摘要**——腾讯地图之类的垂直卡片没有摘要，自然结果都有。
-     */
-    private fun isUsefulSogouResult(link: String, snippet: String): Boolean {
-        if (!link.startsWith("http")) return false
-        val lower = link.lowercase()
-        if (lower.contains("fromcoop=") || lower.contains("channel=sgtp")) return false
-        val isNaturalRedirect = lower.contains("sogou.com/link?url=")
-        if (isNaturalRedirect) return true
-        if (Regex("""https?://[^/]*\bsogou\.com""").containsMatchIn(lower)) return false
-        return snippet.isNotBlank()
-    }
-
-    private suspend fun webSearch(query: String, limit: Int, engine: String?): String {
-        if (query.isBlank()) return ToolReply.missing("query")
-        return try {
-            val encoded = java.net.URLEncoder.encode(query, "UTF-8")
-            val requested = engine?.trim()?.lowercase()
-            val selectedEngine = when {
-                // 模型可能沿用旧提示词点名已下线的源，一律当成没指定。
-                requested in AgentConfig.RETIRED_SEARCH_ENGINES -> AgentConfig.SEARCH_AUTO
-                else -> when (requested) {
-                    AgentConfig.SEARCH_WECHAT, "weixin", "wx" -> AgentConfig.SEARCH_WECHAT
-                    AgentConfig.SEARCH_BAIDU, "百度" -> AgentConfig.SEARCH_BAIDU
-                    AgentConfig.SEARCH_SO360, "360", "so" -> AgentConfig.SEARCH_SO360
-                    AgentConfig.SEARCH_WIKI, "wikipedia", "wiki" -> AgentConfig.SEARCH_WIKI
-                    AgentConfig.SEARCH_AUTO, "auto", null, "" ->
-                        if (engine.isNullOrBlank()) defaultSearchEngine else AgentConfig.SEARCH_AUTO
-                    else -> defaultSearchEngine
-                }
-            }
-            // 异步 + 可取消：协程一取消（自动档不再等某一家时）就 call.cancel() 立刻断开，
-            // 不会像阻塞的 execute() 那样非要跑到超时，把整个 coroutineScope 一起拖住。
-            suspend fun fetch(
-                url: String,
-                extra: Map<String, String> = emptyMap(),
-                client: okhttp3.OkHttpClient = searchClient,
-            ): Pair<String, String>? =
-                kotlinx.coroutines.suspendCancellableCoroutine { cont ->
-                    val req = okhttp3.Request.Builder()
-                        .url(url)
-                        .header("User-Agent", searchUa)
-                        .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.6")
-                    extra.forEach { (k, v) -> req.header(k, v) }
-                    val call = try {
-                        client.newCall(req.get().build())
-                    } catch (_: Exception) {
-                        cont.resume(null)
-                        return@suspendCancellableCoroutine
-                    }
-                    cont.invokeOnCancellation { call.cancel() }
-                    call.enqueue(object : okhttp3.Callback {
-                        override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
-                            cont.resume(null)
-                        }
-                        override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
-                            val result = runCatching {
-                                response.use { resp ->
-                                    if (!resp.isSuccessful) null
-                                    else resp.body.string() to resp.request.url.toString()
-                                }
-                            }.getOrNull()
-                            cont.resume(result)
-                        }
-                    })
-                }
-
-            val want = limit.coerceIn(1, MAX_SEARCH_RESULTS)
-
-            fun parseOrEmpty(which: String, body: String, finalUrl: String): List<Triple<String, String, String>> {
-                // 百度正常结果页很大、脚本里什么词都有，只认它自己的拦截特征，不走通用关键词
-                if (which == AgentConfig.SEARCH_BAIDU) {
-                    return if (AgentWeb.looksLikeBaiduBlock(body, finalUrl)) emptyList()
-                    else AgentWeb.parseBaiduHtml(body, want)
-                }
-                if (AgentWeb.looksLikeCaptcha(body)) return emptyList()
-                return when (which) {
-                    AgentConfig.SEARCH_WECHAT -> parseSogouResults(body, want, finalUrl)
-                    else -> AgentWeb.parseSo360Html(body, want)
-                }
-            }
-
-            suspend fun fetchPage(which: String, page: Int): List<Triple<String, String, String>> = when (which) {
-                AgentConfig.SEARCH_WECHAT -> {
-                    if (page == 1) fetch("https://weixin.sogou.com/")
-                    val pc = fetch(
-                        "https://weixin.sogou.com/weixin?type=2&ie=utf8&s_from=input&query=$encoded&page=$page",
-                        mapOf("Referer" to "https://weixin.sogou.com/"),
-                    )?.let { (body, finalUrl) -> parseOrEmpty(which, body, finalUrl) }.orEmpty()
-                    if (pc.isNotEmpty() || page > 1) pc
-                    else fetch(
-                        "https://weixin.sogou.com/weixinwap?type=2&query=$encoded",
-                        mapOf("Referer" to "https://weixin.sogou.com/"),
-                    )?.let { (body, finalUrl) -> parseOrEmpty(which, body, finalUrl) }.orEmpty()
-                }
-                AgentConfig.SEARCH_BAIDU -> {
-                    if (page > 1) emptyList()
-                    else baiduMutex.withLock {
-                        var rows = emptyList<Triple<String, String, String>>()
-                        // 换一份新 cookie 再搜；被拦就再换一次（原因见 baiduJar 注释）
-                        for (attempt in 1..2) {
-                            baiduJar.clear()
-                            fetch("https://www.baidu.com/", baiduNavHeaders + ("Sec-Fetch-Site" to "none"), baiduClient)
-                            val got = fetch(
-                                "https://www.baidu.com/s?ie=utf-8&tn=baidu&wd=$encoded&rn=${want.coerceIn(10, 20)}",
-                                baiduNavHeaders + ("Sec-Fetch-Site" to "same-origin"),
-                                baiduClient,
-                            ) ?: break
-                            val (body, finalUrl) = got
-                            if (AgentWeb.looksLikeBaiduBlock(body, finalUrl)) continue
-                            rows = AgentWeb.parseBaiduHtml(body, want)
-                            break
-                        }
-                        rows
-                    }
-                }
-                AgentConfig.SEARCH_SO360 ->
-                    if (page > 1) emptyList()
-                    else fetch(
-                        "https://www.so.com/s?q=$encoded",
-                        mapOf("Referer" to "https://www.so.com/"),
-                    )?.let { (body, finalUrl) -> parseOrEmpty(which, body, finalUrl) }.orEmpty()
-                AgentConfig.SEARCH_WIKI ->
-                    if (page > 1) emptyList()
-                    else fetch(
-                        "https://zh.wikipedia.org/w/api.php?action=opensearch&search=$encoded&limit=$want&namespace=0&format=json",
-                        mapOf("Accept" to "application/json"),
-                    )?.let { (body, _) -> AgentWeb.parseWikiOpenSearch(body, want) }.orEmpty()
-                else -> emptyList()
-            }
-
-            suspend fun searchOnce(which: String): List<Triple<String, String, String>> {
-                val acc = LinkedHashMap<String, Triple<String, String, String>>()
-                val pages = if (which == AgentConfig.SEARCH_WECHAT) MAX_SEARCH_PAGES else 1
-                for (page in 1..pages) {
-                    val before = acc.size
-                    fetchPage(which, page).forEach { r -> acc.putIfAbsent(r.second, r) }
-                    if (acc.size >= want || acc.size == before) break
-                }
-                return acc.values.take(want)
-            }
-
-            // 自动：百度为主、360 陪跑。2026-09 校园网实测，六条中文查询：
-            //   百度  1.0~1.6s  每条 8~10 个结果，大量直达 xjtu.edu.cn 校内页面，连发不弹验证码
-            //   360   0.5~1.2s  每条 4~7 个结果，相关；此前因解析 bug 一直返回 0 条
-            // 两家同时发出。百度一回来就出结果，360 只再多等 [AUTO_GRACE_MS]：赶上了合并补充，
-            // 赶不上就取消（fetch 可取消，立刻断开），不让较慢的一家拖住整体。
-            // 百度挂了（拦截 / 超时 / 空）才完整等 360。每个请求另有 callTimeout 6 秒兜底。
-            suspend fun searchAuto(skip: String?): Pair<String, List<Triple<String, String, String>>> =
-                kotlinx.coroutines.coroutineScope {
-                    fun run(which: String) = async(Dispatchers.IO) {
-                        if (which == skip) emptyList() else runCatching { searchOnce(which) }.getOrDefault(emptyList())
-                    }
-                    val baiduJob = run(AgentConfig.SEARCH_BAIDU)
-                    val so360Job = run(AgentConfig.SEARCH_SO360)
-                    val baidu = baiduJob.await()
-                    val so360 = if (baidu.isEmpty()) so360Job.await()
-                    else withTimeoutOrNull(AUTO_GRACE_MS) { so360Job.await() } ?: emptyList<Triple<String, String, String>>().also { so360Job.cancel() }
-
-                    // 合并去重：同一地址或同一标题只留一条，百度在前
-                    val merged = LinkedHashMap<String, Triple<String, String, String>>()
-                    val titles = HashSet<String>()
-                    for (r in baidu + so360) {
-                        val key = r.second.substringAfter("://").trimEnd('/').lowercase()
-                        if (key in merged || !titles.add(r.first)) continue
-                        merged[key] = r
-                    }
-                    val label = listOfNotNull(
-                        AgentConfig.searchEngineLabel(AgentConfig.SEARCH_BAIDU).takeIf { baidu.isNotEmpty() },
-                        AgentConfig.searchEngineLabel(AgentConfig.SEARCH_SO360).takeIf { so360.isNotEmpty() },
-                    ).joinToString(" + ")
-                    label to merged.values.take(want)
-                }
-
-            var usedLabel = AgentConfig.searchEngineLabel(selectedEngine)
-            var results = emptyList<Triple<String, String, String>>()
-            val primary = selectedEngine.takeUnless { it == AgentConfig.SEARCH_AUTO }
-            if (primary != null) {
-                results = runCatching { searchOnce(primary) }.getOrDefault(emptyList())
-            }
-            if (results.isEmpty()) {
-                val (label, rows) = searchAuto(skip = primary)
-                if (rows.isNotEmpty()) {
-                    usedLabel = label
-                    results = rows
-                }
-            }
-            if (results.isEmpty()) return ToolReply.empty("query: $query")
-            buildString {
-                append("「$query」｜$usedLabel｜${results.size} 条\n")
-                // 一条一行、带编号，模型转述时能写「据 [2]」，再用 web_fetch 读原文
-                results.forEachIndexed { i, (t, l, s) ->
-                    append("[${i + 1}] $t｜$l")
-                    if (s.isNotBlank()) append("｜${s.take(240)}")
-                    append("\n")
-                }
-                append(ToolReply.EXTERNAL_DATA)
-            }
-        } catch (e: Exception) {
-            ToolReply.failed("web_search", e.message)
+            agentStaleFallback(dataCache, "agent_notifications", ToolReply.failed("get_notifications", e.message))
         }
     }
 
@@ -1908,7 +1252,7 @@ class AgentToolRegistry(
         val site = ensureSite(LoginType.LIBRARY)
             ?: return loginHint(LoginType.LIBRARY)
         return try {
-            val b = com.xjtu.toolbox.library.LibraryApi(site).getMyBooking()
+            val b = com.xjtu.toolbox.library.LibraryApi(com.xjtu.toolbox.library.AppLibrarySession(site)).getMyBooking()
                 ?: return ToolReply.empty("library_booking")
             buildString {
                 append("当前图书馆预约：座位 ${b.seatId ?: "?"}")
@@ -1995,40 +1339,61 @@ class AgentToolRegistry(
         }
     }
 
-    private suspend fun readZyxfFile(fileId: Int): String = withContext(Dispatchers.IO) {
+    /** 这一轮工具读到的图（PDF 页面等），调度循环取走后交给模型看。 */
+    private val pendingImages = mutableListOf<String>()
+
+    override fun drainImages(): List<String> = pendingImages.toList().also { pendingImages.clear() }
+
+    /** 读一份文档：转成文字或页面图（见 [AgentDocReader]），图先攒着等循环来取。 */
+    private fun readDoc(name: String, bytes: ByteArray, pages: String?): String {
+        val doc = AgentDocReader.read(context, name, bytes, pages)
+        pendingImages += doc.images
+        return doc.text
+    }
+
+    private suspend fun readZyxfFile(fileId: Int, pages: String?): String = withContext(Dispatchers.IO) {
         if (fileId <= 0) return@withContext ToolReply.missing("file_id")
         try {
             val link = com.xjtu.toolbox.zyxf.ZyxfApi.fileLink(fileId)
-            val ext = link.ext.lowercase().removePrefix(".")
-            val entry = com.xjtu.toolbox.zyxf.ZyxfApi.Entry(
-                id = fileId, name = link.name, isFolder = false,
-                sizeBytes = link.sizeBytes, ext = ext,
-            )
-            // 二进制文档不在 App 里解析：PDF/Office 的文本抽取要拖进一整套解析库，
-            // 而资料站服务端本来就有 WebOffice 预览。这里给链接，让用户去看。
-            if (!entry.readable) {
-                return@withContext buildString {
-                    append("result: not_parsed; file: ${link.name}; type: ${ext.uppercase().ifBlank { "binary" }}")
-                    entry.sizeText.takeIf { it.isNotBlank() }?.let { append("; size: $it") }
-                    append("; url: ${link.url}; url_ttl: 30min")
-                }
+            if (!AgentDocReader.canRead(link.name)) {
+                return@withContext "result: unsupported_type; file: ${link.name}; url: ${link.url}; url_ttl: 30min"
             }
-            val text = com.xjtu.toolbox.zyxf.ZyxfApi.readText(entry)
-                ?: return@withContext ToolReply.failed("read_zyxf_file", "empty_body; file: ${link.name}")
-            buildString {
-                append("「${link.name}」内容：\n")
-                append(text.take(4000))
-                if (text.length > 4000) append("\n…（已截断，只给了开头 4000 字）")
-            }
+            val (name, bytes) = com.xjtu.toolbox.zyxf.ZyxfApi.readBytes(fileId)
+                ?: return@withContext ToolReply.failed("read_zyxf_file", "download_or_too_large; file: ${link.name}")
+            readDoc(name, bytes, pages)
         } catch (e: Exception) {
             ToolReply.failed("read_zyxf_file", e.message)
         }
     }
 
+    /** 学辅资料或思源附件存进「下载」，并记进下载管理。 */
+    private suspend fun saveFile(source: String?, fileId: Int?, course: String?, activity: String?, file: String?): String =
+        withContext(Dispatchers.IO) {
+            when (source) {
+                "zyxf" -> {
+                    val id = fileId?.takeIf { it > 0 } ?: return@withContext ToolReply.missing("file_id")
+                    val saved = runCatching { com.xjtu.toolbox.zyxf.ZyxfApi.download(context, id) }.getOrNull()
+                    if (saved != null) "ok: saved; file: $saved; where: 我的 → 下载管理" else ToolReply.failed("save_file", "download")
+                }
+                "lms" -> {
+                    val (name, bytes) = when (val r = lmsAttachmentBytes(course, activity, file)) {
+                        is LmsFile.Ok -> r.name to r.bytes
+                        is LmsFile.Error -> return@withContext r.reply
+                    }
+                    val mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(AgentDocReader.ext(name)).orEmpty()
+                    val uri = com.xjtu.toolbox.lms.LmsDownloadStore.saveBytes(
+                        context, name, mime, bytes, com.xjtu.toolbox.lms.LmsDownloadStore.CATEGORY_LMS,
+                    )
+                    if (uri != null) "ok: saved; file: $name; where: 我的 → 下载管理" else ToolReply.failed("save_file", "write")
+                }
+                else -> ToolReply.badValue("source", "zyxf/lms")
+            }
+        }
+
     private suspend fun getLibrarySeats(campusArg: String?, area: String?): String {
         val site = ensureSite(LoginType.LIBRARY)
             ?: return loginHint(LoginType.LIBRARY)
-        val api = com.xjtu.toolbox.library.LibraryApi(site)
+        val api = com.xjtu.toolbox.library.LibraryApi(com.xjtu.toolbox.library.AppLibrarySession(site))
         val current = withContext(Dispatchers.IO) { runCatching { api.getCurrentCampus() }.getOrNull() }
         val requested = campusArg?.trim()?.takeIf { it.isNotEmpty() }?.let { arg ->
             com.xjtu.toolbox.library.LibraryCampus.entries.firstOrNull { arg.contains(it.displayName) || it.displayName.contains(arg) }
@@ -2159,12 +1524,12 @@ class AgentToolRegistry(
         val site = ensureSite(LoginType.JWXT)
             ?: return loginHint(LoginType.JWXT)
         return try {
-            val api = ScheduleApi(site)
-            val termCode = requestedTerm ?: api.getCurrentTerm()
+            val api = JwxtScheduleApi(site)
+            val termCode = requestedTerm ?: api.currentTerm()
             runCatching { com.xjtu.toolbox.schedule.ScheduleTermStore.merge(dataCache, api.termNames()) }
             val studentId = loginState.activeUsername
             if (studentId.isBlank()) return ToolReply.failed("lookup", "no_student_id")
-            val books = api.getTextbooks(studentId, termCode)
+            val books = api.textbooks(studentId, termCode)
             ScheduleCache.writeTextbooks(dataCache, termCode, books)
             formatTextbooks(termCode, books, cached = false)
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
@@ -2213,22 +1578,9 @@ class AgentToolRegistry(
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
-            staleOr("agent_coupons", ToolReply.failed("get_coupons", e.message))
+            agentStaleFallback(dataCache, "agent_coupons", ToolReply.failed("get_coupons", e.message))
         }
     }
-
-    private fun lmsTypeName(t: com.xjtu.toolbox.lms.LmsActivityType): String = when (t) {
-        com.xjtu.toolbox.lms.LmsActivityType.HOMEWORK -> "作业"
-        com.xjtu.toolbox.lms.LmsActivityType.MATERIAL -> "课件"
-        com.xjtu.toolbox.lms.LmsActivityType.LESSON -> "课程/回放"
-        com.xjtu.toolbox.lms.LmsActivityType.LECTURE_LIVE -> "直播/回放"
-        com.xjtu.toolbox.lms.LmsActivityType.PAGE -> "页面"
-        com.xjtu.toolbox.lms.LmsActivityType.FORUM -> "讨论区"
-        com.xjtu.toolbox.lms.LmsActivityType.QUESTIONNAIRE -> "问卷"
-        com.xjtu.toolbox.lms.LmsActivityType.ONLINE_VIDEO -> "在线视频"
-        else -> "其他"
-    }
-
     private suspend fun getLmsCourses(): String {
         val site = ensureSite(LoginType.LMS)
             ?: return loginHint(LoginType.LMS)
@@ -2242,18 +1594,6 @@ class AgentToolRegistry(
             ToolReply.failed("get_lms.courses", e.message)
         }
     }
-
-    /**
-     * 活动的时间尾巴：作业报"截止"（优先上游 `deadline`，它才是老师设的那个时间，实测 4.6%
-     * 与 `end_time` 不同，且都是 `end_time` 比它早），其余类型报"结束"（下课/回放结束，不是截止）。
-     */
-    private fun lmsTimeSuffix(a: com.xjtu.toolbox.lms.LmsActivity): String {
-        val isHw = a.type == com.xjtu.toolbox.lms.LmsActivityType.HOMEWORK
-        val raw = if (isHw) (a.deadline ?: a.endTime) else a.endTime
-        if (raw.isNullOrBlank()) return ""
-        return if (isHw) "（截止 $raw）" else "（结束 $raw）"
-    }
-
     private suspend fun getLmsActivities(course: String?): String {
         if (course.isNullOrBlank()) return ToolReply.missing("course")
         val site = ensureSite(LoginType.LMS)
@@ -2268,10 +1608,10 @@ class AgentToolRegistry(
             buildString {
                 append("「${c.name}」活动（${acts.size}项）：\n")
                 acts.groupBy { it.type }.forEach { (t, list) ->
-                    append("【${lmsTypeName(t)}】\n")
+                    append("【${agentLmsTypeName(t)}】\n")
                     list.take(15).forEach { a ->
                         append("• ${a.title}")
-                        append(lmsTimeSuffix(a))
+                        append(agentLmsTimeSuffix(a))
                         append("\n")
                     }
                 }
@@ -2302,7 +1642,7 @@ class AgentToolRegistry(
                 append("思源学堂作业（${sorted.size}项）：\n")
                 sorted.take(25).forEach { (cn, a) ->
                     append("• [$cn] ${a.title}")
-                    append(lmsTimeSuffix(a))
+                    append(agentLmsTimeSuffix(a))
                     append("\n")
                 }
             }
@@ -2346,7 +1686,7 @@ class AgentToolRegistry(
                 ?: return ToolReply.notFound("activity", "${c.name} / ${activity.orEmpty()}")
             val a = api.getActivityDetail(brief.id, brief)
             buildString {
-                append("「${c.name}」${lmsTypeName(a.type)}详情：${a.title}\n")
+                append("「${c.name}」${agentLmsTypeName(a.type)}详情：${a.title}\n")
                 a.startTime?.let { append("开始：$it\n") }
                 a.visibleStartAt?.let { append("可见：$it\n") }
                 if (a.type == com.xjtu.toolbox.lms.LmsActivityType.HOMEWORK) {
@@ -2354,7 +1694,9 @@ class AgentToolRegistry(
                 } else {
                     a.endTime?.let { append("结束：$it\n") }
                 }
-                if (!a.description.isNullOrBlank()) append("说明：${org.jsoup.Jsoup.parse(a.description).text().take(1200)}\n")
+                // 跨模块无法 smart cast：先落成本地 val
+                val desc = a.description
+                if (!desc.isNullOrBlank()) append("说明：${org.jsoup.Jsoup.parse(desc).text().take(1200)}\n")
                 if (a.uploads.isNotEmpty()) {
                     append("附件：\n")
                     a.uploads.forEach { u ->
@@ -2378,33 +1720,40 @@ class AgentToolRegistry(
         }
     }
 
-    private suspend fun readLmsAttachment(course: String?, activity: String?, file: String?): String {
-        val site = ensureSite(LoginType.LMS)
-            ?: return loginHint(LoginType.LMS)
-        return try {
-            val api = com.xjtu.toolbox.lms.LmsApi(site)
-            val c = findLmsCourse(api, course) ?: return ToolReply.notFound("course", course.orEmpty())
-            val brief = findLmsActivity(api, c.id, activity)
-                ?: return ToolReply.notFound("activity", "${c.name} / ${activity.orEmpty()}")
-            val detail = api.getActivityDetail(brief.id, brief)
-            val uploads = detail.uploads + detail.submissionList?.list.orEmpty().flatMap { it.uploads }
-            val key = file?.trim().orEmpty()
-            val upload = uploads.firstOrNull { key.isBlank() || it.name.contains(key, ignoreCase = true) }
-                ?: return ToolReply.notFound("file", key)
-            val url = upload.downloadUrl.ifBlank { upload.attachmentUrl.ifBlank { upload.previewUrl } }
-            if (url.isBlank()) return ToolReply.failed("get_lms_activity.file","no_download_url; file: ${upload.name}")
-            val ext = upload.name.substringAfterLast('.', "").lowercase()
-            if (ext in listOf("pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "zip", "rar", "7z")) {
-                return "result: not_parsed; file: ${upload.name}; type: ${ext.uppercase()}; url: $url"
-            }
-            val bytes = api.downloadBytes(url) ?: return ToolReply.failed("get_lms_activity.file","download")
-            val text = bytes.toString(Charsets.UTF_8)
-            "附件「${upload.name}」内容：\n" + text.take(4000) + if (text.length > 4000) "\n…（已截断）" else ""
-        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
-            throw e
-        } catch (e: Exception) {
-            ToolReply.failed("get_lms_activity.file",e.message)
+    private sealed interface LmsFile {
+        class Ok(val name: String, val bytes: ByteArray) : LmsFile
+        class Error(val reply: String) : LmsFile
+    }
+
+    /** 找到思源某个活动里的附件并下载字节。 */
+    private suspend fun lmsAttachmentBytes(course: String?, activity: String?, file: String?): LmsFile {
+        val site = ensureSite(LoginType.LMS) ?: return LmsFile.Error(loginHint(LoginType.LMS))
+        val api = com.xjtu.toolbox.lms.LmsApi(site)
+        val c = findLmsCourse(api, course) ?: return LmsFile.Error(ToolReply.notFound("course", course.orEmpty()))
+        val brief = findLmsActivity(api, c.id, activity)
+            ?: return LmsFile.Error(ToolReply.notFound("activity", "${c.name} / ${activity.orEmpty()}"))
+        val detail = api.getActivityDetail(brief.id, brief)
+        val uploads = detail.uploads + detail.submissionList?.list.orEmpty().flatMap { it.uploads }
+        val key = file?.trim().orEmpty()
+        val upload = uploads.firstOrNull { key.isBlank() || it.name.contains(key, ignoreCase = true) }
+            ?: return LmsFile.Error(ToolReply.notFound("file", key, uploads.map { it.name }))
+        val url = upload.downloadUrl.ifBlank { upload.attachmentUrl.ifBlank { upload.previewUrl } }
+        if (url.isBlank()) return LmsFile.Error(ToolReply.failed("get_lms_activity.file", "no_download_url; file: ${upload.name}"))
+        val bytes = api.downloadBytes(url) ?: return LmsFile.Error(ToolReply.failed("get_lms_activity.file", "download"))
+        return LmsFile.Ok(upload.name, bytes)
+    }
+
+    private suspend fun readLmsAttachment(course: String?, activity: String?, file: String?, pages: String?): String = try {
+        when (val r = lmsAttachmentBytes(course, activity, file)) {
+            is LmsFile.Error -> r.reply
+            is LmsFile.Ok ->
+                if (AgentDocReader.canRead(r.name)) withContext(Dispatchers.IO) { readDoc(r.name, r.bytes, pages) }
+                else "result: unsupported_type; file: ${r.name}; 可以用 save_file 存进下载"
         }
+    } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+        throw e
+    } catch (e: Exception) {
+        ToolReply.failed("get_lms_activity.file", e.message)
     }
 
     private suspend fun getFitnessScore(year: String?): String {
@@ -2412,7 +1761,7 @@ class AgentToolRegistry(
             ?: return loginHint(LoginType.FITNESS)
         return try {
             val api = com.xjtu.toolbox.fitness.FitnessApi(site)
-            val years = api.getYears()
+            val years = api.years()
             val selected = pickFitnessYear(years, year)
             if (selected == null) {
                 val opts = orderedFitnessYears(years)
@@ -2420,7 +1769,7 @@ class AgentToolRegistry(
                     .distinct()
                 return ToolReply.notFound("year", year.orEmpty(), opts.map { it.toString() })
             }
-            val score = api.getScore(selected.yearNum)
+            val score = api.score(selected.yearNum)
             buildString {
                 append("体测成绩（${selected.name}）：${score.studentName} ${score.studentNumber}\n")
                 append("总分：${score.totalScore}，等级：${score.totalGrade}\n")
@@ -2437,167 +1786,6 @@ class AgentToolRegistry(
             ToolReply.failed("get_fitness_score", e.message)
         }
     }
-
-    // ── 应用设置读写（仅非敏感项白名单） ──────────────────────────────────
-
-    private val writableSettingKeys = listOf(
-        "dark_mode", "dynamic_color", "home_theme", "nav_bar_style", "show_quick_actions",
-        "default_tab", "network_mode", "account_type", "venue_auto_solve_captcha",
-        "update_channel", "receive_preview_updates",
-    )
-
-    private fun parseBoolSetting(value: String): Boolean? {
-        return when (value.trim().lowercase()) {
-            "true", "1", "on", "yes", "开", "开启" -> true
-            "false", "0", "off", "no", "关", "关闭" -> false
-            else -> null
-        }
-    }
-
-    private fun getAppSettings(): String {
-        val cs = com.xjtu.toolbox.data.CredentialStore(context)
-        return buildString {
-            append("当前应用设置：\n")
-            append("• dark_mode（深色模式）：${cs.darkMode}　可选 system/light/dark\n")
-            append("• dynamic_color（跟随系统取色）：${cs.dynamicColor}　可选 true/false\n")
-            append("• home_theme（首页主题）：${cs.homeTheme}　可选 card/icon\n")
-            append("• nav_bar_style（界面风格）：${cs.navBarStyle}　可选 floating（玻璃，默认）/classic（经典，不透明、更省电）\n")
-            append("• show_quick_actions（首页常用功能）：${cs.showQuickActions}　可选 true/false\n")
-            append("• default_tab（启动页）：${cs.defaultTab}　可选 HOME/COURSES/TOOLS/PROFILE\n")
-            append("• network_mode（网络模式）：${cs.networkMode}　可选 auto/direct/vpn\n")
-            append("• account_type（账号类型）：${cs.accountType.key}　可选 undergraduate/postgraduate\n")
-            append("• venue_auto_solve_captcha（场馆验证码自动识别）：${cs.venueAutoSolveCaptchaEnabled}　可选 true/false\n")
-            append("• update_channel（更新通道）：${cs.updateChannel}（${com.xjtu.toolbox.update.AppUpdater.channelLabel(cs.updateChannel)}）　可选 ${com.xjtu.toolbox.update.AppUpdater.channelKeys.joinToString("/")}\n")
-            append("• receive_preview_updates（接收预览版更新）：${cs.receivePreviewUpdates}　可选 true/false")
-        }
-    }
-
-    private fun setAppSetting(key: String, value: String): String {
-        val cs = com.xjtu.toolbox.data.CredentialStore(context)
-        return when (key.trim()) {
-            "dark_mode" -> {
-                val v = value.trim().lowercase()
-                if (v !in listOf("system", "light", "dark")) ToolReply.badValue("dark_mode", "system/light/dark")
-                else {
-                    cs.darkMode = v
-                    "已将深色模式设为 $v（已即时生效）。"
-                }
-            }
-            "dynamic_color" -> {
-                val b = parseBoolSetting(value) ?: return ToolReply.badValue("dynamic_color", "true/false")
-                cs.dynamicColor = b
-                "已${if (b) "开启" else "关闭"}跟随系统取色（已即时生效）。"
-            }
-            "home_theme" -> {
-                val v = when (value.trim().lowercase()) {
-                    "card", "卡片", "卡片主题" -> CredentialStore.THEME_CARD
-                    "icon", "图标", "图标主题" -> CredentialStore.THEME_ICON
-                    else -> return ToolReply.badValue("home_theme", "card/icon")
-                }
-                cs.homeTheme = v
-                "已将首页主题设为 $v（已即时生效）。"
-            }
-            "nav_bar_style" -> {
-                val v = when (value.trim().lowercase()) {
-                    "floating", "悬浮", "悬浮胶囊", "玻璃", "液态玻璃" -> CredentialStore.NAV_STYLE_FLOATING
-                    "classic", "经典", "经典底栏", "不透明" -> CredentialStore.NAV_STYLE_CLASSIC
-                    else -> return ToolReply.badValue("nav_bar_style", "floating/classic")
-                }
-                cs.navBarStyle = v
-                "已将界面风格设为 $v（已即时生效）。"
-            }
-            "show_quick_actions" -> {
-                val b = parseBoolSetting(value) ?: return ToolReply.badValue("show_quick_actions", "true/false")
-                cs.showQuickActions = b
-                "已${if (b) "显示" else "隐藏"}首页常用功能（已即时生效）。"
-            }
-            "default_tab" -> {
-                val v = value.trim().uppercase()
-                if (v !in listOf("HOME", "COURSES", "TOOLS", "PROFILE")) ToolReply.badValue("default_tab", "HOME/COURSES/TOOLS/PROFILE")
-                else { cs.defaultTab = v; "已将启动页设为 $v（下次冷启动生效）。" }
-            }
-            "network_mode" -> {
-                val v = when (value.trim().lowercase()) {
-                    "auto", "自动", "自动检测" -> CredentialStore.NETWORK_AUTO
-                    "direct", "直连", "强制直连" -> CredentialStore.NETWORK_DIRECT
-                    "vpn", "webvpn", "强制 webvpn" -> CredentialStore.NETWORK_VPN
-                    else -> return ToolReply.badValue("network_mode", "auto/direct/vpn")
-                }
-                cs.networkMode = v
-                "已将网络模式设为 $v。"
-            }
-            "account_type" -> {
-                val type = when (value.trim().lowercase()) {
-                    "undergraduate", "本科", "本科生" -> AccountType.UNDERGRADUATE
-                    "postgraduate", "研究生" -> AccountType.POSTGRADUATE
-                    else -> return ToolReply.badValue("account_type", "undergraduate/postgraduate")
-                }
-                cs.accountType = type
-                "已将账号类型设为 ${type.displayName}。"
-            }
-            "venue_auto_solve_captcha" -> {
-                val b = parseBoolSetting(value) ?: return ToolReply.badValue("venue_auto_solve_captcha", "true/false")
-                cs.venueAutoSolveCaptchaEnabled = b
-                "已${if (b) "开启" else "关闭"}场馆验证码自动识别。"
-            }
-            "update_channel" -> {
-                val raw = value.trim().lowercase()
-                val accepted = com.xjtu.toolbox.update.AppUpdater.channelKeys + listOf("stable", "beta")
-                if (raw !in accepted) {
-                    ToolReply.badValue("update_channel", com.xjtu.toolbox.update.AppUpdater.channelKeys.joinToString("/"))
-                } else {
-                    val v = com.xjtu.toolbox.update.AppUpdater.normalizeChannel(raw)
-                    cs.updateChannel = v
-                    "已将更新通道设为 $v（${com.xjtu.toolbox.update.AppUpdater.channelLabel(v)}）。"
-                }
-            }
-            "receive_preview_updates" -> {
-                val b = parseBoolSetting(value) ?: return ToolReply.badValue("receive_preview_updates", "true/false")
-                cs.receivePreviewUpdates = b
-                "已将「接收预览版更新」设为 $b。"
-            }
-            else -> ToolReply.badValue("key", writableSettingKeys.joinToString("/"))
-        }
-    }
-
-    private fun setAlarm(hour: Int?, minute: Int?, message: String?, days: String?): String {
-        val h = hour ?: return ToolReply.missing("hour")
-        val m = minute ?: 0
-        if (h !in 0..23) return ToolReply.outOfRange("hour", "0-23")
-        if (m !in 0..59) return ToolReply.outOfRange("minute", "0-59")
-        val repeatDays = days.orEmpty()
-            .split(",", "，", " ")
-            .mapNotNull { day ->
-                when (day.trim().uppercase()) {
-                    "MON", "MONDAY", "周一", "星期一" -> java.util.Calendar.MONDAY
-                    "TUE", "TUESDAY", "周二", "星期二" -> java.util.Calendar.TUESDAY
-                    "WED", "WEDNESDAY", "周三", "星期三" -> java.util.Calendar.WEDNESDAY
-                    "THU", "THURSDAY", "周四", "星期四" -> java.util.Calendar.THURSDAY
-                    "FRI", "FRIDAY", "周五", "星期五" -> java.util.Calendar.FRIDAY
-                    "SAT", "SATURDAY", "周六", "星期六" -> java.util.Calendar.SATURDAY
-                    "SUN", "SUNDAY", "周日", "星期日" -> java.util.Calendar.SUNDAY
-                    else -> null
-                }
-            }
-        return try {
-            val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
-                putExtra(AlarmClock.EXTRA_HOUR, h)
-                putExtra(AlarmClock.EXTRA_MINUTES, m)
-                putExtra(AlarmClock.EXTRA_MESSAGE, message?.takeIf { it.isNotBlank() } ?: "岱宗盒子提醒")
-                if (repeatDays.isNotEmpty()) {
-                    putExtra(AlarmClock.EXTRA_DAYS, ArrayList(repeatDays.distinct()))
-                }
-                putExtra(AlarmClock.EXTRA_SKIP_UI, false)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-            ToolReply.handedOff("alarm", "time: ${"%02d:%02d".format(h, m)}" +
-                (message?.takeIf { it.isNotBlank() }?.let { "; label: $it" } ?: ""))
-        } catch (e: Exception) {
-            ToolReply.failed("set_alarm", e.message ?: "no_alarm_app")
-        }
-    }
-
     /**
      * 往本 App 的日程里加一条（和日程页「添加日程」同一张表），只加进**当前学期**。
      *
@@ -2633,7 +1821,7 @@ class AgentToolRegistry(
         val termStart = cachedStartDate(termCode)
             ?: return ToolReply.failed("add_schedule_event", "no_term_start_date")
         val maxWeeks = 20
-        val week = com.xjtu.toolbox.schedule.TermWeeks.weekOf(termStart, day)
+        val week = com.xjtu.toolbox.schedule.TermWeeks.weekOf(termStart.toKx(), day.toKx())
         if (week !in 1..maxWeeks) {
             return ToolReply.outOfRange("date", "current term $termCode, weeks 1-$maxWeeks (from $termStart)")
         }
@@ -2666,7 +1854,7 @@ class AgentToolRegistry(
         val dao = com.xjtu.toolbox.data.AppDatabase.getInstance(context).customCourseDao()
         val conflicts = mutableListOf<String>()
         dao.getConflicts(accountId, termCode, entity.dayOfWeek, 1, com.xjtu.toolbox.schedule.MAX_SECTIONS)
-            .filter { com.xjtu.toolbox.schedule.CustomCourseConflicts.conflicts(entity, it) }
+            .filter { com.xjtu.toolbox.schedule.CustomCourseConflicts.conflicts(entity.toCourseItem(), it.toCourseItem(), sameTerm = entity.termCode == it.termCode) }
             .forEach { other ->
                 val shared = com.xjtu.toolbox.schedule.CustomCourseConflicts.sharedWeeks(entity.weekBits, other.weekBits)
                 conflicts += "${other.courseName}（自建，${com.xjtu.toolbox.schedule.CustomCourseConflicts.describeWeeks(shared)}）"
@@ -2697,211 +1885,6 @@ class AgentToolRegistry(
                 (if (conflicts.isNotEmpty()) "; overlaps_kept: ${conflicts.joinToString("；")}" else "")
         } catch (e: Exception) {
             ToolReply.failed("add_schedule_event", e.message)
-        }
-    }
-
-    private fun calculate(expr: String): String {
-        if (expr.isBlank()) return ToolReply.missing("expression")
-        return try {
-            val v = ExprEval(expr).parse()
-            val s = if (v.isFinite() && v == Math.floor(v) && Math.abs(v) < 1e15)
-                v.toLong().toString()
-            else "%.4f".format(v).trimEnd('0').trimEnd('.')
-            "$expr = $s"
-        } catch (e: Exception) {
-            "无法计算「$expr」：${e.message ?: "表达式有误"}"
-        }
-    }
-
-    /** 极简安全表达式求值：四则、括号、幂(^)、一元正负。不依赖任何脚本引擎。 */
-    private class ExprEval(private val s: String) {
-        private var pos = 0
-        fun parse(): Double {
-            val v = expr(); skipWs()
-            if (pos < s.length) throw IllegalArgumentException("多余字符")
-            return v
-        }
-        private fun skipWs() { while (pos < s.length && s[pos].isWhitespace()) pos++ }
-        private fun peek(): Char { skipWs(); return if (pos < s.length) s[pos] else '\u0000' }
-        private fun expr(): Double {
-            var v = term()
-            while (true) when (peek()) {
-                '+' -> { pos++; v += term() }
-                '-' -> { pos++; v -= term() }
-                else -> return v
-            }
-        }
-        private fun term(): Double {
-            var v = power()
-            while (true) when (peek()) {
-                '*' -> { pos++; v *= power() }
-                '/' -> { pos++; v /= power() }
-                else -> return v
-            }
-        }
-        private fun power(): Double {
-            val b = unary()
-            return if (peek() == '^') { pos++; Math.pow(b, power()) } else b
-        }
-        private fun unary(): Double = when (peek()) {
-            '-' -> { pos++; -unary() }
-            '+' -> { pos++; unary() }
-            else -> atom()
-        }
-        private fun atom(): Double {
-            if (peek() == '(') {
-                pos++; val v = expr()
-                if (peek() != ')') throw IllegalArgumentException("缺少 )")
-                pos++; return v
-            }
-            skipWs()
-            val start = pos
-            while (pos < s.length && (s[pos].isDigit() || s[pos] == '.')) pos++
-            if (pos == start) throw IllegalArgumentException("非法字符")
-            return s.substring(start, pos).toDouble()
-        }
-    }
-
-    private data class FetchedPage(
-        val finalUrl: String,
-        val html: String,
-        val truncated: Boolean,
-        val via: String = "direct",
-    )
-
-    private fun getUrl(
-        url: String,
-        userAgent: String,
-        extra: Map<String, String> = emptyMap(),
-        accept: String = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    ): FetchedPage? {
-        AgentWeb.requirePublicHttpUrl(url)
-        return try {
-            val req = okhttp3.Request.Builder()
-                .url(url)
-                .header("User-Agent", userAgent)
-                .header("Accept", accept)
-                .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.6")
-            extra.forEach { (k, v) -> req.header(k, v) }
-            webClient.newCall(req.get().build()).execute().use { resp ->
-                if (!resp.isSuccessful) return@use null
-                val finalUrl = resp.request.url.toString()
-                val body = resp.body
-                if (AgentWeb.isBinaryContentType(resp.header("Content-Type") ?: body.contentType()?.toString())) {
-                    return@use null
-                }
-                val source = body.source()
-                val buffer = okio.Buffer()
-                var totalRead = 0L
-                val maxBytes = AgentWeb.HTML_READ_BYTES
-                while (totalRead < maxBytes) {
-                    val read = source.read(buffer, maxBytes - totalRead)
-                    if (read == -1L) break
-                    totalRead += read
-                }
-                val truncated = source.request(1L)
-                val bytes = buffer.readByteArray()
-                if (bytes.isEmpty()) return@use null
-                FetchedPage(finalUrl, String(bytes, Charsets.UTF_8), truncated)
-            }
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun fetchReadablePage(startUrl: String): FetchedPage? {
-        var url = startUrl
-        if (AgentWeb.isSogouJumpUrl(url)) url = AgentWeb.withSogouClickParams(url)
-        val firstUa = if (AgentWeb.isWeChatUrl(url) || AgentWeb.isSogouJumpUrl(url)) wechatUa else APP_UA
-        var page = getUrl(url, firstUa)
-        val html = page?.html.orEmpty()
-        val blocked = html.isNotEmpty() && (
-            AgentWeb.looksLikeCaptcha(html) ||
-                (AgentWeb.isWeChatUrl(page?.finalUrl ?: url) && AgentWeb.looksLikeWeChatBlock(html))
-            )
-        if ((page == null || blocked) && AgentWeb.isSogouJumpUrl(startUrl)) {
-            page = getUrl(AgentWeb.withSogouClickParams(startUrl, extraOffset = 28), wechatUa)
-                ?: getUrl(startUrl, searchUa)
-        }
-        val after = page
-        val afterHtml = after?.html.orEmpty()
-        val stillThin = after == null ||
-            AgentWeb.looksLikeCaptcha(afterHtml) ||
-            AgentWeb.looksLikeWeChatBlock(afterHtml) ||
-            (AgentWeb.isWeChatUrl(after.finalUrl) && afterHtml.length < 400)
-        if (stillThin && !startUrl.contains("r.jina.ai")) {
-            val reader = getUrl(
-                AgentWeb.jinaReaderUrl(after?.finalUrl ?: startUrl),
-                searchUa,
-                extra = mapOf("Accept" to "text/plain"),
-                accept = "text/plain, text/markdown, */*;q=0.8",
-            )
-            if (reader != null && reader.html.isNotBlank() &&
-                !AgentWeb.looksLikeCaptcha(reader.html) &&
-                !AgentWeb.looksLikeWeChatBlock(reader.html)
-            ) {
-                return reader.copy(via = "jina")
-            }
-        }
-        return after
-    }
-
-    private fun webFetch(rawUrl: String): String {
-        val url = rawUrl.trim()
-        if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true)) {
-            return ToolReply.badFormat("url", "http(s)://…")
-        }
-        return try {
-            AgentWeb.requirePublicHttpUrl(url)
-            val page = fetchReadablePage(url)
-                ?: return ToolReply.failed("web_fetch", "refused_or_empty")
-            val html = page.html
-            if (AgentWeb.looksLikeCaptcha(html) && !AgentWeb.looksLikeJinaMarkdown(html)) {
-                return ToolReply.failed("web_fetch", "captcha_page")
-            }
-            if (AgentWeb.looksLikeJinaMarkdown(html)) {
-                return buildString {
-                    append("最终URL：${page.finalUrl}\n")
-                    if (page.via == "jina") append("（经公开读页服务提取）\n")
-                    append("\n正文：\n")
-                    append(AgentWeb.truncateMarkdown(html))
-                    append("\n\n" + ToolReply.EXTERNAL_DATA)
-                }
-            }
-            val doc = org.jsoup.Jsoup.parse(html, page.finalUrl)
-            val title = doc.title().ifBlank { page.finalUrl }
-            val markdown = AgentWeb.truncateMarkdown(AgentWeb.htmlToMarkdown(doc.html(), page.finalUrl))
-            val links = doc.select("a[href]").asSequence()
-                .mapNotNull { a ->
-                    val href = normalizeSearchLink(a.attr("href"), page.finalUrl)
-                    val label = a.text().replace(Regex("\\s+"), " ").trim().take(80)
-                    if (href.startsWith("http") && label.isNotBlank()) label to href else null
-                }
-                .distinctBy { it.second }
-                .take(12)
-                .toList()
-            buildString {
-                append("标题：$title\n")
-                append("最终URL：${page.finalUrl}\n")
-                if (page.via == "jina") append("（经公开读页服务提取）\n")
-                if (page.truncated) append("（页面较大，已从开头提取正文）\n")
-                if (links.isNotEmpty()) {
-                    append("页面链接：\n")
-                    links.forEachIndexed { i, (label, href) ->
-                        append("${i + 1}. [$label]($href)\n")
-                    }
-                }
-                append("\n正文：\n")
-                append(markdown.ifBlank { "页面无可提取正文。" })
-                append("\n\n" + ToolReply.EXTERNAL_DATA)
-            }
-        } catch (e: Exception) {
-            val msg = e.message.orEmpty()
-            if (e is java.net.UnknownServiceException || msg.contains("CLEARTEXT", ignoreCase = true)) {
-                ToolReply.failed("web_fetch", "cleartext_http_blocked")
-            } else {
-                ToolReply.failed("web_fetch", msg)
-            }
         }
     }
 }

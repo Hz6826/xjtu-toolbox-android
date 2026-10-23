@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.util.toJavaTime
+import com.xjtu.toolbox.util.toKx
 import android.content.Context
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.HolidayApi
@@ -15,18 +17,18 @@ import java.time.LocalDate
  */
 internal object ChatterFactsLoader {
 
-    fun load(ctx: Context, today: LocalDate = LocalDate.now()): ChatterFacts = runCatching {
+    fun load(ctx: Context, today: LocalDate = LocalDate.now(com.xjtu.toolbox.util.CampusZoneId)): ChatterFacts = runCatching {
         val cache = DataCache(ctx)
-        val holidays = HolidayApi.peekCached(ctx)
+        val holidays = HolidayApi.peekCached(com.xjtu.toolbox.data.DataCache(ctx)).mapKeys { it.key.toJavaTime() }
         val nextHoliday = nextHoliday(holidays, today)
 
         val schedule = ScheduleCache.readCurrentTermSchedule(cache)
         val courses: List<CourseItem> = schedule?.courses.orEmpty()
-        val start = schedule?.start
+        val start = schedule?.start?.toJavaTime()
 
         fun coursesOn(date: LocalDate): List<CourseItem> {
             if (start == null || holidays.containsKey(date)) return emptyList()
-            val week = TermWeeks.weekOf(start, date)
+            val week = TermWeeks.weekOf(start.toKx(), date.toKx())
             return courses.filter { it.dayOfWeek == date.dayOfWeek.value && it.isInWeek(week) }
                 .sortedBy { it.startSection }
         }

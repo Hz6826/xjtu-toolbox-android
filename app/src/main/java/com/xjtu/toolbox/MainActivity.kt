@@ -5,6 +5,8 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
+import android.util.Log
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -18,6 +20,7 @@ import com.xjtu.toolbox.agent.PidaiAppearanceHost
 import com.xjtu.toolbox.auth.SessionKeepAlive
 import com.xjtu.toolbox.data.AppearanceSettings
 import com.xjtu.toolbox.main.AppRoot
+import com.xjtu.toolbox.inbox.ofRoute
 import com.xjtu.toolbox.main.BottomTab
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.DeepLinkRouter
@@ -31,9 +34,6 @@ class MainActivity : ComponentActivity() {
 
         /** 启动后要切到的底栏 tab，值是 [BottomTab.name]。 */
         const val EXTRA_LAUNCH_TAB = "extra_launch_tab"
-
-        /** 启动后交给屁岱自动发送的一句话。 */
-        const val EXTRA_LAUNCH_PROMPT = "extra_launch_prompt"
     }
 
     /** 登录恢复完成（首帧已画出）后为 true，SplashScreen 据此消失。 */
@@ -68,19 +68,20 @@ class MainActivity : ComponentActivity() {
         installSplashScreen().setKeepOnScreenCondition { !isAppReady }
         super.onCreate(savedInstanceState)
         applyOrientationPolicy(resources.configuration)
+        com.xjtu.toolbox.agent.AgentLocation.register(this)
         consumeLaunchIntent(intent)
         // 导航条全透明：默认样式在 API 29–34 上会加一层半透明 scrim，三键导航由系统自己保证对比度
         enableEdgeToEdge(
             navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
         )
         PidaiAppearanceHost.load(this) // 首帧前读入，免得底栏先闪默认形象
-        SessionKeepAlive.start(this)
 
         val appearance = AppearanceSettings.get(this)
         setContent {
             val darkMode by appearance.darkMode.collectAsStateWithLifecycle()
             val dynamicColor by appearance.dynamicColor.collectAsStateWithLifecycle()
-            XJTUToolBoxTheme(darkModeOverride = darkMode, dynamicColor = dynamicColor) {
+            val customColorHex by appearance.customColorHex.collectAsStateWithLifecycle()
+            XJTUToolBoxTheme(darkModeOverride = darkMode, dynamicColor = dynamicColor, customColorHex = customColorHex) {
                 AppRoot(
                     initialRoute = launchRoute.value,
                     onInitialRouteConsumed = { launchRoute.value = null },
@@ -92,20 +93,54 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        SessionKeepAlive.start()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        SessionKeepAlive.stop()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         consumeLaunchIntent(intent)
     }
 
-    /** 解析启动意图：深链优先；认不出的路由当作没有；带的 prompt 交给屁岱。 */
+    /**
+     * 解析启动意图：深链优先；认不出的路由当作没有；深链带的话只填进屁岱的输入框。
+     *
+     * 网页能用 `intent://…;S.extra_launch_route=…;end` 往 xjtu:// 深链里塞任意 extra，
+     * 所以带 data 的意图只认链接本身，extra 只认小组件、通知、快捷方式这类不带 data 的。
+     */
     private fun consumeLaunchIntent(intent: Intent?) {
         val deepLink = intent?.let(DeepLinkRouter::resolve)
+        val extras = intent?.takeIf { it.data == null }
         launchRoute.value = deepLink?.route
-            ?: intent?.getStringExtra(EXTRA_LAUNCH_ROUTE)?.let(::appRouteOf)
-        launchTab.value = intent?.getStringExtra(EXTRA_LAUNCH_TAB)
+            ?: extras?.getStringExtra(EXTRA_LAUNCH_ROUTE)?.let(::appRouteOf)
+        // 从系统通知点进来：收纳里同一件事一并算看过，不然通知点了、收纳的红点还在
+        launchRoute.value?.takeIf { extras?.hasExtra(EXTRA_LAUNCH_ROUTE) == true }?.let { route ->
+            val ids = (route as? com.xjtu.toolbox.nav.AppRoute.Browser)?.url?.takeIf { it.isNotBlank() }
+                ?.let { listOf("notice:$it") }.orEmpty()
+            com.xjtu.toolbox.inbox.InboxStore.acknowledge(ids, com.xjtu.toolbox.inbox.InboxCategories.ofRoute(route))
+        }
+        launchTab.value = extras?.getStringExtra(EXTRA_LAUNCH_TAB)
             ?.let { name -> BottomTab.entries.firstOrNull { it.name == name } }
-        (deepLink?.prompt ?: intent?.getStringExtra(EXTRA_LAUNCH_PROMPT))
-            ?.let { AgentPendingPrompt.set(it) }
+        // 外部链接的话不能替用户发出去：发出去模型就能调全部工具，回复里的图片一渲染就把数据带走了
+        deepLink?.prompt?.let { AgentPendingPrompt.set(it, draftOnly = true) }
+    }
+
+    /**
+     * 输入框里的文字刚被改短、排版还没跟上时按键，Compose 会抛 offset out of bounds，整个 App 闪退。
+     * 这一次按键丢掉就行，下一帧排版更新后输入照常。
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean = try {
+        super.dispatchKeyEvent(event)
+    } catch (e: IllegalArgumentException) {
+        if (e.message?.contains("is out of bounds") != true) throw e
+        Log.w("MainActivity", "dropped key event on stale text layout", e)
+        true
     }
 }

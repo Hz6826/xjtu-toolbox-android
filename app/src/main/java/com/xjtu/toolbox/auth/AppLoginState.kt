@@ -203,6 +203,8 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         savedPassword = account.password
         activeUsername = account.accountId
         accountType = account.accountType
+        // 路由表（:core 的 nav/AppRoute）也读它：研究生评教由页面自己登录
+        com.xjtu.toolbox.account.AccountContext.activeAccountType = account.accountType
         cachedNickname = account.nickname
         sessionManager?.let {
             it.setCredentials(account.accountId, account.password)
@@ -360,10 +362,15 @@ val LocalAppLoginState = staticCompositionLocalOf<AppLoginState> {
 class AppLoginStateViewModel(application: android.app.Application) : androidx.lifecycle.AndroidViewModel(application) {
     val loginState = AppLoginState()
     val credentialStore = CredentialStore(application)
-    val accountStore = com.xjtu.toolbox.account.AccountStore(application)
+    val accountStore = com.xjtu.toolbox.account.AccountStore()
 
     /** 新会话架构入口：双 backend、SiteSession 注册中心、MFA 状态机宿主。 */
-    val sessionManager = com.xjtu.toolbox.auth.SessionManager(application)
+    val sessionManager = com.xjtu.toolbox.auth.SessionManager()
+
+    init {
+        sessionManager.onAccountSwitched = { CampusProbe.ywtbToken = null }
+        sessionManager.onYwtbToken = { CampusProbe.ywtbToken = it }
+    }
 
     /** 多账号编排器。 */
     val accountManager = com.xjtu.toolbox.account.AccountManager(application, accountStore)
@@ -389,7 +396,6 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
             register(com.xjtu.toolbox.auth.CampusCardSession())
             register(com.xjtu.toolbox.auth.FitnessSession())
             register(com.xjtu.toolbox.auth.IclassfaceSession())
-            register(com.xjtu.toolbox.auth.SsnSession())
             register(com.xjtu.toolbox.auth.HelloSession())
             register(com.xjtu.toolbox.auth.GsteSession())
             register(com.xjtu.toolbox.auth.GmisSession())

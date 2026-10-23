@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.data
 
 import com.xjtu.toolbox.util.AppJson
+import com.xjtu.toolbox.schedule.ScheduleCacheStore
 import android.content.Context
 import android.util.Log
 import com.xjtu.toolbox.account.AccountContext
@@ -29,7 +30,7 @@ private const val TAG = "DataCache"
 class DataCache(
     context: Context,
     accountId: String? = AccountContext.activeAccountId,
-) {
+) : ScheduleCacheStore {
     private val appContext = context.applicationContext
     private val dirName = "data_cache${AccountContext.suffixFor(accountId)}"
 
@@ -41,7 +42,16 @@ class DataCache(
 
     /** per-key 锁对象，不同 key 之间互不阻塞 */
     private val locks = ConcurrentHashMap<String, Any>()
+    /** ── [ScheduleCacheStore] 的五个一行转发 ── */
+    override fun readJson(key: String, ttlMs: Long): String? = get(key, ttlMs)
 
+    override fun writeJson(key: String, json: String) = put(key, json)
+
+    override fun readJsonStale(key: String): String? = getStale(key)
+
+    override fun dropJson(key: String) { invalidate(key) }
+
+    override fun ageMsOfJson(key: String): Long? = ageMs(key)
     companion object {
         /** 默认 TTL: 7 天（日程/成绩在学期内基本稳定） */
         const val DEFAULT_TTL_MS = 7L * 24 * 60 * 60 * 1000L

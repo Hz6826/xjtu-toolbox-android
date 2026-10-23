@@ -8,6 +8,7 @@ import androidx.core.app.NotificationManagerCompat
 import com.xjtu.toolbox.MainActivity
 import com.xjtu.toolbox.R
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.util.RequestCodes
 
 /**
  * 三类后台提醒的系统通知。
@@ -23,6 +24,7 @@ internal object ReminderNotifier {
     private const val ID_SCHEDULE = 3202
     private const val ID_EXAM = 3203
     private const val ID_LMS = 3204
+    private const val ID_EXAM_CHANGE = 3205
 
     fun canPost(context: Context): Boolean = NoticeNotifier.canPost(context)
 
@@ -30,6 +32,7 @@ internal object ReminderNotifier {
     fun notifyLibrary(context: Context, action: String, seat: String?): Boolean = post(
         context = context,
         id = ID_LIBRARY,
+        requestCode = RequestCodes.REMINDER_LIBRARY,
         channel = AppNotificationChannels.CHANNEL_REMINDER,
         icon = R.drawable.ic_notification_seat,
         title = "图书馆座位要$action",
@@ -43,6 +46,7 @@ internal object ReminderNotifier {
     fun notifyScheduleChange(context: Context, summary: String): Boolean = post(
         context = context,
         id = ID_SCHEDULE,
+        requestCode = RequestCodes.REMINDER_SCHEDULE,
         channel = AppNotificationChannels.CHANNEL_APP,
         icon = R.drawable.ic_notification_notice,
         title = "课表有变动",
@@ -50,15 +54,59 @@ internal object ReminderNotifier {
         route = AppRoute.Schedule,
     )
 
+    /** 自建待办到点。一条待办一个通知 id，重复提醒时覆盖上一条而不是堆叠。 */
+    fun notifyTodo(context: Context, todoId: String, title: String, detail: String): Boolean = post(
+        context = context,
+        id = ("self_todo:$todoId").hashCode(),
+        requestCode = RequestCodes.REMINDER_TODO,
+        channel = AppNotificationChannels.CHANNEL_APP,
+        icon = R.drawable.ic_notification_notice,
+        title = "待办：$title",
+        text = detail,
+        route = AppRoute.Inbox,
+    )
+
+    /** 屁岱的简报或定时任务结果。[key] 区分是哪一份（早报 / 晚报 / 某个任务），同一份覆盖不堆叠。 */
+    fun notifyPidai(context: Context, key: String, title: String, text: String): Boolean = post(
+        context = context,
+        id = ("pidai:$key").hashCode(),
+        requestCode = RequestCodes.REMINDER_PIDAI,
+        channel = AppNotificationChannels.CHANNEL_APP,
+        icon = R.drawable.ic_notification_notice,
+        title = title,
+        text = text,
+        route = AppRoute.Inbox,
+        style = androidx.core.app.NotificationCompat.BigTextStyle().bigText(text),
+    )
+
     fun notifyExam(context: Context, courseName: String, label: String, detail: String): Boolean = post(
         context = context,
         id = ID_EXAM,
+        requestCode = RequestCodes.REMINDER_EXAM,
         channel = AppNotificationChannels.CHANNEL_APP,
         icon = R.drawable.ic_notification_notice,
         title = "$courseName$label",
         text = detail,
         route = AppRoute.Schedule,
     )
+
+    /** 考试的时间、考场、座位被改了。和「快考试了」分开发，免得一条盖掉另一条。 */
+    fun notifyExamChange(context: Context, changes: List<String>): Boolean {
+        if (changes.isEmpty()) return false
+        val inbox = NotificationCompat.InboxStyle()
+        changes.take(5).forEach { inbox.addLine(it) }
+        return post(
+            context = context,
+            id = ID_EXAM_CHANGE,
+            requestCode = RequestCodes.REMINDER_EXAM_CHANGE,
+            channel = AppNotificationChannels.CHANNEL_APP,
+            icon = R.drawable.ic_notification_notice,
+            title = "考试安排有变",
+            text = changes.first(),
+            route = AppRoute.Schedule,
+            style = inbox,
+        )
+    }
 
     fun notifyLmsDeadlines(context: Context, items: List<String>): Boolean {
         if (items.isEmpty()) return false
@@ -67,6 +115,7 @@ internal object ReminderNotifier {
         return post(
             context = context,
             id = ID_LMS,
+            requestCode = RequestCodes.REMINDER_LMS,
             channel = AppNotificationChannels.CHANNEL_APP,
             icon = R.drawable.ic_notification_notice,
             title = if (items.size == 1) "作业快截止了" else "${items.size} 份作业快截止了",
@@ -79,6 +128,7 @@ internal object ReminderNotifier {
     private fun post(
         context: Context,
         id: Int,
+        requestCode: Int,
         channel: String,
         icon: Int,
         title: String,
@@ -93,7 +143,7 @@ internal object ReminderNotifier {
         }
         val pending = PendingIntent.getActivity(
             context,
-            id,
+            requestCode,
             launch,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

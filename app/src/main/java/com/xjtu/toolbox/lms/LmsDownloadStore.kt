@@ -6,24 +6,19 @@ import android.os.Environment
 import android.provider.MediaStore
 import org.json.JSONArray
 import org.json.JSONObject
-
-data class LmsDownloadRecord(
-    val name: String,
-    val mimeType: String,
-    val uri: String,
-    val savedAt: Long,
-    val category: String = LmsDownloadStore.CATEGORY_LMS
-)
+import com.xjtu.toolbox.media.DownloadedFile
+/** 「文件类下载」的一条记录。 */
+typealias LmsDownloadRecord = DownloadedFile
 
 object LmsDownloadStore {
     private const val PREFS = "lms_downloads"
     private const val KEY_RECORDS = "records"
-    const val CATEGORY_LMS = "lms"
-    const val CATEGORY_TRANSCRIPT = "transcript"
-    const val CATEGORY_OTHER = "other"
+    const val CATEGORY_LMS = DownloadedFile.CATEGORY_LMS
+    const val CATEGORY_TRANSCRIPT = DownloadedFile.CATEGORY_TRANSCRIPT
+    const val CATEGORY_OTHER = DownloadedFile.CATEGORY_OTHER
 
     /** 仲英学辅资料站下载的文件。与思源课件分开，它们来源和用途都不一样。 */
-    const val CATEGORY_ZYXF = "zyxf"
+    const val CATEGORY_ZYXF = DownloadedFile.CATEGORY_ZYXF
     const val PUBLIC_DIR_NAME = "XJTUToolBox"
     const val RELATIVE_PATH = "Download/$PUBLIC_DIR_NAME"
     const val RELATIVE_PATH_WITH_SLASH = "$RELATIVE_PATH/"

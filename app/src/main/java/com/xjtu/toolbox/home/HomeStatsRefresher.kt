@@ -96,12 +96,12 @@ object HomeStatsRefresher {
     /**
      * 一轮里的先后：整轮串行，排前面的先出结果。
      * 首页最常看的（成绩、课程、图书馆座位、校园卡）在前；不常看或经常连不上的
-     * （刷卡记录、宿舍电费）靠后；加餐券最后。不在表里的排最末。
+     * （刷卡记录）靠后；加餐券最后。不在表里的排最末。
      */
     private val runOrder: List<AppRoute> = listOf(
         AppRoute.JwappScore, AppRoute.Lms(), AppRoute.Library, AppRoute.CampusCard,
         AppRoute.Judge, AppRoute.Attendance, AppRoute.Fitness, AppRoute.Notification,
-        AppRoute.Iclassface, AppRoute.DormPower, AppRoute.Coupon,
+        AppRoute.Iclassface, AppRoute.Coupon,
     )
 
     private val sources: List<Source> = listOf(
@@ -133,13 +133,13 @@ object HomeStatsRefresher {
             site ?: return@Source null
             withContext(Dispatchers.IO) {
                 val api = com.xjtu.toolbox.fitness.FitnessApi(site)
-                val years = runCatching { api.getYears() }.getOrNull().orEmpty()
+                val years = runCatching { api.years() }.getOrNull().orEmpty()
                 val ordered = com.xjtu.toolbox.fitness.orderedFitnessYears(years)
 
                 var picked: Pair<String, com.xjtu.toolbox.fitness.FitnessScore>? = null
                 for ((i, y) in ordered.take(3).withIndex()) {
                     if (i > 0) delay(GAP_MS)
-                    val s = runCatching { api.getScore(y.yearNum) }.getOrNull() ?: continue
+                    val s = runCatching { api.score(y.yearNum) }.getOrNull() ?: continue
                     if (s.hasUsableTotal()) { picked = y.name to s; break }
                 }
                 picked?.let { (name, s) ->
@@ -185,12 +185,6 @@ object HomeStatsRefresher {
             withContext(Dispatchers.IO) { couponStatus(ctx, site) }
         },
 
-        // 宿舍电费：3 小时一次。电用完就断电，低电要赶在这之前说到；
-        // 没进过宿舍电费页的账号不碰这个系统（见 refreshDue 里的闸门）。
-        Source(AppRoute.DormPower, 3 * 60 * 60 * 1000L, LoginType.DORM_POWER) { ctx, site ->
-            site ?: return@Source null
-            withContext(Dispatchers.IO) { dormPowerStatus(ctx, site) }
-        },
 
         // 考勤：两天一次。本研统一。
         Source(AppRoute.Attendance, 2 * DAY, LoginType.ATTENDANCE) { ctx, site ->
@@ -235,13 +229,7 @@ object HomeStatsRefresher {
             }
         },
 
-        // 校园卡：30 分钟一次。
-        //
-        // 收编进来之前，校园卡走的是 MainActivity 里一条完全独立的路：只在 ON_RESUME、
-        // 且 `getSiteOrNull("campus_card")?.hasLogin == true` 时才刷——**从不主动登录**。
-        // 后果是只要用户没手动进过校园卡页，余额缓存永远是空的，
-        // 首页余额位常年空白，屁岱那条"余额不足"提醒也永远触发不了（balance 恒为 null）。
-        // 收进来后自动获得串行、间隔、失败退避、冷启动重试这一整套。
+        // 校园卡：30 分钟一次。会主动登录，余额缓存才不会因没进过校园卡页而一直为空。
         Source(AppRoute.CampusCard, 30 * 60 * 1000L, LoginType.CAMPUS_CARD) { ctx, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) {
@@ -273,7 +261,7 @@ object HomeStatsRefresher {
             site ?: return@Source null
             withContext(Dispatchers.IO) {
                 // 查失败算这个源失败，不能当成「没有预约」把待办和提醒清掉
-                val b = com.xjtu.toolbox.library.LibraryApi(site).fetchMyBooking().getOrThrow()
+                val b = com.xjtu.toolbox.library.LibraryApi(com.xjtu.toolbox.library.AppLibrarySession(site)).fetchMyBooking().getOrThrow()
                 // 在图书馆自助机上约的座位不会经过本 App 的图书馆页，首页这一轮是唯一能发现它的地方。
                 com.xjtu.toolbox.library.LibraryStatus.publish(ctx, b, roundAccount)
                 if (b == null) return@withContext null
@@ -425,8 +413,6 @@ object HomeStatsRefresher {
                 if (s.loginType == LoginType.ICLASSFACE && accountType != AccountType.UNDERGRADUATE) continue
                 // 首页评教统计走的是本科教务评教；研究生评教在 gste，要单独登录，不在后台刷
                 if (s.route == AppRoute.Judge && accountType != AccountType.UNDERGRADUATE) continue
-                // 没进过宿舍电费页就不去登录那个系统：绑宿舍在页面里，之后这里才有得查。
-                if (s.route == AppRoute.DormPower && !com.xjtu.toolbox.dormpower.DormPowerStore.isUsed(context)) continue
                 val last = stamps[s.route.id] ?: 0L
                 val hasContent = s.route.id in existing
                 val ttl = s.ttlNow()
@@ -506,19 +492,6 @@ object HomeStatsRefresher {
         }
     }
 
-    /** 宿舍电量：首页显示最低的那间，低于 [com.xjtu.toolbox.dormpower.LOW_KWH] 时写提醒信号。 */
-    private suspend fun dormPowerStatus(ctx: Context, site: SiteSession): HomeStat? {
-        val readings = com.xjtu.toolbox.dormpower.DormPowerStore.refresh(ctx, com.xjtu.toolbox.dormpower.DormPowerApi(site))
-        val lowest = readings.filter { it.kwh != null }.minByOrNull { it.kwh ?: Double.MAX_VALUE } ?: return null
-        val low = com.xjtu.toolbox.dormpower.DormPowerStore.lowest(readings)
-        // 拉取期间切了账号：这份结果属于上一个账号，不能写成新账号的提醒
-        if (roundIsCurrent()) HomeSignals.dormPowerAlert = low?.let { "宿舍电量只剩 ${"%.1f".format(it.kwh)} 度了，记得充" }
-        Log.d(TAG, "dorm_power: ${readings.size} 间，最低 ${lowest.kwh} 度")
-        return HomeStat(
-            "%.0f 度".format(lowest.kwh),
-            if (readings.size > 1) "${readings.size} 间宿舍中最低" else "宿舍剩余电量",
-        )
-    }
 
     /**
      * 本周出勤率。直接用考勤系统自己的「本周考勤统计」接口，不自己按日期聚合——
@@ -544,7 +517,7 @@ object HomeStatsRefresher {
         if (available == null && usable == null) return null
 
         val pending = available?.records?.size ?: 0
-        val today = java.time.LocalDate.now()
+        val today = java.time.LocalDate.now(com.xjtu.toolbox.util.CampusZoneId)
         // endDate 是 "2026-01-31" 这类文本，解析不出就不参与到期判断——
         // 猜错日期去催用户用券，比不催更糟。
         val soonest = usable?.records.orEmpty()
@@ -565,7 +538,7 @@ object HomeStatsRefresher {
                     OwnInbox.todo(
                         InboxCategories.COUPON, "coupon:expiring", "加餐券",
                         if (daysLeft == 0) "有加餐券今天到期" else "有加餐券 $daysLeft 天后到期", AppRoute.Coupon.id,
-                        expiresAt = day.plusDays(1).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                        expiresAt = day.plusDays(1).atStartOfDay(com.xjtu.toolbox.util.CampusZoneId).toInstant().toEpochMilli(),
                     )
                 },
             ),

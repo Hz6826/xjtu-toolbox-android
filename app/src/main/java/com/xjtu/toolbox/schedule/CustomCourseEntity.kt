@@ -2,22 +2,7 @@ package com.xjtu.toolbox.schedule
 
 import androidx.room.*
 
-const val AGENDA_NOTE_PREFIX = "[AGENDA]"
-
-/** 自建日程转成 [CourseItem] 时 courseCode 的前缀，见 [CourseItem.isUserCreated]。 */
-const val CUSTOM_COURSE_CODE_PREFIX = "custom_"
-
-fun encodeAgendaNote(note: String): String {
-    val trimmed = note.trim()
-    return if (trimmed.startsWith(AGENDA_NOTE_PREFIX)) trimmed else "$AGENDA_NOTE_PREFIX$trimmed"
-}
-
-fun decodeAgendaNote(note: String): String = note.removePrefix(AGENDA_NOTE_PREFIX).trim()
-
-/**
- * 自定义课程实体（Room 数据库）
- * 用于存储用户手动添加的实验课、临时排课等
- */
+/** 自定义课程实体（Room 表 `custom_courses`）。 */
 @Entity(tableName = "custom_courses")
 data class CustomCourseEntity(
     @PrimaryKey(autoGenerate = true)
@@ -60,39 +45,43 @@ data class CustomCourseEntity(
         startMinuteOfDay = startMinuteOfDay,
         endMinuteOfDay = endMinuteOfDay
     )
+
+    /** 表行 → 领域模型。 */
+    fun toCustomCourse(): CustomCourse = CustomCourse(
+        id = id,
+        accountId = accountId,
+        courseName = courseName,
+        teacher = teacher,
+        location = location,
+        weekBits = weekBits,
+        dayOfWeek = dayOfWeek,
+        startSection = startSection,
+        endSection = endSection,
+        startMinuteOfDay = startMinuteOfDay,
+        endMinuteOfDay = endMinuteOfDay,
+        termCode = termCode,
+        note = note,
+        createdAt = createdAt,
+    )
 }
 
-/**
- * 将诸如 "第1-4，6-16周"、"1,2,4-10" 等不规则字符串解析为周次列表
- * 自建课程落库模型。
- */
-fun parseWeeksString(weeksStr: String): List<Int> {
-    if (weeksStr.isBlank()) return emptyList()
-    var s = weeksStr.trim().replace("第", "").replace("周", "")
-    val seps = arrayOf("，", "、", ";", "；", " ")
-    for (sep in seps) {
-        s = s.replace(sep, ",")
-    }
-    val parts = s.split(",").filter { it.isNotBlank() }
-    val weeks = mutableSetOf<Int>()
-    for (p in parts) {
-        val part = p.trim()
-        if (part.isBlank()) continue
-        if ("-" in part) {
-            val range = part.split("-", limit = 2)
-            val start = range.getOrNull(0)?.toIntOrNull()
-            val end = range.getOrNull(1)?.toIntOrNull()
-            if (start != null && end != null) {
-                val s1 = minOf(start, end)
-                val e1 = maxOf(start, end)
-                weeks.addAll(s1..e1)
-            }
-        } else {
-            part.toIntOrNull()?.let { weeks.add(it) }
-        }
-    }
-    return weeks.sorted()
-}
+/** 领域模型 → 表行。新增（`id == 0`）落回 Room 的自增主键。 */
+fun CustomCourse.toEntity(): CustomCourseEntity = CustomCourseEntity(
+    id = id,
+    accountId = accountId,
+    courseName = courseName,
+    teacher = teacher,
+    location = location,
+    weekBits = weekBits,
+    dayOfWeek = dayOfWeek,
+    startSection = startSection,
+    endSection = endSection,
+    startMinuteOfDay = startMinuteOfDay,
+    endMinuteOfDay = endMinuteOfDay,
+    termCode = termCode,
+    note = note,
+    createdAt = createdAt,
+)
 
 @Dao
 interface CustomCourseDao {
@@ -115,10 +104,7 @@ interface CustomCourseDao {
     @Query("SELECT * FROM custom_courses WHERE accountId = :accountId ORDER BY termCode DESC, dayOfWeek, startSection, startMinuteOfDay")
     suspend fun getAll(accountId: String): List<CustomCourseEntity>
 
-    /**
-     * 查询同一学期内、同星期、且节次有交集的课程。**只是粗筛**：不看周次，
-     * 结果必须再经 [CustomCourseConflicts.conflicts] 精判，否则不同周的同一时段会被误判为冲突。
-     */
+    /** 查询同一学期内、同星期、且节次有交集的课程。 */
     @Query("""
         SELECT * FROM custom_courses
         WHERE accountId = :accountId

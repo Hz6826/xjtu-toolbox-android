@@ -11,6 +11,7 @@ import android.widget.RemoteViews
 import com.xjtu.toolbox.MainActivity
 import com.xjtu.toolbox.R
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.util.RequestCodes
 
 /**
  * 教务通知桌面 Widget。
@@ -45,6 +46,16 @@ object NoticeWidgetUpdater {
         }
     }
 
+    private fun rowIntent(context: Context, index: Int, route: String): PendingIntent = PendingIntent.getActivity(
+        context,
+        RequestCodes.NOTICE_WIDGET_ROW + index,
+        Intent(context, MainActivity::class.java).apply {
+            putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, route)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        },
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
     fun requestUpdate(context: Context) {
         val manager = AppWidgetManager.getInstance(context)
         val ids = manager.getAppWidgetIds(
@@ -58,10 +69,9 @@ object NoticeWidgetUpdater {
 
         val (entries, updatedAt) = NoticeWidgetStore.read(context)
         val timeText = if (updatedAt == 0L) "" else {
-            val cal = java.util.Calendar.getInstance().apply { timeInMillis = updatedAt }
-            "更新 %02d:%02d".format(cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
+            "更新 " + com.xjtu.toolbox.util.campusClockText(updatedAt)
         }
-        val today = java.time.LocalDate.now()
+        val today = java.time.LocalDate.now(com.xjtu.toolbox.util.CampusZoneId)
 
         val launchIntent = Intent(context, MainActivity::class.java).apply {
             putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, AppRoute.Notification.id)
@@ -69,7 +79,7 @@ object NoticeWidgetUpdater {
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
-            3001,
+            RequestCodes.NOTICE_WIDGET,
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -84,6 +94,8 @@ object NoticeWidgetUpdater {
                     views.setViewVisibility(rowId, if (entry == null) View.INVISIBLE else View.VISIBLE)
                     views.setTextViewText(dateId, dayLabel(entry?.day, today))
                     views.setTextViewText(titleId, entry?.title.orEmpty())
+                    // 点哪条进哪条的正文（#138），没有链接的行走整卡的通知列表
+                    entry?.link?.let { views.setOnClickPendingIntent(rowId, rowIntent(context, i, AppRoute.Browser(it).id)) }
                 }
                 val empty = entries.isEmpty()
                 views.setViewVisibility(R.id.widget_notice_list, if (empty) View.GONE else View.VISIBLE)

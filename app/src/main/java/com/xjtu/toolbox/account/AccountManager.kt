@@ -9,6 +9,7 @@ import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.data.SecurePrefs
 import com.xjtu.toolbox.data.AppDatabase
+import com.xjtu.toolbox.util.redactUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -27,11 +28,14 @@ import java.io.File
  *
  * 「切换模式」：同一时刻仅一个账号在线，其余账号的 cookies/缓存静默躺在磁盘命名空间里，
  * 切回时由步骤 2 的 cookieJar 实例化直接复用，无需重新登录（除非服务端 session 已过期）。
+ *
+ * 实现 `:core` 的 `AccountsController`：动作本体要宿主能力（`Context` 清 SharedPreferences / Room /
+ * 头像 / agent 配置、WebView 存储、`AppLoginStateHolder`），所以留在 `:app`。
  */
 class AccountManager(
     private val context: Context,
     private val accountStore: AccountStore,
-) {
+) : AccountsController {
 
     lateinit var sessionManager: SessionManager
         internal set
@@ -41,15 +45,22 @@ class AccountManager(
     /** 序列化所有账号切换/新增/删除/登出操作，避免并发导致命名空间与 AccountContext 错位。 */
     private val switchLock = Mutex()
 
-    fun accountList(): List<Account> = accountStore.list()
+    override fun accountList(): List<Account> = accountStore.list()
     fun activeAccount(): Account? = accountStore.activeAccount()
     fun accountCount(): Int = accountStore.list().size
 
-    /** 清空 WebView 的 localStorage / sessionStorage / IndexedDB。WebStorage 只能在主线程调用；失败不影响切换。 */
+    /**
+     * 清空 WebView 的 cookie 和 localStorage / IndexedDB，并作废一网通办令牌。内置浏览器会把 CAS 的 TGC
+     * 同步进 WebView，不清的话换了账号打开内置浏览器还是上一个人。WebView 只能在主线程动；失败不影响切换。
+     */
     private fun clearWebViewStorage() {
+        com.xjtu.toolbox.auth.CampusProbe.ywtbToken = null
         android.os.Handler(android.os.Looper.getMainLooper()).post {
-            runCatching { android.webkit.WebStorage.getInstance().deleteAllData() }
-                .onFailure { Log.w(TAG, "clear WebStorage failed: ${it.message}") }
+            runCatching {
+                android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                android.webkit.CookieManager.getInstance().flush()
+                android.webkit.WebStorage.getInstance().deleteAllData()
+            }.onFailure { Log.w(TAG, "clear WebView storage failed: ${it.message}") }
         }
     }
 
@@ -57,13 +68,13 @@ class AccountManager(
      * 切换到目标账号。幂等：若已是当前账号则仅更新 lastUsedAt。
      * @return 切换后的 [Account]；目标不存在则返回 null。
      */
-    suspend fun switchTo(accountId: String): Account? = switchLock.withLock {
+    override suspend fun switchTo(accountId: String): Account? = switchLock.withLock {
         switchToLocked(accountId)
     }
 
     private suspend fun switchToLocked(accountId: String): Account? {
         val account = accountStore.get(accountId) ?: run {
-            Log.w(TAG, "switchTo: account $accountId not found")
+            Log.w(TAG, "switchTo: account ${accountId.redactUrl()} not found")
             return null
         }
         if (AccountContext.activeAccountId == accountId && holder.accountId == accountId) {
@@ -72,7 +83,7 @@ class AccountManager(
             return account
         }
 
-        Log.i(TAG, "Switching account: ${AccountContext.activeAccountId} -> $accountId")
+        Log.i(TAG, "Switching account: ${AccountContext.activeAccountId.redactUrl()} -> ${accountId.redactUrl()}")
         // 1) 清旧账号内存态
         holder.clearInMemorySessionState()
         // 1.5) 清 WebView 本地存储：移动交大等页面把令牌存在 localStorage（cookie 清不掉），
@@ -101,7 +112,7 @@ class AccountManager(
      * @return Result：成功返回新增的 [Account]；失败返回错误信息。
      * 失败时自动切回原激活账号，不留中间态。
      */
-    suspend fun addAccount(
+    override suspend fun addAccount(
         username: String,
         password: String,
         accountType: AccountType,
@@ -174,7 +185,7 @@ class AccountManager(
     /**
      * 更新账号密码（用户在设置页改密后调用）。同步清除密码失效熔断。
      */
-    fun updatePassword(accountId: String, newPassword: String) {
+    override fun updatePassword(accountId: String, newPassword: String) {
         accountStore.update(accountId) { it.copy(password = newPassword) }
         if (AccountContext.activeAccountId == accountId) {
             holder.savedPassword = newPassword
@@ -224,7 +235,7 @@ class AccountManager(
      * 删除账号：清除其全部命名空间存储（cookies / DataCache / Agent 会话 / 校园卡缓存 / Room 行）。
      * @param deleteCache true=同时删除本地缓存（课表/成绩/对话）；false=仅删凭据与 cookies。
      */
-    suspend fun removeAccount(accountId: String, deleteCache: Boolean): Boolean = withContext(Dispatchers.IO) {
+    override suspend fun removeAccount(accountId: String, deleteCache: Boolean): Boolean = withContext(Dispatchers.IO) {
         switchLock.withLock { removeAccountLocked(accountId, deleteCache) }
     }
 
@@ -234,6 +245,7 @@ class AccountManager(
         // 当前账号要清正在用的 jar，否则 debounce 写盘会把 TGC 写回
         if (AccountContext.activeAccountId == accountId) {
             runCatching { AccessMode.entries.forEach { sessionManager.backend(it).clearAuth() } }
+            clearWebViewStorage()
         }
         wipeAccountFiles(accountId, cookiesOnly = !deleteCache)
 
@@ -251,7 +263,7 @@ class AccountManager(
                 accountStore.clearActive()
             }
         }
-        Log.i(TAG, "removeAccount($accountId, deleteCache=$deleteCache) done")
+        Log.i(TAG, "removeAccount(${accountId.redactUrl()}, deleteCache=$deleteCache) done")
         withContext(Dispatchers.Main) {
             holder.switchNotice = if (deleteCache) "已彻底删除账号「${account.nickname ?: account.accountId}」及本地缓存"
                 else "已删除账号「${account.nickname ?: account.accountId}」（保留缓存）"
@@ -269,11 +281,12 @@ class AccountManager(
         runCatching {
             AccessMode.entries.forEach { sessionManager.backend(it).clearAuth() }
         }
+        clearWebViewStorage()
         AccountContext.activeAccountId = null
         holder.clearInMemorySessionState()
         sessionManager.reconfigureForAnonymous()
         accountStore.clearActive()
-        Log.i(TAG, "logoutCurrent($id) done")
+        Log.i(TAG, "logoutCurrent(${id.redactUrl()}) done")
     }
 
     /** 新增账号失败后退回原账号（没有原账号就回到未登录）。 */
@@ -300,7 +313,7 @@ class AccountManager(
     private suspend fun wipeAccountFiles(accountId: String, cookiesOnly: Boolean) {
         val app = context.applicationContext
         val suffix = AccountContext.suffixFor(accountId)
-        SessionBackend.wipe(app, suffix)
+        SessionBackend.wipe(suffix)
         if (cookiesOnly) return
 
         runCatching { File(app.cacheDir, "data_cache$suffix").deleteRecursively() }
@@ -328,7 +341,8 @@ class AccountManager(
         private val ACCOUNT_PREFS = listOf(
             "campus_card", "score_cursor", "attendance_watch", "course_colors", "schedule_diff",
             "empty_room_cache", "attendance_records_ug", "attendance_records_pg", "agent_config",
-            "schedule_source", "schedule_changes", "inbox", "dorm_power",
+            "agent_memory", "schedule_source", "schedule_changes", "inbox", "dorm_power",
+            "payment_code", "self_todos",
         )
     }
 }

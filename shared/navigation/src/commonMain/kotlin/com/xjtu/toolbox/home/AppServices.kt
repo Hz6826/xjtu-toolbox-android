@@ -1,0 +1,90 @@
+package com.xjtu.toolbox.home
+
+import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.nav.AppRoute
+
+/**
+ * 主页宫格和全局搜索共用的服务目录。
+ *
+ * 新功能只在这里加一条：首页会出格子，搜索也能搜到。
+ * 别再在 `GlobalSearchIndex` 里手写第二份清单。
+ * [audience] 非空时，只给对应本科/研究生身份看。
+ *
+ * `:core` 里的消费方是「服务与状态的**卡片模型**」（[HomeCards]）：它把这份目录按
+ * [ServiceCategory] 分组、再把每个功能此刻的状态填进对应那一行。各端只决定画不画、
+ * 以及哪些入口在自己的外壳里真能打开（能打开的那一份由各端自己声明）。
+ */
+enum class ServiceCategory(val title: String, val subtitle: String) {
+    LIFE("校园生活", "支付场馆与校园服务"),
+    CLASS("教务与课程", "课程成绩与考勤"),
+    STUDY("资料与自习", "教材资料与学习空间"),
+    TOOL("工具与助手", "智能助手与连接工具"),
+
+    /**
+     * 单独一类而不是塞进 [TOOL]：「工具与助手」装游戏语义不搭，
+     * 而底栏已经是 5 个 tab（miuix 的上限就是 5），加不了 tab，
+     * 所以走首页分类卡这一层。
+     */
+    PLAY("课余", "小游戏与匹配"),
+}
+
+data class AppService(
+    val route: AppRoute,
+    val title: String,
+    val subtitle: String,
+    val category: ServiceCategory,
+    val aliases: List<String> = emptyList(),
+    val showOnHome: Boolean = true,
+    val audience: AccountType? = null,
+)
+
+object AppServices {
+    val all: List<AppService> = listOf(
+        AppService(AppRoute.Schedule, "日程", "本学期课表与考试", ServiceCategory.CLASS, listOf("课表", "课程", "schedule", "今天", "明天")),
+        AppService(AppRoute.EmptyRoom, "空闲教室", "查找自习空教室", ServiceCategory.STUDY, listOf("空教室", "自习", "教室")),
+        AppService(AppRoute.Lms(), "思源", "课程作业与资料", ServiceCategory.CLASS, listOf("思源学堂", "lms", "作业", "课件")),
+        AppService(AppRoute.SchoolCourse, "课程查询", "全校开课查询", ServiceCategory.CLASS, listOf("开课", "选课", "查课")),
+        AppService(AppRoute.Attendance, "考勤", "出勤统计与请假", ServiceCategory.CLASS, listOf("考勤", "考勤查询", "出勤", "迟到", "缺勤", "新考勤", "请假", "病假", "私事假", "销假", "kq")),
+        AppService(AppRoute.Iclassface, "快速考勤流水", "课堂人脸考勤记录", ServiceCategory.CLASS, listOf("人脸考勤", "刷脸", "iclassface"), showOnHome = false, audience = AccountType.UNDERGRADUATE),
+
+        AppService(AppRoute.JwappScore, "成绩", "学期成绩与绩点", ServiceCategory.CLASS, listOf("成绩查询", "分数", "gpa", "绩点")),
+        AppService(AppRoute.Judge, "评教", "课程评教", ServiceCategory.CLASS, listOf("问卷", "打分", "本科评教", "研究生评教")),
+        AppService(AppRoute.Jiaocai, "教材", "查课程教材、读全文", ServiceCategory.STUDY, listOf("课本", "教材中心", "全文", "电子书", "在线阅读")),
+        // 已并进「教材」的全文库栏；首页不单列，全局搜「教材全文」仍能直达那一栏
+        AppService(AppRoute.Jiaocai1, "教材全文", "教材全文库", ServiceCategory.STUDY, listOf("全文", "电子书", "在线阅读"), showOnHome = false),
+        AppService(AppRoute.Library, "图书馆", "借阅与座位", ServiceCategory.STUDY, listOf("图书", "借书", "座位", "自习室")),
+        AppService(AppRoute.Zyxf, "学辅资料", "历年卷与复习资料", ServiceCategory.STUDY, listOf("学辅", "仲英学辅", "历年卷", "真题", "复习资料", "课件", "笔记")),
+        AppService(AppRoute.Transcript, "成绩单", "电子成绩单", ServiceCategory.CLASS, listOf("成绩证明", "打印成绩"), showOnHome = false, audience = AccountType.UNDERGRADUATE),
+        AppService(AppRoute.Notification, "通知公告", "教务与学院通知", ServiceCategory.LIFE, listOf("通知", "公告", "教务")),
+        AppService(AppRoute.Faculty, "教师主页", "教师与研究方向", ServiceCategory.STUDY, listOf("教师", "老师", "导师", "博导", "硕导", "研究方向", "teacher", "faculty")),
+
+        AppService(AppRoute.CampusCard, "校园卡", "余额与今日消费", ServiceCategory.LIFE, listOf("一卡通", "余额")),
+        AppService(AppRoute.PaymentCode, "付款码", "出示校园付款码", ServiceCategory.LIFE, listOf("付款", "扫码")),
+        AppService(AppRoute.Coupon, "加餐券", "食堂加餐券", ServiceCategory.LIFE, listOf("加餐", "餐券", "食堂"), showOnHome = false),
+        AppService(AppRoute.SchoolCalendar, "校历", "学期与考试安排", ServiceCategory.LIFE, listOf("学期", "周数")),
+        AppService(AppRoute.Venue, "场馆预订", "预约羽毛球、网球等", ServiceCategory.LIFE, listOf("场馆", "空闲场馆", "羽毛", "网球场")),
+        AppService(AppRoute.Fitness, "体测查询", "体测成绩与明细", ServiceCategory.LIFE, listOf("体测", "体育", "体能", "fitness")),
+        AppService(AppRoute.YellowPage, "校园黄页", "校内电话与机构", ServiceCategory.LIFE, listOf("黄页", "电话", "分机")),
+
+        AppService(AppRoute.WebVpnConverter, "WebVPN", "校外访问转换", ServiceCategory.TOOL, listOf("vpn", "webvpn")),
+        AppService(AppRoute.Agent, "屁岱", "校园 AI 助手", ServiceCategory.TOOL, listOf("问屁岱", "ai", "助手")),
+        AppService(AppRoute.Community, "社区", "提建议、报问题", ServiceCategory.TOOL, listOf("社区讨论", "讨论", "论坛", "交流", "建议", "github")),
+
+        AppService(AppRoute.Games, "小游戏", "合成方块与棋类", ServiceCategory.PLAY, listOf("游戏", "小游戏", "五子棋", "围棋", "象棋", "2048", "合成", "方块", "俄罗斯方块", "跳一跳", "摸鱼")),
+        AppService(AppRoute.Match, "匹配交友", "课表匹配找同伴", ServiceCategory.PLAY, listOf("匹配", "交友", "契合", "一起自习", "共同空闲", "扫码匹配", "同楼", "偶遇", "同课", "课表匹配")),
+
+        AppService(AppRoute.ScoreReport, "成绩报表", "历年成绩明细", ServiceCategory.CLASS, listOf("报表", "历年成绩"), showOnHome = false),
+        AppService(AppRoute.DownloadManager, "下载管理", "课件与回放下载", ServiceCategory.TOOL, listOf("下载", "已下载"), showOnHome = false),
+        AppService(AppRoute.Settings, "设置", "外观、校园网与通知", ServiceCategory.TOOL, listOf("偏好", "主题"), showOnHome = false),
+        AppService(AppRoute.Accounts, "账号管理", "管理校园账号", ServiceCategory.TOOL, listOf("切换账号", "多账号"), showOnHome = false),
+        AppService(AppRoute.Feedback, "反馈与建议", "报问题提建议", ServiceCategory.TOOL, listOf("反馈", "bug", "issue"), showOnHome = false),
+    )
+
+    val home: List<AppService> = all.filter { it.showOnHome }
+
+    fun visibleFor(accountType: AccountType): List<AppService> =
+        all.filter { it.audience == null || it.audience == accountType }
+
+    fun homeFor(accountType: AccountType): List<AppService> =
+        visibleFor(accountType).filter { it.showOnHome }
+}

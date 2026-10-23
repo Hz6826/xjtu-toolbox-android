@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.xjtu.toolbox.BuildConfig
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.bulletin.BulletinApi
+import com.xjtu.toolbox.bulletin.BulletinFeed
 import com.xjtu.toolbox.bulletin.BulletinLaunchDialog
 import com.xjtu.toolbox.bulletin.BulletinLevel
 import com.xjtu.toolbox.bulletin.BulletinRules
@@ -32,9 +33,10 @@ import com.xjtu.toolbox.update.AppUpdateInfo
 import com.xjtu.toolbox.update.AppUpdater
 import com.xjtu.toolbox.update.AutoUpdateDialog
 import com.xjtu.toolbox.update.UpdateNoticeDialog
+import com.xjtu.toolbox.shell.ShellLaunchLayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import java.time.Instant
+import kotlin.time.Clock
 
 /** 启动时的公告（首页堆叠条 + 最重要的一条弹框）、自动检查到的新版本、本地更新日志。 */
 @Stable
@@ -43,7 +45,7 @@ class LaunchNotices(
     private val credentialStore: CredentialStore,
     private val scope: CoroutineScope,
 ) {
-    private val bulletinStore = BulletinStore(context)
+    private val bulletinStore = BulletinStore()
 
     /** 上一次运行的版本；全新安装为 null。 */
     val previousRunVersion: String? = credentialStore.lastRunVersion
@@ -79,7 +81,7 @@ class LaunchNotices(
         }
         applyHero(bulletinStore.peekCached(), null)
 
-        val fetched = runCatching { BulletinApi.fetch() }.getOrNull()
+        val fetched = runCatching { BulletinApi.fetch(BuildConfig.VERSION_NAME) }.getOrNull()
         if (fetched != null) bulletinStore.cachedJson = fetched.rawJson
         val remoteItems = fetched?.items ?: bulletinStore.peekCached()
         syncInbox(remoteItems)
@@ -110,6 +112,7 @@ class LaunchNotices(
     }
 
     fun onHeroTap(bulletin: Bulletin) {
+        val url = bulletin.url
         when {
             bulletin.isPoll -> {
                 launchDialogBulletin = bulletin
@@ -117,25 +120,23 @@ class LaunchNotices(
             }
             bulletin.level == BulletinLevel.FORCE_UPDATE ||
                 bulletin.level == BulletinLevel.UPDATE ||
-                bulletin.synthesized -> openPendingUpdate(bulletin.url)
-            !bulletin.url.isNullOrBlank() -> openUrl(bulletin.url)
+                bulletin.synthesized -> openPendingUpdate(url)
+            !url.isNullOrBlank() -> openUrl(url)
         }
     }
 
     fun dismissHero(bulletin: Bulletin) {
         InboxStore.markRead(listOf(OwnInbox.bulletin(bulletin).id))
-        when {
-            bulletin.synthesized -> credentialStore.markUpdateNoticeSeen(bulletin.id)
-            bulletin.level == BulletinLevel.CRITICAL -> bulletinStore.ack(bulletin.id)
-            bulletin.level == BulletinLevel.FORCE_UPDATE -> bulletinStore.snooze(bulletin.id)
-            else -> bulletinStore.dismiss(bulletin.id)
+        if (!BulletinFeed.dismiss(bulletinStore, bulletin)) {
+            credentialStore.markUpdateNoticeSeen(bulletin.id)
         }
         refreshHero()
     }
 
     internal fun dismissBulletinDialog(bulletin: Bulletin) {
+        // 只有「必须升级」那一条要记账（推迟到下次冷启动），判据在 `:core` 的 `BulletinFeed`
         if (bulletin.level == BulletinLevel.FORCE_UPDATE) {
-            bulletinStore.snooze(bulletin.id)
+            BulletinFeed.dismissDialog(bulletinStore, bulletin)
             refreshHero()
         }
         closeBulletinDialog()
@@ -155,7 +156,7 @@ class LaunchNotices(
                     category = "投票·${bulletin.id}",
                     content = selected.joinToString("、"),
                     contact = "",
-                    anonId = FeedbackStore.anonId(context),
+                    anonId = FeedbackStore.anonId(),
                 )
             }
         }
@@ -182,7 +183,7 @@ class LaunchNotices(
 
     /** 收纳里的「工具箱公告」：当前版本、当前时间有效的全部公告，投票留给首页和弹框处理。首页关过的算已读。 */
     private fun syncInbox(remote: List<Bulletin>) {
-        val now = Instant.now()
+        val now = Clock.System.now()
         val active = remote.filter { !it.isPoll && BulletinRules.isActive(it, now, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE) }
         InboxStore.replace(InboxCategories.BULLETIN, active.map(OwnInbox::bulletin))
         val seen = bulletinStore.dismissedIds + bulletinStore.ackedIds
@@ -196,14 +197,12 @@ class LaunchNotices(
             BulletinRules.syntheticUpdate(info.version, info.channel)
                 .takeUnless { credentialStore.isUpdateNoticeSeen(it.id) }
         }
-        heroBulletins = BulletinRules.visible(
-            items = remote + listOfNotNull(synthetic),
-            now = Instant.now(),
+        heroBulletins = BulletinFeed.visible(
+            store = bulletinStore,
+            cached = remote,
+            extras = listOfNotNull(synthetic),
             currentVersion = BuildConfig.VERSION_NAME,
             currentVersionCode = BuildConfig.VERSION_CODE,
-            dismissedIds = bulletinStore.dismissedIds,
-            ackedIds = bulletinStore.ackedIds,
-            snoozedIds = BulletinStore.sessionSnoozedIds(),
         )
     }
 
@@ -244,28 +243,34 @@ fun rememberLaunchNotices(credentialStore: CredentialStore): LaunchNotices {
     return notices
 }
 
-/** 启动弹框，同一时刻只弹优先级最高的一个（WindowBottomSheet 叠两层会互相顶掉）。 */
+/** 启动弹框，同一刻只弹优先级最高的一个（WindowBottomSheet 叠两层会互相顶掉）。 */
 @Composable
 fun LaunchNoticeDialogs(notices: LaunchNotices) {
     val bulletin = notices.launchDialogBulletin
     val update = notices.autoUpdate
-    when {
-        notices.showBulletinDialog.value && bulletin != null -> BulletinLaunchDialog(
-            bulletin = bulletin,
-            show = notices.showBulletinDialog,
-            onDismiss = { notices.dismissBulletinDialog(bulletin) },
-            onPrimary = { notices.confirmBulletinDialog(bulletin) },
-            onSubmitPoll = { notices.submitPoll(bulletin, it) },
-        )
-        update != null -> AutoUpdateDialog(
-            update,
-            onDismiss = notices::dismissAutoUpdate,
-        )
-        notices.checkFinished && notices.showChangelog.value -> UpdateNoticeDialog(
+    when (ShellLaunchLayer.layer(
+        bulletin = notices.showBulletinDialog.value && bulletin != null,
+        update = update != null,
+        changelog = notices.checkFinished && notices.showChangelog.value,
+    )) {
+        ShellLaunchLayer.BULLETIN -> bulletin?.let { shown ->
+            BulletinLaunchDialog(
+                bulletin = shown,
+                show = notices.showBulletinDialog,
+                onDismiss = { notices.dismissBulletinDialog(shown) },
+                onPrimary = { notices.confirmBulletinDialog(shown) },
+                onSubmitPoll = { notices.submitPoll(shown, it) },
+            )
+        }
+        ShellLaunchLayer.UPDATE -> update?.let { pending ->
+            AutoUpdateDialog(pending, onDismiss = notices::dismissAutoUpdate)
+        }
+        ShellLaunchLayer.CHANGELOG -> UpdateNoticeDialog(
             entries = notices.pendingChangelog,
             show = notices.showChangelog,
             fromVersion = notices.previousRunVersion?.takeIf { it != BuildConfig.VERSION_NAME },
             onDismiss = notices::dismissChangelog,
         )
+        null -> Unit
     }
 }

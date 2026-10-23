@@ -30,7 +30,7 @@ internal class ZyxfBrowseViewModel(context: Context) : ViewModel() {
     var loading by mutableStateOf(true); private set
     var error by mutableStateOf<String?>(null); private set
 
-    var query by mutableStateOf("")
+    var query by mutableStateOf(""); private set
     var searching by mutableStateOf(false); private set
     var truncated by mutableStateOf(false); private set
 
@@ -50,12 +50,14 @@ internal class ZyxfBrowseViewModel(context: Context) : ViewModel() {
     var previewFromSplit by mutableStateOf(false)
 
     private var job: Job? = null
+    private var searchJob: Job? = null
+    private var searchedQuery: String? = null
 
     init { reload() }
 
     /** 重新拉当前目录（或重跑当前检索）。 */
     fun reload() {
-        if (searching) return runSearch()
+        if (searching) return runSearch(force = true)
         // 参数在调用线程上取好再交给 IO：ViewModel 是在组合里建的，那一刻 stack 还只在组合的
         // 快照里，IO 线程读全局快照看到的是空列表，stack.last() 直接抛「List is empty.」
         val folder = stack.last().id
@@ -85,6 +87,8 @@ internal class ZyxfBrowseViewModel(context: Context) : ViewModel() {
     }
 
     fun openFolder(entry: ZyxfApi.Entry) {
+        cancelPendingSearch()
+        searchedQuery = null
         query = ""
         searching = false
         stack.add(Crumb(entry.id, entry.name))
@@ -93,20 +97,44 @@ internal class ZyxfBrowseViewModel(context: Context) : ViewModel() {
 
     fun goTo(index: Int) {
         if (index >= stack.lastIndex) return
+        cancelPendingSearch()
+        searchedQuery = null
         while (stack.lastIndex > index) stack.removeAt(stack.lastIndex)
         query = ""
         searching = false
         reload()
     }
 
-    fun runSearch() {
+    fun updateQuery(value: String) {
+        if (query == value) return
+        query = value
+        searchJob?.cancel()
+        job?.cancel() // 输入已经变化，不让旧响应覆盖新查询。
+        searchedQuery = null // 取消中的查询没有完整结果，重新输回同一词也必须可重试。
+        loading = false
+        if (value.isBlank()) { clearSearch(); return }
+        searchJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(500)
+            searchJob = null
+            runSearch()
+        }
+    }
+
+    fun cancelPendingSearch() { searchJob?.cancel(); searchJob = null }
+
+    fun runSearch(force: Boolean = false) {
+        cancelPendingSearch()
         val q = query.trim()
         if (q.isEmpty()) { clearSearch(); return }
+        if (!force && searching && searchedQuery == q && error == null) return
         searching = true
+        searchedQuery = q
         load { ZyxfApi.search(q).let { it.entries to it.truncated } }
     }
 
     fun clearSearch() {
+        cancelPendingSearch()
+        searchedQuery = null
         query = ""
         searching = false
         reload()

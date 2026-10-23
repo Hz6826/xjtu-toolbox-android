@@ -79,6 +79,18 @@ internal object NoticeWatchStore {
         prefs(context).edit().putStringSet(KEY_BASELINED, names).apply()
     }
 
+    fun latestDates(context: Context): Map<NotificationSource, kotlinx.datetime.LocalDate> =
+        prefs(context).getStringSet("latest_dates", emptySet()).orEmpty().mapNotNull { entry ->
+            val parts = entry.split('=', limit = 2)
+            if (parts.size != 2) null else runCatching {
+                NotificationSource.valueOf(parts[0]) to kotlinx.datetime.LocalDate.parse(parts[1])
+            }.getOrNull()
+        }.toMap()
+
+    fun setLatestDates(context: Context, dates: Map<NotificationSource, kotlinx.datetime.LocalDate>) {
+        prefs(context).edit().putStringSet("latest_dates", dates.map { "${it.key.name}=${it.value}" }.toSet()).apply()
+    }
+
     /**
      * 推送关键词，逗号 / 空格 / 顿号分隔。留空 = 不过滤，全推。
      *

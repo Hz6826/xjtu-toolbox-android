@@ -4,7 +4,9 @@ import android.content.Context
 import android.util.Log
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.account.AccountStore
+import com.xjtu.toolbox.auth.AccessMode
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.auth.CampusProbe
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.MfaRequiredException
 import com.xjtu.toolbox.auth.PasswordInvalidatedException
@@ -12,6 +14,7 @@ import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.XJTULogin
 import com.xjtu.toolbox.auth.ensureSite
+import com.xjtu.toolbox.settings.SettingsStore
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -39,9 +42,12 @@ internal object HeadlessSessions {
     /**
      * 拿一个已登录的站点。没有账号、需要短信验证、密码已失效时返回 null：这些情况重试也没用，
      * 还会再提交一次密码，调用方应当直接结束这一轮。网络等临时故障照常抛出，由调用方决定重试。
+     *
+     * 不收 `Context` 的理由见 [manager]（账号表不再要宿主句柄）。
      */
-    suspend fun site(context: Context, type: LoginType): SiteSession? {
-        val manager = manager(context) ?: return null
+    suspend fun site(type: LoginType): SiteSession? {
+        val manager = manager() ?: return null
+        if (manager !== SessionManager.active) pickAccessMode(manager)
         return try {
             manager.ensureSite(type, silent = true)
         } catch (e: MfaRequiredException) {
@@ -53,11 +59,11 @@ internal object HeadlessSessions {
         }
     }
 
-    suspend fun manager(context: Context): SessionManager? {
+    /** 后台临时会话。 */
+    suspend fun manager(): SessionManager? {
         SessionManager.active?.let { return it }
 
-        val app = context.applicationContext
-        val account = AccountStore(app).activeAccount() ?: return null
+        val account = AccountStore().activeAccount() ?: return null
         if (account.password.isBlank()) return null
 
         lock.withLock {
@@ -65,7 +71,10 @@ internal object HeadlessSessions {
             SessionManager.active?.let { return it }
             headless?.takeIf { headlessAccountId == account.accountId }?.let { return it }
 
-            val manager = SessionManager(app)
+            val manager = SessionManager()
+            // 与前台那份同一个钩子：真换了账号就丢掉一网通办令牌（见 AppLoginState 里的同名赋值）。
+            manager.onAccountSwitched = { com.xjtu.toolbox.auth.CampusProbe.ywtbToken = null }
+            manager.onYwtbToken = { com.xjtu.toolbox.auth.CampusProbe.ywtbToken = it }
             with(manager) {
                 register(com.xjtu.toolbox.auth.JwxtSession())
                 register(com.xjtu.toolbox.auth.JwappSession())
@@ -83,6 +92,8 @@ internal object HeadlessSessions {
             manager.fpVisitorId = account.fpVisitorId
             manager.cachedRsaKey = account.rsaPublicKey
             AccountContext.activeAccountId = account.accountId
+            // 后台临时会话也算「当前账号」：路由表（:core 的 nav/AppRoute）读这个身份
+            AccountContext.activeAccountType = account.accountType
 
             headless = manager
             headlessAccountId = account.accountId
@@ -90,7 +101,19 @@ internal object HeadlessSessions {
         }
     }
 
-    /** 有没有可用于后台自动登录的账号。没有就别排后台任务，省得空转。 */
-    fun hasAccount(context: Context): Boolean =
-        AccountStore(context.applicationContext).activeAccount()?.password?.isNotBlank() == true
+    /**
+     * 后台现建的会话也要分校内外：图书馆这类只在校内网可达的站点，人在路上用流量时只能走 WebVPN。
+     * 每轮都重判一次，两次后台任务之间可能换过网。判不出来（没网）就别动，按上次的走。
+     */
+    private suspend fun pickAccessMode(manager: SessionManager) {
+        val onCampus = when (SettingsStore().networkMode) {
+            SettingsStore.NETWORK_DIRECT -> true
+            SettingsStore.NETWORK_VPN -> false
+            else -> CampusProbe.detect(CampusProbe.ywtbToken).takeUnless { it.offline }?.onCampus ?: return
+        }
+        manager.onNetworkChanged(if (onCampus) AccessMode.NORMAL else AccessMode.WEBVPN)
+    }
+    /** 有没有可用于后台自动登录的账号。没有就别排后台任务，省得空转（不收 `Context` 的理由见 [manager]）。 */
+    fun hasAccount(): Boolean =
+        AccountStore().activeAccount()?.password?.isNotBlank() == true
 }

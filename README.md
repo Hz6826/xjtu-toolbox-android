@@ -7,7 +7,10 @@
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="GPL-3.0 License" />
 </p>
 
-面向西安交通大学学生的 Android 校园工具箱。使用 Kotlin 与 Jetpack Compose 原生开发，便捷使用教务、图书馆、校园卡、思源学堂等学校服务，**不经过任何自建业务中转服务器**——账号凭据与数据只在设备和学校系统之间流动。
+面向西安交通大学学生的 Android 校园工具箱。使用 Kotlin 与 Jetpack Compose 原生开发，便捷使用教务、图书馆、校园卡、思源学堂等学校服务，**不经过任何自建业务中转服务器**——账号凭据与校园数据只在设备和学校系统之间流动。
+
+> [!NOTE]
+> 唯一的例外是**小游戏排行榜**，那是本项目自建的一个服务，只有这几种数据会离开设备：游戏标识、分数、昵称，以及一个设备级匿名 ID（`ANDROID_ID` 的哈希，不含学号账号）。不涉及任何校园数据，不上榜则不产生任何上传，昵称留空即以匿名上榜。服务端源码在本仓库 [`server/leaderboard/`](server/leaderboard/)，代码本身也没有第三方依赖。
 
 应用内置可自定义名称的校园 AI 助手「**屁岱**」。配置任意兼容 OpenAI API 格式的模型服务后，可查询课程安排、成绩、空闲教室、校园卡、通知、思源学堂、体测、仲英学辅资料等信息，并以自然语言和数据卡片形式作答。
 
@@ -34,7 +37,7 @@
 | 仲英学辅 | 资料检索、目录浏览与文件下载 |
 | 校园信息 | 教务处 / 学院通知聚合与站内搜索、校园黄页、体测成绩、电子教材、校历 |
 | 评教 | GSTE 与常规评教（即将更换新系统） |
-| 课余 | 合成仙交大、GPA 2048 等小游戏与棋类，支持联机对弈；课表匹配交友 |
+| 课余 | 合成仙交大、GPA 2048 等小游戏与棋类，支持联机对弈，分数类小游戏有全服排行榜；课表匹配交友 |
 | 社区 | 基于本仓库 GitHub Discussions 的原生论坛：分区浏览、发帖、楼层与楼中楼、@ 提及、点赞、采纳答案；GitHub 设备码登录 |
 
 
@@ -51,8 +54,8 @@
 - 多会话、流式回复，工具结果卡片展示
 - 联网搜索、读网页，会注明出处
 - 设闹钟、加日历
-- 记住你的偏好
-- 每类工具都能在设置里单独关掉
+- 记住你的偏好（存在本机，聊天时一并发给模型；设置里可查看和删除）
+- 外部链接唤起屁岱只填进输入框，由你决定发不发；回复里的外链图片点了才加载
 
 ---
 
@@ -64,8 +67,35 @@
 - Room、KSP、Kotlin Coroutines
 - Android Gradle Plugin 9、Gradle 9、JDK 21
 - `minSdk 31`、`targetSdk 36`、`compileSdk 37`
+MIUIX 从 Maven Central 引入，版本钉在 `gradle/libs.versions.toml`（`0.9.4`，正式版）；升级是显式改版本号。
 
-MIUIX 从 Maven Central 引入，始终跟随最新正式版（见 `gradle/libs.versions.toml`）。
+### 模块划分（Kotlin Multiplatform）
+
+| 模块 | 目标 | 职责 |
+|---|---|---|
+| `:app` | Android | 宿主：`Context` / Room / 相机 / BLE / 小组件 / 通知；把宿主机能适配成 `:core` 的端口 |
+| `:core` | Android + jvm + wasmJs | **三端同一份**：模型、屏、路由表、主题与组件、周视图几何、游戏逻辑 |
+| `:data` | Android + jvm | **数据层**：会话内核（CAS 登录 / cookie / 站点快照 / WebVPN）+ 取数与解析（okhttp + jsoup）；三端共用一份（桌面窗口与服务模式跑在 jvm 变体上） |
+| `:web` | wasmJs（浏览器） | 浏览器外壳：只渲染 `:core` 里的屏，数据经同源 `/api/*` 取自 campus-api（默认，`web/tools/serve-same-origin.py` 反代）或 serve 模式的 `:server`（`docs/api-contract.md` §5；`?backend=serve` 或自动探测，登录/短信二验走 `/api/session*`） |
+| `:desktop` | jvm（Compose Desktop） | 桌面窗口壳：只渲染 `:core` 里的屏，jpackage 出包；**自己登录**（`:data` 的会话内核 + 凭据文件），不依赖 campus-api |
+| `:testkit` | jvm（仅测试） | 假的校园上游（图书馆座位系统 + 统一认证 + 校历门户）—— **不在任何交付物里**：`:data:jvmTest` 的契约测试与桌面端的离屏证据共用同一批页面原文；一个代理端口按 host 分派（`FakeCampusProxy`） |
+
+`:web` 不是独立客户端：它是 **serve 模式/本机后端**（`docs/desktop-port-plan.md` §3）的浏览器界面，
+数据来自同源 `/api/*`，不是自带会话的桌面/移动客户端。
+
+**serve 模式**（`:server` 托管本页 + 提供 `/api/*`，契约见 `docs/api-contract.md`）：
+`./gradlew :server:run` 后浏览器打开它打印的地址，页面上「会话」一格里先贴启动横幅里打印的访问令牌、再登录即可；
+页面的数据源由 `?backend=serve` 钉死、否则自动探测（探 `/api/status` 有没有 `username` 字段区分 serve 与 campus-api）。
+
+**一屏搬进 `:core` 的规矩**（也是“两端一致”的定义）：
+
+1. 屏 + 模型 + 取数**端口**（`interface XxxSource`）进 `:core`；
+2. `:app` 侧把宿主机能（okhttp / Room / `DataCache` / Bitmap …）适配成端口并注入，**实现留在 `:app`**；
+3. Web 侧写一份 campus-api 版取数实现（`core/src/commonMain/kotlin/com/xjtu/toolbox/core/net/` 下的 `Campus*Api`）；
+4. 平台能力（原图查看、设备码登录、扫码 …）用 `@Composable` 槽位或带默认实现的接口参数化 —— `:app` 不实现时行为零变化。
+
+因此便携性判据不能只看 import：`String.format`、`toSortedMap`、`java.time`、`Dispatchers.IO`
+在 JVM 上都是默认导入/标准库，只有**把 `:core` 真编到 wasmJs**（`sh gradlew :core:compileKotlinWasmJs`）才能全部拦下。
 
 ---
 
@@ -139,6 +169,7 @@ Release 会启用代码压缩与资源收缩。未提供签名配置时生成未
 - 本项目仅供学习与个人信息管理使用，请遵守学校各系统的使用规则。
 - 学校系统接口可能调整，功能可用性以实际情况为准。
 - 请勿高频请求，或尝试绕过验证码、访问控制等安全机制。
+- 小游戏排行榜会把够上榜的成绩上传到本项目的自建服务（只有游戏标识、分数、昵称与设备级匿名 ID，不含账号、学号）；够不上榜则不会上传。
 - API Key、账号凭据与下载的个人资料均应妥善保管。
 - AI 生成内容可能有误，重要信息请以学校官方渠道为准。
 - 本项目为学生个人作品，非西安交通大学官方产品，与学校无隶属关系。

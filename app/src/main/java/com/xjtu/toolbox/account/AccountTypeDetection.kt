@@ -23,6 +23,8 @@ internal fun applyDetectedAccountType(
     val detected = AccountType.fromIdentityName(identityTypeName) ?: return
     if (detected == loginState.accountType) return
     loginState.accountType = detected
+    // 与 loginState.accountType 同步写全局上下文（路由表读它，见 :core 的 AccountContext）
+    AccountContext.activeAccountType = detected
     loginState.sessionManager?.accountType =
         if (detected == AccountType.POSTGRADUATE) {
             XJTULogin.AccountType.POSTGRADUATE
@@ -32,7 +34,7 @@ internal fun applyDetectedAccountType(
     CredentialStore(context).accountType = detected
     val id = loginState.accountId
     if (id.isNotEmpty()) {
-        val store = AccountStore(context)
+        val store = AccountStore()
         store.get(id)?.let { store.upsert(it.copy(accountType = detected)) }
     }
 }

@@ -5,6 +5,7 @@ import android.util.Log
 import com.xjtu.toolbox.data.AppDatabase
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.network.PersistentCookieJar
+import com.xjtu.toolbox.util.redactUrl
 import java.io.File
 
 /**
@@ -38,7 +39,7 @@ object AccountMigration {
 
         val (username, password) = oldCreds
         val accountId = username
-        Log.i(TAG, "Migrating legacy single-account data to accountId=$accountId")
+        Log.i(TAG, "Migrating legacy single-account data to accountId=${accountId.redactUrl()}")
 
         val account = Account(
             accountId = accountId,
@@ -58,19 +59,19 @@ object AccountMigration {
         try {
             // 1) cookies 迁移：cookies_normal / cookies_webvpn → cookies_*_suffix
             runCatching {
-                val oldNormal = PersistentCookieJar(appContext, "cookies_normal")
+                val oldNormal = PersistentCookieJar("cookies_normal")
                 val raw = oldNormal.exportRaw()
                 if (raw.isNotBlank()) {
-                    PersistentCookieJar(appContext, "cookies_normal$suffix").importRaw(raw)
+                    PersistentCookieJar("cookies_normal$suffix").importRaw(raw)
                 }
                 oldNormal.clear()  // 清掉旧池避免混淆
             }.onFailure { Log.w(TAG, "cookies_normal migration failed", it) }
 
             runCatching {
-                val oldWebvpn = PersistentCookieJar(appContext, "cookies_webvpn")
+                val oldWebvpn = PersistentCookieJar("cookies_webvpn")
                 val raw = oldWebvpn.exportRaw()
                 if (raw.isNotBlank()) {
-                    PersistentCookieJar(appContext, "cookies_webvpn$suffix").importRaw(raw)
+                    PersistentCookieJar("cookies_webvpn$suffix").importRaw(raw)
                 }
                 oldWebvpn.clear()
             }.onFailure { Log.w(TAG, "cookies_webvpn migration failed", it) }
@@ -111,7 +112,7 @@ object AccountMigration {
         AccountContext.activeAccountId = accountId
         accountStore.migrationDone = true
         credentialStore.clearLegacyCredentials()
-        Log.i(TAG, "Migration completed for accountId=$accountId")
+        Log.i(TAG, "Migration completed for accountId=${accountId.redactUrl()}")
         return account
     }
 

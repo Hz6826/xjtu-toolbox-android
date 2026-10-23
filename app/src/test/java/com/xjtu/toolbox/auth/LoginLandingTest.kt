@@ -29,4 +29,28 @@ class LoginLandingTest {
         assertFalse(landing("https://webvpn.xjtu.edu.cn/"))
         assertFalse(landing("https://jwxt.xjtu.edu.cn/login"))
     }
+
+    /** 字符串/Ktor 版必须与 HttpUrl 版逐条一致。 */
+    @Test
+    fun gatewayLoginLandingStringMatchesHttpUrlVersion() {
+        val samples = listOf(
+            "https://webvpn.xjtu.edu.cn/login",
+            WebVpnUtil.WEBVPN_LOGIN_URL,
+            "https://webvpn.xjtu.edu.cn/login?cas_login=true&ticket=ST-1",
+            "https://webvpn.xjtu.edu.cn/login/",
+            "https://webvpn.xjtu.edu.cn/",
+            "https://jwxt.xjtu.edu.cn/login",
+            "https://webvpn.xjtu.edu.cn/http/77726476706e69737468656265737421f7e140d22520/seat/",
+            "not a url",
+            "",
+        )
+        for (s in samples) {
+            val byHttpUrl = runCatching { landing(s) }.getOrElse { false }
+            org.junit.Assert.assertEquals(
+                "isLoginLanding 两个版本必须一致：$s",
+                byHttpUrl,
+                WebVpnUtil.isLoginLanding(s),
+            )
+        }
+    }
 }

@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.widget
 
+import com.xjtu.toolbox.account.restoreIfNeeded
+
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -18,14 +20,16 @@ import com.xjtu.toolbox.inbox.InboxStore
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.schedule.colorOf
 import com.xjtu.toolbox.schedule.courseColorMap
+import com.xjtu.toolbox.util.RequestCodes
+import com.xjtu.toolbox.util.CampusZoneId
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
- * 待办桌面小组件：收纳页「待办」栏的前几条，快截止的在前。一行一条：左边一道色条，作业按科目取课表那门课的颜色、
- * 科目名同色，其余待办用分类色；右边是截止时间。
+ * 待办桌面小组件：收纳页「待办」栏的前几条，快截止的在前。一行一条：左边一道色条，作业按科目取课表那门课的颜色，
+ * 其余待办用分类色；科目名不上色，课程色可自选，浅色当字色看不清。右边是截止时间。
  *
  * 数据来自 [InboxStore]，每次收纳写入都重画，小组件自己不发请求。点击进收纳页。
  */
@@ -42,7 +46,7 @@ object TodoWidgetUpdater {
     private val CLOCK = DateTimeFormatter.ofPattern("HH:mm")
 
     /** 截止时间：今天、明天带钟点，更远只给日期；没有截止时间给空串。 */
-    internal fun dueLabel(expiresAt: Long, now: Long, zone: ZoneId = ZoneId.systemDefault()): String {
+    internal fun dueLabel(expiresAt: Long, now: Long, zone: ZoneId = CampusZoneId): String {
         if (expiresAt <= 0) return ""
         val at = Instant.ofEpochMilli(expiresAt).atZone(zone)
         val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
@@ -61,6 +65,7 @@ object TodoWidgetUpdater {
 
     fun update(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         if (appWidgetIds.isEmpty()) return
+        com.xjtu.toolbox.account.AccountContext.restoreIfNeeded()
 
         val now = System.currentTimeMillis()
         val todos = InboxRules.todos(InboxStore.load(), now)
@@ -72,7 +77,7 @@ object TodoWidgetUpdater {
             putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, AppRoute.Inbox.id)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
-        val pendingIntent = PendingIntent.getActivity(context, 4001, launchIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val pendingIntent = PendingIntent.getActivity(context, RequestCodes.TODO_WIDGET,launchIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
         for (id in appWidgetIds) {
             runCatching {
@@ -83,13 +88,16 @@ object TodoWidgetUpdater {
                     val item = todos.getOrNull(i)
                     views.setViewVisibility(r.row, if (item == null) View.INVISIBLE else View.VISIBLE)
                     if (item == null) return@forEachIndexed
-                    val color = accent(item)
-                    views.setInt(r.accent, "setColorFilter", color)
-                    views.setTextColor(r.source, color)
+                    views.setInt(r.accent, "setColorFilter", accent(item))
                     views.setTextViewText(r.source, item.source)
                     // 学校不少待办的标题就是系统名，这时拿正文当标题
                     views.setTextViewText(r.title, if (item.title == item.source && item.body.isNotBlank()) item.body else item.title)
                     views.setTextViewText(r.due, dueLabel(item.expiresAt, now))
+                    // 点单条直接进它自己的页面，没有专属页面的回收纳箱
+                    views.setOnClickPendingIntent(r.row, PendingIntent.getActivity(context, RequestCodes.TODO_WIDGET_ROW + i, Intent(context, MainActivity::class.java).apply {
+                        putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, item.route ?: AppRoute.Inbox.id)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
                 }
                 val empty = todos.isEmpty()
                 views.setViewVisibility(R.id.widget_todo_list, if (empty) View.GONE else View.VISIBLE)

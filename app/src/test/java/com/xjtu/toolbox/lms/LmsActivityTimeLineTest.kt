@@ -35,7 +35,7 @@ class LmsActivityTimeLineTest {
                 deadline = "2026-09-24T15:59:00Z",
             )
         )
-        assertEquals("可见 2026/09/16 00:38 ~ 截止 2026/09/24 15:59", line)
+        assertEquals("可见 2026/09/16 08:38 ~ 截止 2026/09/24 23:59", line)
     }
 
     @Test
@@ -47,7 +47,7 @@ class LmsActivityTimeLineTest {
                 deadline = "2026-03-20T15:59:00Z",
             )
         )
-        assertEquals("开始 2026/03/13 07:07 ~ 截止 2026/03/20 15:59", line)
+        assertEquals("开始 2026/03/13 15:07 ~ 截止 2026/03/20 23:59", line)
     }
 
     /** 关键：deadline 与 end_time 不同时必须用 deadline，否则同屏会出现两个不一样的「截止」。 */
@@ -56,13 +56,13 @@ class LmsActivityTimeLineTest {
         val line = lmsActivityTimeLine(
             homework(endTime = "2026-06-10T15:59:00Z", deadline = "2026-06-30T11:25:00Z")
         )
-        assertEquals("截止 2026/06/30 11:25", line)
+        assertEquals("截止 2026/06/30 19:25", line)
     }
 
     @Test
     fun noDeadline_fallsBackToEndTime() {
         val line = lmsActivityTimeLine(homework(endTime = "2026-09-24T15:59:00Z"))
-        assertEquals("截止 2026/09/24 15:59", line)
+        assertEquals("截止 2026/09/24 23:59", line)
     }
 
     @Test
@@ -81,6 +81,6 @@ class LmsActivityTimeLineTest {
             endTime = "2026-09-15T17:30:00Z",
             deadline = "2026-09-15T23:00:00Z",
         )
-        assertEquals("2026/09/15 16:40 ~ 2026/09/15 17:30", lmsActivityTimeLine(lesson))
+        assertEquals("2026/09/16 00:40 ~ 2026/09/16 01:30", lmsActivityTimeLine(lesson))
     }
 }

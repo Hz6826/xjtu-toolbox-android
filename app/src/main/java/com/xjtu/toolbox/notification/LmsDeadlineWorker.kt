@@ -18,8 +18,9 @@ import com.xjtu.toolbox.lms.remaining
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.time.Duration
-import java.time.Instant
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Instant
 import java.util.concurrent.TimeUnit
 
 private const val TAG = "LmsDeadline"
@@ -48,7 +49,7 @@ class LmsDeadlineWorker(
 
         val due = try {
             // 需要短信验证 / 密码失效：这一轮直接放弃，等下次正常调度，别退避重试再提交一次密码
-            val site = HeadlessSessions.site(app, LoginType.LMS) ?: return Result.success()
+            val site = HeadlessSessions.site(LoginType.LMS) ?: return Result.success()
             val account = AccountContext.activeAccountId
             withContext(Dispatchers.IO) {
                 val api = LmsApi(site)
@@ -62,12 +63,12 @@ class LmsDeadlineWorker(
             return Result.retry()
         }
 
-        val now = Instant.now()
-        val horizon = now.plus(Duration.ofHours(AHEAD_HOURS))
+        val now = Clock.System.now()
+        val horizon = now + AHEAD_HOURS.hours
         val fresh = due
             .filter { !it.submitted }
             .mapNotNull { d -> runCatching { Instant.parse(d.deadline) }.getOrNull()?.let { it to d } }
-            .filter { (deadline, _) -> !deadline.isBefore(now) && !deadline.isAfter(horizon) }
+            .filter { (deadline, _) -> deadline >= now && deadline <= horizon }
             .sortedBy { it.first }
             .map { (deadline, d) -> "${d.courseId}-${d.activityId}-$deadline" to "[${d.courseName}] ${d.title} · ${remaining(now, deadline)}" }
             .filterNot { ReminderStore.hasSeen(app, ReminderKind.LMS, it.first) }
@@ -86,7 +87,7 @@ object LmsDeadlineScheduler {
     fun apply(context: Context) {
         val app = context.applicationContext
         val wm = WorkManager.getInstance(app)
-        if (!ReminderStore.isEnabled(app, ReminderKind.LMS) || !HeadlessSessions.hasAccount(app)) {
+        if (!ReminderStore.isEnabled(app, ReminderKind.LMS) || !HeadlessSessions.hasAccount()) {
             wm.cancelUniqueWork(UNIQUE)
             return
         }

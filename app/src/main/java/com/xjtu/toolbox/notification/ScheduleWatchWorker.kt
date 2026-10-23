@@ -12,8 +12,10 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.schedule.ExamCountdown
-import com.xjtu.toolbox.schedule.ScheduleApi
+import com.xjtu.toolbox.schedule.JwxtScheduleApi
+import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.schedule.ScheduleDiff
+import com.xjtu.toolbox.schedule.scheduleDiffStore
 import com.xjtu.toolbox.schedule.ScheduleSourceRouter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -43,10 +45,10 @@ class ScheduleWatchWorker(
 
         return try {
             // 需要短信验证 / 密码失效：这一轮直接放弃，等下次正常调度，别退避重试再提交一次密码
-            val site = HeadlessSessions.site(app, LoginType.JWXT) ?: return Result.success()
+            val site = HeadlessSessions.site(LoginType.JWXT) ?: return Result.success()
             withContext(Dispatchers.IO) {
-                val api = ScheduleApi(site)
-                val term = api.getCurrentTerm()
+                val api = JwxtScheduleApi(site)
+                val term = api.currentTerm()
                 checkScheduleChange(app, api, term)
                 checkUpcomingExam(app, api, term)
             }
@@ -64,26 +66,40 @@ class ScheduleWatchWorker(
      * 这里发了通知，日程页下次进来就不会再弹同样的 snackbar。发不出通知（没授权 /
      * 渠道被关）时退回写 pending，让屁岱气泡接手——总不能两边都不说。
      */
-    private suspend fun checkScheduleChange(context: Context, api: ScheduleApi, term: String) {
+    private suspend fun checkScheduleChange(context: Context, api: JwxtScheduleApi, term: String) {
         val courses = ScheduleSourceRouter.getSchedule(
-            context = context,
             jwxt = api,
             termCode = term,
-            manager = HeadlessSessions.manager(context),
+            manager = HeadlessSessions.manager(),
         )
         if (courses.isEmpty()) return
-        val summary = ScheduleDiff.summarize(ScheduleDiff.diffAndStore(context, term, courses)) ?: return
+        val summary = ScheduleDiff.summarize(ScheduleDiff.diffAndStore(scheduleDiffStore(), term, courses, ScheduleSourceRouter.servedSource().key)) ?: return
         com.xjtu.toolbox.inbox.InboxStore.post(com.xjtu.toolbox.inbox.OwnInbox.scheduleChange(summary))
         if (!ReminderNotifier.notifyScheduleChange(context, summary)) {
-            ScheduleDiff.setPending(context, summary)
+            ScheduleDiff.setPending(scheduleDiffStore(), summary)
         }
     }
 
-    /** 同一场考试只提醒一次：游标记「课程名+日期」，改期算新的一场，会再提醒。 */
-    private suspend fun checkUpcomingExam(context: Context, api: ScheduleApi, term: String) {
-        val exams = runCatching { api.getExamSchedule(term) }.getOrElse {
+    /**
+     * 拉到的考试表写回缓存：首页考试格、倒计时横幅、屁岱气泡都读缓存，不写的话老师改了考场，
+     * 没进日程页的人看到的一直是旧的。和旧缓存比出改动就单发一条「考试安排有变」。
+     *
+     * 快到的考试只提醒一次：游标记「课程名+日期」，改期算新的一场，会再提醒。
+     */
+    private suspend fun checkUpcomingExam(context: Context, api: JwxtScheduleApi, term: String) {
+        val exams = runCatching { api.examSchedule(term) }.getOrElse {
             Log.w(TAG, "考试表拉取失败：${it.message}")
             return
+        }
+        val cache = com.xjtu.toolbox.data.DataCache(context)
+        val cached = ScheduleCache.readExams(cache, term)
+        val changes = ExamCountdown.changes(cached, exams)
+        // 空表不覆盖已有的：教务偶尔返回空表，别把还没考的场次清掉
+        if (exams.isNotEmpty() || cached.isNullOrEmpty()) ScheduleCache.writeExams(cache, term, exams)
+        if (changes.isNotEmpty()) {
+            com.xjtu.toolbox.inbox.InboxStore.post(com.xjtu.toolbox.inbox.OwnInbox.examChange(changes.joinToString("\n")))
+            ReminderNotifier.notifyExamChange(context, changes)
+            com.xjtu.toolbox.home.HomeSignals.bumpStatsVersion()
         }
         val next = ExamCountdown.next(exams) ?: return
         if (next.daysLeft > EXAM_AHEAD_DAYS) return
@@ -109,7 +125,7 @@ object ScheduleWatchScheduler {
     fun apply(context: Context) {
         val app = context.applicationContext
         val wm = WorkManager.getInstance(app)
-        if (!ReminderStore.isEnabled(app, ReminderKind.SCHEDULE) || !HeadlessSessions.hasAccount(app)) {
+        if (!ReminderStore.isEnabled(app, ReminderKind.SCHEDULE) || !HeadlessSessions.hasAccount()) {
             wm.cancelUniqueWork(UNIQUE)
             return
         }

@@ -77,10 +77,13 @@ object ZyxfApi {
                     days == 0L -> "今天"
                     days == 1L -> "昨天"
                     days < 30 -> "${days}天前"
-                    else -> java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.CHINA)
-                        .format(java.util.Date(createdAt))
+                    else -> com.xjtu.toolbox.util.formatOnCampus(createdAt, "yyyy-MM-dd")
                 }
             }
+
+        /** 一周内上传的：列表里打「新」标，翻资料时一眼看出哪些是刚传的。 */
+        val isFresh: Boolean
+            get() = !isFolder && createdAt > 0 && (System.currentTimeMillis() - createdAt) in 0 until 7 * 86_400_000L
 
         val extNormalized: String get() = ext.lowercase().removePrefix(".")
         val readable: Boolean get() = !isFolder && extNormalized in TEXT_EXTS
@@ -326,5 +329,20 @@ object ZyxfApi {
                 bytes.toString(Charsets.UTF_8)
             }
         }.onFailure { Log.w(TAG, "readText failed: ${entry.name}", it) }.getOrNull()
+    }
+
+    /** 整个文件的字节（屁岱读 PDF / Office 用），超过 [maxBytes] 返回 null。 */
+    fun readBytes(fileId: Int, maxBytes: Long = 40L * 1024 * 1024): Pair<String, ByteArray>? {
+        val link = runCatching { fileLink(fileId) }.getOrNull() ?: return null
+        if (link.sizeBytes > maxBytes) return null
+        val req = Request.Builder().url(link.url).get().build()
+        return runCatching {
+            client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return null
+                val body = resp.body ?: return null
+                if (body.contentLength() > maxBytes) return null
+                link.name to body.bytes()
+            }
+        }.onFailure { Log.w(TAG, "readBytes failed: $fileId", it) }.getOrNull()
     }
 }

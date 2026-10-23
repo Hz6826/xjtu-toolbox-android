@@ -1,9 +1,5 @@
 package com.xjtu.toolbox.agent
 
-import com.xjtu.toolbox.util.stringValue
-import com.xjtu.toolbox.util.isArray
-import com.xjtu.toolbox.util.AppJson
-import kotlinx.serialization.json.jsonArray
 import com.vladsch.flexmark.html2md.converter.FlexmarkHtmlConverter
 import org.jsoup.Jsoup
 import java.net.Inet4Address
@@ -18,13 +14,10 @@ import java.net.URI
 import javax.net.SocketFactory
 
 /**
- * 联网工具的页面处理，对齐成熟开源 Agent 而不是自研解析器。
+ * 端上直连外网时的公网访问策略，以及公众号文章的读取（见 [WeChatSearchTools]）。
+ * 其余搜索、读网页走 DeepSeek（见 `DeepSeekWebTools`）。
  *
- * - 抓页：HuggingFace [smolagents VisitWebpageTool](https://github.com/huggingface/smolagents/blob/main/src/smolagents/default_tools.py)
- *   （GET → markdownify → 折叠空行 → 截断）+ Cline [UrlContentFetcher](https://github.com/cline/cline/blob/main/src/services/browser/UrlContentFetcher.ts)
- *   （去掉 script/style/nav/header/footer 再转 Markdown）。Java 侧 markdownify/turndown 的对应库是 flexmark-html2md。
- * - 搜索：百度（照 python-baidusearch 的做法抓网页版）与 360（选择器照 SearXNG 360search）并发合并；
- *   搜狗微信查公众号、中文维基查词条。DuckDuckGo、Bing 在国内不可用，已去掉（见 AgentConfig.RETIRED_SEARCH_ENGINES）。
+ * 转 Markdown 照 Cline UrlContentFetcher：去掉 script/style/nav/header/footer 再用 flexmark-html2md 转。
  */
 internal object AgentWeb {
 
@@ -213,79 +206,6 @@ internal object AgentWeb {
             "\n..._This content has been truncated to stay below $maxLength characters_...\n"
     }
 
-    /**
-     * 360 搜索（so.com）。选择器照 SearXNG `engines/360search.py`。
-     *
-     * 真实地址在标题链接的 `data-mdurl`；`href` 是 `so.com/link?m=…` 跳转链。以前只看 href
-     * 又把 so.com 域名一律当站内链接丢掉，于是**每一条**正常结果都被丢了，360 永远返回 0 条。
-     * 现在：优先 data-mdurl；没有时跳转链也收（web_fetch 会跟随跳转）；只丢 360 自家的
-     * 百科、视频、问答（host 属于 360 且不是跳转链）。
-     */
-    fun parseSo360Html(html: String, limit: Int): List<Triple<String, String, String>> {
-        val doc = Jsoup.parse(html, "https://www.so.com/")
-        return doc.select("li.res-list").asSequence().mapNotNull { el ->
-            val a = el.selectFirst("h3.res-title a, h3 a") ?: return@mapNotNull null
-            val title = a.text().trim()
-            if (title.isBlank()) return@mapNotNull null
-            val md = a.attr("data-mdurl").trim()
-            val href = a.absUrl("href").ifBlank { a.attr("href") }.trim()
-            val link = md.takeIf { it.startsWith("http") } ?: href
-            if (!link.startsWith("http")) return@mapNotNull null
-            val host = hostOf(link)
-            val isJump = host.endsWith("so.com") && link.contains("/link?")
-            if (!isJump && (host.endsWith("so.com") || host.endsWith("360.cn") || host.endsWith("360kan.com"))) {
-                return@mapNotNull null
-            }
-            val snippet = el.selectFirst("p.res-desc, .res-desc, span.res-list-summary, .res-rich")
-                ?.text()?.trim().orEmpty()
-            Triple(title, link, snippet)
-        }.distinctBy { it.second }.take(limit.coerceAtLeast(1)).toList()
-    }
-
-    /**
-     * 百度网页搜索（`www.baidu.com/s`）。做法同 python-baidusearch：带首页 cookie 与 Referer
-     * 请求普通网页版，解析 `#content_left` 下的 `.c-container`。`tn=json` 接口会直接跳验证码，不用它。
-     *
-     * 真实地址多数在结果块的 `mu` 属性；「阿拉丁」卡片的 mu 是占位（`nourl.ubs.baidu.com`、
-     * `*.recommend_list.baidu.com`），这时退回标题的 `baidu.com/link?url=` 跳转链。
-     */
-    fun parseBaiduHtml(html: String, limit: Int): List<Triple<String, String, String>> {
-        val doc = Jsoup.parse(html, "https://www.baidu.com/")
-        return doc.select("#content_left > div.c-container, #content_left div.result, #content_left div.result-op")
-            .asSequence()
-            .mapNotNull { el ->
-                val a = el.selectFirst("h3 a") ?: return@mapNotNull null
-                val title = a.text().trim()
-                if (title.isBlank()) return@mapNotNull null
-                val mu = el.attr("mu").trim()
-                val muHost = hostOf(mu)
-                val muUsable = mu.startsWith("http") && !muHost.endsWith("baidu.com")
-                val href = a.absUrl("href").ifBlank { a.attr("href") }.trim()
-                val link = if (muUsable) mu else href
-                if (!link.startsWith("http")) return@mapNotNull null
-                val snippet = el.selectFirst(
-                    "[class*=content-right], .c-abstract, [class*=abstract], .c-span-last, .c-color-text"
-                )?.text()?.trim()
-                    ?: el.text().removePrefix(title).trim().take(200)
-                Triple(title, link, snippet)
-            }
-            .distinctBy { it.second }
-            .take(limit.coerceAtLeast(1))
-            .toList()
-    }
-
-    /**
-     * 从字符串直接截域名。搜索结果里的地址常带未转义的空格、中文（如 360 短视频聚合页），
-     * `URI()` 会直接抛异常、拿到空 host，过滤条件就被绕过了。
-     */
-    private fun hostOf(url: String): String =
-        url.substringAfter("://", "").substringBefore('/').substringBefore('?').substringBefore(':').lowercase()
-
-    /** 百度的拦截页：跳到 wappass 图形验证码，或出现「安全验证」。 */
-    fun looksLikeBaiduBlock(body: String, finalUrl: String): Boolean =
-        finalUrl.contains("wappass.baidu.com") || body.contains("wappass.baidu.com/static/captcha") ||
-            (body.length < 20_000 && body.contains("安全验证"))
-
     fun looksLikeCaptcha(body: String): Boolean {
         val t = body.lowercase()
         return t.contains("captcha") ||
@@ -337,35 +257,6 @@ internal object AgentWeb {
         val idx = a + extraOffset + b
         if (idx !in url.indices) return url
         return "$url&k=$b&h=${url[idx]}"
-    }
-
-    fun jinaReaderUrl(target: String): String {
-        val u = target.trim()
-        if (u.contains("r.jina.ai")) return u
-        return "https://r.jina.ai/$u"
-    }
-
-    fun looksLikeJinaMarkdown(body: String): Boolean {
-        val t = body.trimStart()
-        return t.startsWith("Title:") || t.contains("Markdown Content:") || t.startsWith("# ")
-    }
-
-    /** 中文维基 OpenSearch：`[query, titles[], descs[], urls[]]`，无验证码。 */
-    fun parseWikiOpenSearch(body: String, limit: Int): List<Triple<String, String, String>> {
-        val arr = runCatching { AppJson.parseToJsonElement(body).jsonArray }.getOrNull()
-            ?: return emptyList()
-        if (arr.size < 4) return emptyList()
-        val titles = arr[1].takeIf { it.isArray }?.jsonArray ?: return emptyList()
-        val descs = arr[2].takeIf { it.isArray }?.jsonArray ?: return emptyList()
-        val urls = arr[3].takeIf { it.isArray }?.jsonArray ?: return emptyList()
-        val n = minOf(titles.size, descs.size, urls.size, limit.coerceAtLeast(1))
-        return (0 until n).mapNotNull { i ->
-            val title = runCatching { titles[i].stringValue.trim() }.getOrDefault("")
-            val url = runCatching { urls[i].stringValue.trim() }.getOrDefault("")
-            val desc = runCatching { descs[i].stringValue.trim() }.getOrDefault("")
-            if (title.isBlank() || !url.startsWith("http")) null
-            else Triple(title, url, desc)
-        }
     }
 
     private fun parseIpv4(host: String): IntArray? {

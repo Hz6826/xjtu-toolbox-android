@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import com.xjtu.toolbox.BuildConfig
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.update.AppUpdater
+import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.settings.SettingsStore
 
 /**
  * 凭据安全存储（使用 EncryptedSharedPreferences）
@@ -98,7 +100,9 @@ class CredentialStore(context: Context) {
             appPrefs.edit().putLong(KEY_LAST_AUTO_UPDATE_CHECK_AT, value).apply()
         }
 
-    // ── 设置页持久化（普通 SharedPreferences，非敏感） ──
+    // ── 设置页持久化：实现在 `:core` 的 `SettingsStore`（同一个 `app_settings` 文件），这里只留转发 ──
+    private val settings by lazy { SettingsStore(keyValueStore(SettingsStore.APP_SETTINGS_FILE)) }
+
 
     /**
      * 界面风格：[NAV_STYLE_FLOATING] 玻璃（**默认**），[NAV_STYLE_CLASSIC] 经典。
@@ -108,8 +112,8 @@ class CredentialStore(context: Context) {
      * 所有玻璃点一起退回不透明——经典同时就是「性能模式」。
      */
     var navBarStyle: String
-        get() = appPrefs.getString(KEY_NAV_BAR_STYLE, NAV_STYLE_FLOATING) ?: NAV_STYLE_FLOATING
-        set(value) { appPrefs.edit().putString(KEY_NAV_BAR_STYLE, value).apply() }
+        get() = settings.navBarStyle
+        set(value) { settings.navBarStyle = value }
 
     /**
      * 课表格子上叠考勤角标。**默认开**。
@@ -119,8 +123,8 @@ class CredentialStore(context: Context) {
      * 用户主动关过的（本地已存 false）不受这次默认值改动影响。
      */
     var scheduleAttendanceBadge: Boolean
-        get() = appPrefs.getBoolean(KEY_SCHEDULE_ATTENDANCE_BADGE, true)
-        set(value) { appPrefs.edit().putBoolean(KEY_SCHEDULE_ATTENDANCE_BADGE, value).apply() }
+        get() = settings.scheduleAttendanceBadge
+        set(value) { settings.scheduleAttendanceBadge = value }
 
     /**
      * 当前学期课表从哪个系统拉，取值见 `ScheduleSource.key`。
@@ -129,27 +133,32 @@ class CredentialStore(context: Context) {
      * 非教务源取不到时也自动退回教务。详见 `ScheduleSourceRouter`。
      */
     var scheduleSource: String
-        get() = appPrefs.getString(KEY_SCHEDULE_SOURCE, null) ?: SCHEDULE_SOURCE_JWXT
-        set(value) { appPrefs.edit().putString(KEY_SCHEDULE_SOURCE, value).apply() }
+        get() = settings.scheduleSource
+        set(value) { settings.scheduleSource = value }
 
     var darkMode: String
-        get() = appPrefs.getString(KEY_DARK_MODE, DARK_MODE_SYSTEM) ?: DARK_MODE_SYSTEM
-        set(value) { appPrefs.edit().putString(KEY_DARK_MODE, value).apply() }
+        get() = settings.darkMode
+        set(value) { settings.darkMode = value }
+
+    val customColorHex: String get() = settings.themeSeedHex
 
     /** 跟随系统壁纸 / 调色盘动态取色（Material You / Monet）。默认关闭。 */
     var dynamicColor: Boolean
-        get() = appPrefs.getBoolean(KEY_DYNAMIC_COLOR, false)
-        set(value) { appPrefs.edit().putBoolean(KEY_DYNAMIC_COLOR, value).apply() }
+        get() = settings.dynamicColor
+        set(value) { settings.dynamicColor = value }
 
-    // 默认启动 tab 改为日程（COURSES）：课表是用户最常用的核心功能，
-    // 直接进日程减少一次点击。设置页可改回首页或其他。
+    /** 默认启动 tab，缺省日程；不在底栏上时回首页。 */
     var defaultTab: String
-        get() = appPrefs.getString(KEY_DEFAULT_TAB, TAB_COURSES) ?: TAB_COURSES
-        set(value) { appPrefs.edit().putString(KEY_DEFAULT_TAB, value).apply() }
+        get() = com.xjtu.toolbox.home.BottomBarTabs.defaultTab(settings.defaultTab, bottomTabs)
+        set(value) { settings.defaultTab = value }
+
+    /** 底栏从左到右的格子 id，见 [com.xjtu.toolbox.home.BottomBarTabs]。 */
+    val bottomTabs: List<String>
+        get() = com.xjtu.toolbox.home.BottomBarTabs.barIds(settings.bottomBar, accountType)
 
     var networkMode: String
-        get() = appPrefs.getString(KEY_NETWORK_MODE, NETWORK_AUTO) ?: NETWORK_AUTO
-        set(value) { appPrefs.edit().putString(KEY_NETWORK_MODE, value).apply() }
+        get() = settings.networkMode
+        set(value) { settings.networkMode = value }
 
     var updateChannel: String
         get() = AppUpdater.normalizeChannel(appPrefs.getString(KEY_UPDATE_CHANNEL, CHANNEL_GITEE))
@@ -179,10 +188,6 @@ class CredentialStore(context: Context) {
         get() = appPrefs.getBoolean(KEY_EMPTY_ROOM_CDN_TIP, false)
         set(value) { appPrefs.edit().putBoolean(KEY_EMPTY_ROOM_CDN_TIP, value).apply() }
 
-    var homeTheme: String
-        get() = appPrefs.getString(KEY_HOME_THEME, THEME_CARD) ?: THEME_CARD
-        set(value) { appPrefs.edit().putString(KEY_HOME_THEME, value).apply() }
-
     /** 最近 + 常用的前 [n] 个站点（见 [SiteUsage]），会话预热按它挑。 */
     fun topSites(n: Int): List<String> = SiteUsage.top(siteUsage(), n, System.currentTimeMillis())
 
@@ -202,8 +207,8 @@ class CredentialStore(context: Context) {
     }
 
     var showQuickActions: Boolean
-        get() = appPrefs.getBoolean(KEY_SHOW_QUICK_ACTIONS, true)
-        set(value) { appPrefs.edit().putBoolean(KEY_SHOW_QUICK_ACTIONS, value).apply() }
+        get() = settings.showQuickActions
+        set(value) { settings.showQuickActions = value }
 
     /**
      * 场馆滑块验证码自动识别开关。
@@ -211,8 +216,8 @@ class CredentialStore(context: Context) {
      * 默认开启：预约时先自动识别，置信度不足仍回退到手动滑块。
      */
     var venueAutoSolveCaptchaEnabled: Boolean
-        get() = appPrefs.getBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, true)
-        set(value) { appPrefs.edit().putBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, value).apply() }
+        get() = settings.venueAutoSolveCaptchaEnabled
+        set(value) { settings.venueAutoSolveCaptchaEnabled = value }
 
     companion object {
         internal const val FILE_NAME = "xjtu_credentials"
@@ -231,12 +236,6 @@ class CredentialStore(context: Context) {
          */
         const val CURRENT_EULA_VERSION = 4
 
-        // ── 设置页键 ──
-        private const val KEY_NAV_BAR_STYLE = "nav_bar_style"
-        private const val KEY_DARK_MODE = "dark_mode"
-        private const val KEY_DYNAMIC_COLOR = "dynamic_color"
-        private const val KEY_DEFAULT_TAB = "default_tab"
-        private const val KEY_NETWORK_MODE = "network_mode"
         private const val KEY_UPDATE_CHANNEL = "update_channel"
         private const val KEY_RECEIVE_PREVIEW = "receive_preview_updates"
         private const val KEY_ROLLOUT_ID = "rollout_id"
@@ -244,34 +243,25 @@ class CredentialStore(context: Context) {
         private const val KEY_LAST_AUTO_UPDATE_CHECK_AT = "last_auto_update_check_at"
         private const val KEY_ACCOUNT_TYPE = "account_type"
         private const val KEY_EMPTY_ROOM_CDN_TIP = "empty_room_cdn_tip"
-        private const val KEY_HOME_THEME = "home_theme"
         /** 旧版「最近打开」顺序，只用于迁移到 [KEY_SITE_USAGE]。 */
         private const val KEY_RECENT_SITES = "recent_site_keys"
         private const val KEY_SITE_USAGE = "site_usage"
-        private const val KEY_SHOW_QUICK_ACTIONS = "show_quick_actions"
-        private const val KEY_VENUE_AUTO_SOLVE_CAPTCHA = "venue_auto_solve_captcha"
-        private const val KEY_SCHEDULE_ATTENDANCE_BADGE = "schedule_attendance_badge"
-        private const val KEY_SCHEDULE_SOURCE = "schedule_source"
 
-        // ── 设置值常量 ──
-        const val SCHEDULE_SOURCE_JWXT = "jwxt"
-        /** 值沿用旧版考勤（bkkq）时代的写法：已经写进用户设置，不能改。 */
-        const val SCHEDULE_SOURCE_ATTENDANCE = "bkkq"
-        const val NAV_STYLE_FLOATING = "floating"
-        const val NAV_STYLE_CLASSIC = "classic"
-        const val DARK_MODE_SYSTEM = "system"
-        const val DARK_MODE_LIGHT = "light"
-        const val DARK_MODE_DARK = "dark"
-        const val THEME_CARD = "card"
-        const val THEME_ICON = "icon"
-        const val TAB_HOME = "HOME"
-        const val TAB_COURSES = "COURSES"
-        const val TAB_PIDAI = "PIDAI"
-        const val TAB_TOOLS = "TOOLS"
-        const val TAB_PROFILE = "PROFILE"
-        const val NETWORK_AUTO = "auto"
-        const val NETWORK_DIRECT = "direct"
-        const val NETWORK_VPN = "vpn"
+        const val SCHEDULE_SOURCE_JWXT = SettingsStore.SCHEDULE_SOURCE_JWXT
+        const val SCHEDULE_SOURCE_ATTENDANCE = SettingsStore.SCHEDULE_SOURCE_ATTENDANCE
+        const val NAV_STYLE_FLOATING = SettingsStore.NAV_STYLE_FLOATING
+        const val NAV_STYLE_CLASSIC = SettingsStore.NAV_STYLE_CLASSIC
+        const val DARK_MODE_SYSTEM = SettingsStore.DARK_MODE_SYSTEM
+        const val DARK_MODE_LIGHT = SettingsStore.DARK_MODE_LIGHT
+        const val DARK_MODE_DARK = SettingsStore.DARK_MODE_DARK
+        const val TAB_HOME = SettingsStore.TAB_HOME
+        const val TAB_COURSES = SettingsStore.TAB_COURSES
+        const val TAB_PIDAI = SettingsStore.TAB_PIDAI
+        const val TAB_TOOLS = SettingsStore.TAB_TOOLS
+        const val TAB_PROFILE = SettingsStore.TAB_PROFILE
+        const val NETWORK_AUTO = SettingsStore.NETWORK_AUTO
+        const val NETWORK_DIRECT = SettingsStore.NETWORK_DIRECT
+        const val NETWORK_VPN = SettingsStore.NETWORK_VPN
         const val CHANNEL_GITEE = AppUpdater.CHANNEL_GITEE
         const val CHANNEL_GITHUB = AppUpdater.CHANNEL_GITHUB
     }

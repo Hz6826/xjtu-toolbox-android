@@ -8,4 +8,9 @@ plugins {
     // 子工程再带版本请求会撞上"已在 classpath 且版本未知"而解析失败。
     alias(libs.plugins.android.test) apply false
     alias(libs.plugins.baselineprofile) apply false
+    // KMP / Compose / JVM 插件同样必须在根工程钉死版本，子工程只用 bare id。
+    alias(libs.plugins.kotlin.multiplatform) apply false
+    alias(libs.plugins.kotlin.jvm) apply false
+    alias(libs.plugins.compose.multiplatform) apply false
+    alias(libs.plugins.android.kotlin.multiplatform.library) apply false
 }

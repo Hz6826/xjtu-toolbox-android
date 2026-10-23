@@ -54,14 +54,31 @@ class XjtuApp : Application() {
             com.xjtu.toolbox.account.AccountStore.FILE_NAME,
             com.xjtu.toolbox.data.CredentialStore.FILE_NAME,
         )
+        // 统一存档的一次性导入：有档案才跑；坏档案写第一笔之前就失败，顺序必须在换包清理之后。
+        com.xjtu.toolbox.archive.AppArchiveUx.maybeImportPendingArchive(base)
     }
 
     override fun onCreate() {
         super.onCreate()
+        com.xjtu.toolbox.platform.initAndroidPlatform(this)
+        // 同一件事的 :data 版：会话内核要的密文存储（cookie / 站点快照）按名字从
+        // `:data` 的平台缝取，Android 那份 actual 同样需要进程级 Context。
+        com.xjtu.toolbox.platform.initDataPlatform(this)
+        // 反馈后端的凭据：`:data` 的 FeedbackApi 不读 BuildConfig（`:data` 是 JVM/Android
+        // 共用的模块）⇒ 宿主在这里注入一次。必须在下面那发 CrashReporter 上传之前。
+        com.xjtu.toolbox.feedback.AppFeedback.install()
         CrashReporter.install(this)
-        com.xjtu.toolbox.schedule.CourseColors.init(this)
-        com.xjtu.toolbox.game.GameSound.init(this)
-        com.xjtu.toolbox.inbox.InboxStore.init(this)
+        // 桌面小组件那条缝：InboxStore 在 :core，写一次收纳就该重画一次小组件，
+        // 而重画要 Context 与 AppWidgetManager（都在 :app）⇒ 用回调挂上去（见 InboxWidgetHook）。
+        com.xjtu.toolbox.inbox.InboxWidgetHook.onTodosChanged = {
+            runCatching { com.xjtu.toolbox.widget.TodoWidgetUpdater.requestUpdate(this) }
+        }
+        // 自建待办的到点提醒：存储在 :shared:model（各端共用），排期要 WorkManager（只在 :app）⇒ 同样挂回调。
+        com.xjtu.toolbox.inbox.SelfTodoHooks.onChanged = { account, before, after ->
+            com.xjtu.toolbox.inbox.SelfTodoReminders.sync(this, account, before, after)
+        }
+        // 小游戏全服榜的服务端地址（构建期可覆盖，见 app/build.gradle.kts；空串 = 不出现排行榜）
+        com.xjtu.toolbox.game.board.LeaderboardApi.install(BuildConfig.LEADERBOARD_BASE_URL)
         com.xjtu.toolbox.auth.CampusProbe.init(this)
         applicationScope.launch { CrashReporter.uploadPending(this@XjtuApp) }
         applicationScope.launch { removeRetiredFeatureData() }
@@ -72,6 +89,7 @@ class XjtuApp : Application() {
             com.xjtu.toolbox.notification.NoticeWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.ScheduleWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.LmsDeadlineScheduler.apply(this@XjtuApp)
+            com.xjtu.toolbox.agent.PidaiJobScheduler.apply(this@XjtuApp)
         }
     }
 }

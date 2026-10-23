@@ -24,6 +24,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -43,12 +44,15 @@ import com.xjtu.toolbox.auth.AppLoginStateViewModel
 import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.MfaDialogHost
+import com.xjtu.toolbox.game.board.LeaderboardHost
+import com.xjtu.toolbox.auth.handleAuthExpired
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.card.refreshCampusCardCache
 import com.xjtu.toolbox.data.AppearanceSettings
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.legal.EulaScreen
 import com.xjtu.toolbox.nav.AppNavHost
+import com.xjtu.toolbox.nav.AppPageDeps
 import com.xjtu.toolbox.nav.AppNavigator
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.onboarding.OnboardingStore
@@ -101,8 +105,10 @@ fun AppRoot(
     val backStack = rememberNavBackStack<AppRoute>(AppRoute.Main)
     val navigator = remember(backStack) { AppNavigator(backStack) }
     val tabs = rememberSaveable(saver = MainTabState.Saver) {
-        MainTabState(BottomTab.entries.firstOrNull { it.name == credentialStore.defaultTab } ?: BottomTab.HOME)
+        MainTabState(credentialStore.defaultTab)
     }
+    // 启动意图在 MainScreen 收集设置之前就要按底栏分流，这里先填一次
+    remember(tabs) { tabs.bar = BarTab.barOf(credentialStore.bottomTabs) }
     val router = remember(navigator, tabs) {
         AppRouter(navigator, tabs, loginState, credentialStore, context.applicationContext, scope)
     }
@@ -118,7 +124,8 @@ fun AppRoot(
     var pendingLaunchRoute by remember { mutableStateOf<AppRoute?>(null) }
     LaunchedEffect(initialRoute) {
         val route = initialRoute ?: return@LaunchedEffect
-        if (route == AppRoute.Schedule) router.selectTab(BottomTab.COURSES)
+        // 日程在底栏上就先切过去；不在的话等登录恢复后由 pendingLaunchRoute 压栈
+        if (route == AppRoute.Schedule && tabs.bar.any { it.core == BottomTab.COURSES }) router.selectTab(BottomTab.COURSES)
         if (route != AppRoute.Main) pendingLaunchRoute = route
         onInitialRouteConsumed()
     }
@@ -194,24 +201,29 @@ fun AppRoot(
     val navStyle by AppearanceSettings.get(context).navBarStyle.collectAsStateWithLifecycle()
     CompositionLocalProvider(
         LocalAppLoginState provides loginState,
+        com.xjtu.toolbox.auth.LocalAuthExpiry provides com.xjtu.toolbox.auth.AuthExpiryHandler { route, onBack ->
+            loginState.handleAuthExpired(route, onBack)
+        },
         LocalIsWideLayout provides calculateIsWideLayout(),
         LocalGlassStyle provides (navStyle == CredentialStore.NAV_STYLE_FLOATING),
     ) {
         // 全应用唯一的 MFA 弹窗，放导航外层才能覆盖所有页面
         MfaDialogHost(loginState.sessionManager)
 
+        // 小游戏排行榜的弹窗（上榜询问、榜单），同理挂在导航外层
+        LeaderboardHost()
+
+        // 子页的依赖只建一次：底栏格按它缓存页面条目
+        val currentOpenWithWebVpn by rememberUpdatedState(openWithWebVpn)
+        val pageDeps = remember(router, loginState, credentialStore) {
+            AppPageDeps(router, loginState, credentialStore, viewModel.accountManager) { currentOpenWithWebVpn(it) }
+        }
         // 别在这里套 Scaffold 给弹窗当宿主：SubcomposeLayout 会让整棵导航树被丢弃重建
-        AppNavHost(
-            backStack = backStack,
-            router = router,
-            loginState = loginState,
-            credentialStore = credentialStore,
-            accountManager = viewModel.accountManager,
-            onOpenWithWebVpn = openWithWebVpn,
-        ) {
+        AppNavHost(backStack = backStack, deps = pageDeps) {
             MainScreen(
                 router = router,
                 tabs = tabs,
+                pageDeps = pageDeps,
                 loginState = loginState,
                 credentialStore = credentialStore,
                 accountManager = viewModel.accountManager,
