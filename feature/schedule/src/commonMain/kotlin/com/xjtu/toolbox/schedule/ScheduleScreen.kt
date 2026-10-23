@@ -675,6 +675,7 @@ fun ScheduleScreen(
                                     topPadding = listTopPadding,
                                     upcoming = upcomingItems,
                                     todayHomework = vm.homeworkDue,
+                                    onAddPlan = vm::addPlanItems,
                                 )
                             }
                         }
@@ -791,6 +792,7 @@ fun ScheduleScreen(
                             bottomPadding = contentBottomPadding,
                             upcoming = upcomingItems,
                             todayHomework = vm.homeworkDue,
+                            onAddPlan = vm::addPlanItems,
                         )
                     }
                 }
