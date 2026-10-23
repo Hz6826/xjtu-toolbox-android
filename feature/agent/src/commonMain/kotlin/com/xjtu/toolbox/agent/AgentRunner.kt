@@ -46,6 +46,7 @@ class AgentRunner(
         /** public 而不是 internal：`:app` 的 `AgentWebTest` 要调它。 */
         fun toolResultCap(toolName: String): Int = when (toolName) {
             "web_fetch" -> FETCH_TOOL_RESULT_CHARS
+            "read_zyxf_file", "get_lms_activity" -> 20_000
             "web_search", "search_school_courses" -> SEARCH_TOOL_RESULT_CHARS
             else -> DEFAULT_TOOL_RESULT_CHARS
         }
