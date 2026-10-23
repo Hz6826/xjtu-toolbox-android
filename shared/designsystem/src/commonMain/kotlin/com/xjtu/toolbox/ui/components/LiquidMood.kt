@@ -1,21 +1,21 @@
-package com.xjtu.toolbox.home
+package com.xjtu.toolbox.ui.components
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
-import com.xjtu.toolbox.ui.components.LiquidColors
-import com.xjtu.toolbox.ui.components.LiquidPalettes
+import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.util.nowOnCampus
 import kotlin.math.PI
 import kotlin.math.sin
 import kotlin.random.Random
+import kotlinx.datetime.LocalDateTime
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** 首页头卡液体的参数，对应 [com.xjtu.toolbox.ui.components.LiquidBackground] 的同名参数。 */
-internal data class LiquidMood(
+/** 首页头卡液体的参数，对应 [LiquidBackground] 的同名参数。 */
+data class LiquidMood(
     val colors: LiquidColors,
     val seed: Float,
     val speed: Float,
@@ -27,22 +27,24 @@ internal data class LiquidMood(
  * 颜色以一天时段的配色为底、掺一部分主题主色，再按深浅模式和天色明暗压；
  * 流速随白天活跃、下一项安排临近而加快，折痕随临近加深；
  * 形状每天换一种，流速再带一点当天的随机。
+ *
+ * [appearance] 里用户显式选过的项会覆盖自动结果；`auto` 项保持上面的自动行为。
  */
 @Composable
-internal fun rememberLiquidMood(
-    nextUp: HomeNextUp?,
+fun rememberLiquidMood(
+    nextStartAt: LocalDateTime?,
     examSoon: Boolean,
     appearance: HeroAppearance = HeroAppearance(),
 ): LiquidMood {
     val primary = MiuixTheme.colorScheme.primary
     val dark = LocalIsDarkTheme.current
-    val automatic = remember(primary, dark, nextUp?.startAt, examSoon) {
+    val automatic = remember(primary, dark, nextStartAt, examSoon) {
         val now = nowOnCampus()
         val hour = now.hour + now.minute / 60f
         // 6 点到 22 点之间按正弦升落，正午 1，夜里 0
         val daylight = sin((hour - 6f) / 16f * PI).toFloat().coerceIn(0f, 1f)
         // 下一项一刻钟内开始算 1，三小时外算 0；有临近的考试再紧一档
-        val minutes = nextUp?.startAt?.takeIf { it.date == now.date }
+        val minutes = nextStartAt?.takeIf { it.date == now.date }
             ?.let { (it.hour - now.hour) * 60 + it.minute - now.minute }
         val rush = minutes?.let { 1f - ((it - 15) / 165f).coerceIn(0f, 1f) } ?: 0f
         val tension = (rush + if (examSoon) 0.3f else 0f).coerceIn(0f, 1f)
@@ -70,22 +72,31 @@ internal fun rememberLiquidMood(
 }
 
 internal fun HeroAppearance.applyTo(automatic: LiquidMood): LiquidMood {
-    val palette = when (palette) {
-        "midnight" -> LiquidPalettes.Midnight
+    val selected = when (palette) {
+        "midnight" -> LiquidPalettes.ClassicMidnight
         "orchid" -> LiquidPalettes.Orchid
         "blossom" -> LiquidPalettes.Blossom
         "lagoon" -> LiquidPalettes.Lagoon
         "honey" -> LiquidPalettes.Honey
         "custom" -> {
-            val color = com.xjtu.toolbox.schedule.CourseColors.parseHex(colorHex) ?: LiquidPalettes.Midnight.mid
+            val color = CourseColors.parseHex(colorHex) ?: LiquidPalettes.Midnight.mid
             LiquidColors(lerp(color, Color.Black, 0.7f), color, lerp(color, Color.White, 0.6f))
         }
         else -> null
     }
+    val colors = when {
+        selected == null -> automatic.colors
+        // 午夜蓝是原版头卡那组手工调好的三色：白字和 scrim 已经按它校过，
+        // 不再套自动压暗，保证和旧版逐值一致。
+        palette == "midnight" -> selected
+        else -> LiquidColors(
+            selected.dark.capLuminance(0.06f),
+            selected.mid.capLuminance(0.2f),
+            selected.light.capLuminance(0.36f),
+        )
+    }
     return automatic.copy(
-        colors = palette?.let {
-            LiquidColors(it.dark.capLuminance(0.06f), it.mid.capLuminance(0.2f), it.light.capLuminance(0.36f))
-        } ?: automatic.colors,
+        colors = colors,
         seed = if (seed < 0) automatic.seed else seed / 100f,
         speed = when (motion) {
             "gentle" -> 0.35f

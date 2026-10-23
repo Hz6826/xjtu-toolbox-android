@@ -72,9 +72,19 @@ import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.ui.components.AppCardColor
+import com.xjtu.toolbox.ui.components.HeroAppearance
+import com.xjtu.toolbox.ui.components.HeroAppearanceDialog
+import com.xjtu.toolbox.ui.components.HeroAppearanceRevision
+import com.xjtu.toolbox.ui.components.HeroCustomBackground
+import com.xjtu.toolbox.ui.components.HeroCustomScrim
+import com.xjtu.toolbox.ui.components.HeroForestBackground
+import com.xjtu.toolbox.ui.components.HeroForestScrim
+import com.xjtu.toolbox.ui.components.HeroPixelBackground
+import com.xjtu.toolbox.ui.components.HeroPixelScrim
 import com.xjtu.toolbox.ui.components.LiquidBackground
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
+import com.xjtu.toolbox.ui.components.rememberLiquidMood
 import com.xjtu.toolbox.ui.glass.LocalGlassStyle
 import com.xjtu.toolbox.ui.isWideLayout
 import com.xjtu.toolbox.ui.theme.Editorial
@@ -518,26 +528,40 @@ private fun EditorialFrontPage(
     val hasLead = nextUp != null || exam != null || inbox != null
     val appearanceStore = remember { SettingsStore() }
     val dark = LocalIsDarkTheme.current
-    var appearance by remember(dark) { mutableStateOf(HeroAppearance.read(appearanceStore, dark)) }
+    // 设置页与首页各读一份；靠 revision / 深浅模式在别处改完之后重新读盘。
+    val appearance = remember(HeroAppearanceRevision.current, dark) { HeroAppearance.read(appearanceStore, dark) }
     var showAppearance by remember { mutableStateOf(false) }
     val configure = { showAppearance = true }
     val ink = appearance.contentColor
     val muted = ink.copy(alpha = 0.78f)
     val accent = if (ink == Color.White) LiquidCardAccent else ink.copy(alpha = 0.8f)
     val rule = ink.copy(alpha = 0.18f)
-    val mood = rememberLiquidMood(nextUp, examSoon = exam != null, appearance = appearance)
+    val mood = rememberLiquidMood(nextUp?.startAt, examSoon = exam != null, appearance = appearance)
     Column(modifier.fillMaxWidth()) {
         if (hasLead) {
             Box(Modifier.fillMaxWidth().liquidPaper()) {
-                if (appearance.background == "solid") {
-                    Box(Modifier.matchParentSize().background(appearance.solidColor))
-                } else {
-                    LiquidBackground(
-                        colors = mood.colors, seed = mood.seed, speed = mood.speed, crease = mood.crease,
-                        animated = mood.animated && !showAppearance,
-                        modifier = Modifier.matchParentSize(),
-                    )
-                    Box(Modifier.matchParentSize().background(LiquidCardScrim))
+                when (appearance.background) {
+                    "solid" -> Box(Modifier.matchParentSize().background(appearance.solidColor))
+                    "forest" -> {
+                        HeroForestBackground(Modifier.matchParentSize())
+                        Box(Modifier.matchParentSize().background(HeroForestScrim))
+                    }
+                    "pixel" -> {
+                        HeroPixelBackground(Modifier.matchParentSize(), animated = !showAppearance)
+                        Box(Modifier.matchParentSize().background(HeroPixelScrim))
+                    }
+                    "custom" -> {
+                        HeroCustomBackground(appearance.imageData, Modifier.matchParentSize())
+                        Box(Modifier.matchParentSize().background(HeroCustomScrim))
+                    }
+                    else -> {
+                        LiquidBackground(
+                            colors = mood.colors, seed = mood.seed, speed = mood.speed, crease = mood.crease,
+                            animated = mood.animated && !showAppearance,
+                            modifier = Modifier.matchParentSize(),
+                        )
+                        Box(Modifier.matchParentSize().background(LiquidCardScrim))
+                    }
                 }
                 Column(Modifier.fillMaxWidth()) {
                     nextUp?.let {
@@ -591,12 +615,11 @@ private fun EditorialFrontPage(
     if (showAppearance) {
         HeroAppearanceDialog(
             current = appearance,
-            nextUp = nextUp,
+            nextStartAt = nextUp?.startAt,
             examSoon = exam != null,
             onDismiss = { showAppearance = false },
             onApply = {
                 it.save(appearanceStore, dark)
-                appearance = it
                 showAppearance = false
             },
         )

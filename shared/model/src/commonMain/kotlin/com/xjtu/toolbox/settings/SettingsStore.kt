@@ -57,8 +57,8 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
 
     /** 首页头卡外观；auto 保留随时间、主题和日程变化的默认效果。 */
     var heroBackground: String
-        get() = if (store.getString("hero_background") == "solid") "solid" else "liquid"
-        set(value) = store.putString("hero_background", if (value == "solid") "solid" else "liquid")
+        get() = store.getString("hero_background")?.takeIf { it in HERO_BACKGROUNDS } ?: "liquid"
+        set(value) = store.putString("hero_background", value.takeIf { it in HERO_BACKGROUNDS } ?: "liquid")
 
     var heroPalette: String
         get() = store.getString("hero_palette")?.takeIf { it in HERO_PALETTES } ?: "auto"
@@ -68,6 +68,7 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = normalizeThemeColor(store.getString("hero_color_hex").orEmpty()).ifEmpty { "#2F7CFF" }
         set(value) = store.putString("hero_color_hex", normalizeThemeColor(value))
 
+    /** 浅色 / 深色各存一份自选色；没单独选过的那一档回退到旧键。 */
     fun heroColorHex(dark: Boolean): String =
         normalizeThemeColor(store.getString(if (dark) "hero_color_hex_dark" else "hero_color_hex_light").orEmpty())
             .ifEmpty { heroColorHex }
@@ -83,6 +84,11 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
     var heroSeed: Int
         get() = store.getInt("hero_seed", -1).coerceIn(-1, 9999)
         set(value) = store.putInt("hero_seed", value.coerceIn(-1, 9999))
+
+    /** 自定义背景：裁好的图片（WebP）的 Base64；空串 = 还没选图。 */
+    var heroImageData: String
+        get() = store.getString("hero_image_data").orEmpty()
+        set(value) = store.putString("hero_image_data", value.ifEmpty { null })
 
     /** 场馆滑块验证码自动识别开关。 */
     var venueAutoSolveCaptchaEnabled: Boolean
@@ -100,6 +106,7 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         set(value) = store.putString(KEY_SCHEDULE_SOURCE, value)
 
     companion object {
+        private val HERO_BACKGROUNDS = setOf("liquid", "solid", "forest", "pixel", "custom")
         private val HERO_PALETTES = setOf("auto", "midnight", "orchid", "blossom", "lagoon", "honey", "custom")
         private val HERO_MOTIONS = setOf("auto", "gentle", "flowing", "lively", "still")
         fun normalizeThemeColor(value: String): String {
