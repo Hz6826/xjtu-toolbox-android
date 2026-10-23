@@ -492,6 +492,7 @@ internal fun MainScreen(
                         onBulletinTap = onHeroBulletinTap,
                         onBulletinDismiss = onHeroBulletinDismiss,
                         contentTopPadding = insets.contentTopPadding,
+                        contentTopShift = insets.contentTopShift,
                         topActions = {
                             HomeTopActions(
                                 onInbox = { router.open(AppRoute.Inbox) },

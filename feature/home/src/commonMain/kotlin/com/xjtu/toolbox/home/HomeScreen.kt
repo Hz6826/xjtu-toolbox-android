@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
@@ -57,6 +58,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
@@ -92,6 +94,7 @@ import com.xjtu.toolbox.ui.theme.EditorialRule
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.theme.serviceColor
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
@@ -112,6 +115,8 @@ fun HomeScreen(
     extraBottomPadding: Dp = 0.dp,
     /** 玻璃顶栏的高度：内容铺到顶栏下面，这段留白放进滚动内容里。经典风格为 0。 */
     contentTopPadding: Dp = 0.dp,
+    /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；模糊带按它补回屏幕顶边。 */
+    contentTopShift: () -> Dp = { 0.dp },
     /** 首页没有顶栏：消息、扫一扫、搜索这几个按钮由宿主给，放在页面最上面跟着内容一起滚。 */
     topActions: (@Composable () -> Unit)? = null,
 ) {
@@ -256,6 +261,7 @@ fun HomeScreen(
             HomeCollapsingBar(
                 progress = progress,
                 topInset = contentTopPadding,
+                bandShift = contentTopShift,
                 backdrop = if (glass) glassBackdrop else null,
                 onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
                 actions = topActions,
@@ -273,6 +279,7 @@ fun HomeScreen(
 private fun HomeCollapsingBar(
     progress: () -> Float,
     topInset: Dp,
+    bandShift: () -> Dp,
     backdrop: Backdrop?,
     onTapCollapsed: () -> Unit,
     actions: @Composable () -> Unit,
@@ -285,10 +292,13 @@ private fun HomeCollapsingBar(
             // 96dp 的模糊带比顶栏本身高，放在顶栏高度之外，才能往内容里多淡一段。
             // useplanes 的 progressive blur：七层不同半径的模糊，每层各自用一条
             // 从底边透明、到屏幕顶边最强的遮罩裁出一条带。
+            // 贴的是屏幕顶边而不是这一页的本地 0 点：壳会按 stable 顶栏高度把整页上移，
+            // 不补回 [bandShift] 的话整条带会被顶到屏幕外（切到过顶栏更高的 tab 再回来就复现）。
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .requiredHeight(PROGRESSIVE_BLUR_BAND_HEIGHT),
+                    .requiredHeight(PROGRESSIVE_BLUR_BAND_HEIGHT)
+                    .offset { IntOffset(0, bandShift().roundToPx()) },
             ) {
                 ProgressiveBarBlur(backdrop, Modifier.matchParentSize())
                 // 表面色遮罩是 useplanes 的可选 tint；页面预览没有开，这里也保持关闭。
