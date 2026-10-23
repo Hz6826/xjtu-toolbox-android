@@ -60,6 +60,7 @@ fun main(args: Array<String>) {
         override fun loadConfig() = AgentConfig(apiKey = "offline-fixture", showReasoning = true)
     }
     val sentPrompts = mutableListOf<String>()
+    val sentImages = mutableListOf<List<String>>()
     var newSessions = 0
     val chat = object : AgentChatSession {
         override val messages = mutableStateListOf(ChatMessage("user", "帮我查一下", timestamp = 1), ChatMessage("assistant", "", reasoningContent = "想", timestamp = 2))
@@ -79,6 +80,7 @@ fun main(args: Array<String>) {
         override fun replaceLastUserAndSend(newText: String, config: AgentConfig) {}
         override fun sendMessage(userText: String, config: AgentConfig, llmAnnex: String?, images: List<String>) {
             sentPrompts += userText
+            sentImages += images
             messages += ChatMessage("user", userText)
             isLoading = false
         }
@@ -112,6 +114,10 @@ fun main(args: Array<String>) {
     val draft = scene { AgentScreen(host, session = chat) }
     check(sentPrompts.size == 1 && newSessions == 2)
     SwingUtilities.invokeAndWait { draft.close() }
+    SwingUtilities.invokeAndWait { AgentPendingPrompt.set("看看图片", images = listOf("offline-photo-1.jpg", "offline-photo-2.jpg")) }
+    val imageShare = scene { AgentScreen(host, session = chat) }
+    check(sentPrompts.last() == "看看图片" && sentImages.last() == listOf("offline-photo-1.jpg", "offline-photo-2.jpg") && newSessions == 3)
+    SwingUtilities.invokeAndWait { imageShare.close() }
 
     val widgets = scene {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

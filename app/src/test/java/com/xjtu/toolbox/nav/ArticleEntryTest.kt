@@ -5,6 +5,25 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ArticleEntryTest {
+    @Test fun imagesOpenAndShareAsAttachments() {
+        for (action in listOf(Intent.ACTION_VIEW, Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE)) {
+            val target = DeepLinkRouter.imageTarget(DeepLinkRouter.PIDAI_LINK_ALIAS, action, "image/png",
+                listOf("content://photos/1", "content://photos/1", "content://photos/2"))!!
+            assertTrue(target.autoSend)
+            assertEquals(AppRoute.Agent, target.route)
+            assertEquals(listOf("content://photos/1", "content://photos/2"), target.imageUris)
+            assertEquals(2, target.imageCount)
+        }
+    }
+
+    @Test fun imagesRespectTheExistingMessageLimit() {
+        val target = DeepLinkRouter.imageTarget(DeepLinkRouter.PIDAI_LINK_ALIAS, Intent.ACTION_SEND_MULTIPLE,
+            "image/jpeg", (1..6).map { "content://photos/$it" })!!
+        assertEquals(4, target.imageUris.size)
+        assertEquals(6, target.imageCount)
+        assertNull(DeepLinkRouter.imageTarget(DeepLinkRouter.PIDAI_LINK_ALIAS, Intent.ACTION_SEND, "text/plain", listOf("content://photos/1")))
+        assertNull(DeepLinkRouter.imageTarget(DeepLinkRouter.PIDAI_LINK_ALIAS, Intent.ACTION_VIEW, "image/png", listOf("https://example.com/a.png")))
+    }
     @Test fun browserEntryStartsANewReadingRequest() {
         val target = DeepLinkRouter.articleTarget(DeepLinkRouter.PIDAI_LINK_ALIAS, Intent.ACTION_VIEW,
             "https://mp.weixin.qq.com/s?__biz=abc&sn=xyz")!!

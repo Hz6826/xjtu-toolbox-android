@@ -14,6 +14,7 @@ object AgentPendingPrompt {
         val snapshot: String? = null,
         /** 只填进输入框等用户自己发。外部深链来的都是这种。 */
         val draftOnly: Boolean = false,
+        val images: List<String> = emptyList(),
     )
 
     @Volatile
@@ -22,8 +23,8 @@ object AgentPendingPrompt {
     var generation by mutableIntStateOf(0)
         private set
 
-    fun set(text: String, snapshot: String? = null, draftOnly: Boolean = false) {
-        pending = Pending(text, snapshot, draftOnly)
+    fun set(text: String, snapshot: String? = null, draftOnly: Boolean = false, images: List<String> = emptyList()) {
+        pending = Pending(text, snapshot, draftOnly, images.toList())
         generation++
     }
 
