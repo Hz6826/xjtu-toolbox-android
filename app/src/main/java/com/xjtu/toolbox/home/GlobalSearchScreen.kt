@@ -115,7 +115,8 @@ internal object GlobalSearchIndex {
                 title = svc.title,
                 subtitle = svc.subtitle,
                 route = svc.route,
-                aliases = svc.aliases,
+                // 页内功能的名称也能搜到，比如「干饭人账单」直达校园卡
+                aliases = svc.aliases + svc.features.map { it.substringBefore('：') },
             )
         } + agentPrompts
     }

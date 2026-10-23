@@ -593,7 +593,6 @@ private fun EditorialNextUpLead(
                 Text(
                     nextUp.eta,
                     style = TextStyle(
-                        fontFamily = Editorial.Serif,
                         fontWeight = FontWeight.Medium,
                         fontSize = 11.sp,
                         lineHeight = 14.sp,
@@ -653,7 +652,6 @@ private fun EditorialNextUpLead(
                     Text(
                         nextUp.title,
                         style = TextStyle(
-                            fontFamily = Editorial.Serif,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 18.sp,
                             lineHeight = 24.sp,
@@ -688,7 +686,6 @@ private fun EditorialNextUpLead(
                     Text(
                         nextUp.title,
                         style = TextStyle(
-                            fontFamily = Editorial.Serif,
                             fontWeight = FontWeight.Medium,
                             fontSize = 16.sp,
                             lineHeight = 22.sp,
@@ -739,7 +736,6 @@ private fun InboxBrief(summary: HomeInboxSummary, ink: Color, muted: Color, onCl
         Text(
             summary.nextTodo ?: "去收纳里看看",
             style = TextStyle(
-                fontFamily = Editorial.Serif,
                 fontWeight = FontWeight.Medium,
                 fontSize = 14.5.sp,
                 lineHeight = 19.sp,
@@ -784,8 +780,6 @@ private fun HomeIndexCard(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        Text("校园服务", fontSize = 19.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(start = 4.dp, bottom = 12.dp))
         if (isWideLayout()) {
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 balancedColumns(sections.size) { 2 + (sections[it].rows.size + 1) / 2 }.forEach { column ->
@@ -823,8 +817,7 @@ private fun ServiceSection(section: IndexCategorySection) {
             Box(Modifier.width(3.dp).height(28.dp).background(accent, RoundedCornerShape(2.dp)))
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(section.title, fontSize = 17.sp, fontWeight = FontWeight.Bold,
-                    fontFamily = Editorial.Serif, color = ink)
+                Text(section.title, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = ink)
                 Spacer(Modifier.height(3.dp))
                 Text(section.subtitle, fontSize = 11.sp, color = muted, maxLines = 1,
                     overflow = TextOverflow.Ellipsis)

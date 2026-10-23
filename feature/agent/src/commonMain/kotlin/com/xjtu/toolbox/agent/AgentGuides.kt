@@ -10,7 +10,7 @@ import com.xjtu.toolbox.home.AppServices
 val APP_GUIDE: String by lazy {
     buildString {
         append("App 功能与入口：\n")
-        append("- 底栏五格：首页、日程（课表与考试、自建日程）、屁岱（正中）、学辅（仲英学辅资料站）、我的。\n")
+        append("- 底栏：默认首页、日程、屁岱、学辅、我的；可在「我的 → 设置 → 底栏」自定义，首页的一级功能都能放上去，屁岱也可移除。\n")
         append("- 首页顶栏：左上扫码登录（扫统一身份认证二维码）、全局搜索、消息收纳（课表变动、考勤、成绩、作业截止、通知、待办等提醒汇总，可在这里记和勾掉待办）。\n")
         append("- 桌面小组件（Android）：日程 2x2 / 4x2、校园卡余额、教务通知、待办。长按桌面空白处添加。\n")
         append("- 屁岱会在底栏头顶冒提醒气泡（上课、余额、考试、新成绩等），屁岱页右上角设置里的「主动提醒」可调频率或关掉。\n")
@@ -28,6 +28,7 @@ val APP_GUIDE: String by lazy {
             }
             if (!s.showOnHome) append("（首页不单列，全局搜索可达）")
             append('\n')
+            s.features.forEach { append("  · ").append(it).append('\n') }
         }
         append("- 选课、交作业、缴学费不在 App 里，要去学校对应系统。")
     }
