@@ -43,12 +43,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -613,7 +614,11 @@ private fun HomeRoundAction(
                 spotColor = Color.White.copy(alpha = if (isDark) 0.28f else 0.6f),
             )
             .background(fill, CircleShape)
-            .border(1.5.dp, ring, CircleShape)
+            // 高光圈画在内容底下：铃铛角标要压在圈上，不能被圈盖住
+            .drawBehind {
+                val stroke = 1.5.dp.toPx()
+                drawCircle(ring, radius = this.size.minDimension / 2 - stroke / 2, style = Stroke(stroke))
+            }
             .then(
                 if (onClick != null) {
                     Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick)
